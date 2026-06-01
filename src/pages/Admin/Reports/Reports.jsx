@@ -1,24 +1,63 @@
-import { useState, useEffect } from 'react'
-import { api } from '../../../api/index.js'
-import './Reports.css'
+import { useEffect, useState } from 'react'
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  Flag,
+  Loader2,
+  PartyPopper,
+  Search,
+  User,
+} from 'lucide-react'
+import { api } from '@/api/index.js'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 
-const SEV_CLS    = { high: 'severity-high badge', medium: 'severity-medium badge', low: 'severity-low badge' }
-const SEV_LABEL  = { high: 'Nghiêm trọng', medium: 'Trung bình', low: 'Nhẹ' }
-const STATUS_CLS = { pending: 'badge--hiatus', reviewing: 'badge--ongoing', resolved: 'badge--completed' }
+const SEV_CLS = {
+  high: 'bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/30',
+  medium: 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/30',
+  low: 'bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-500/10 dark:text-sky-400 dark:border-sky-500/30',
+}
+const SEV_LABEL = { high: 'Nghiêm trọng', medium: 'Trung bình', low: 'Nhẹ' }
+const STATUS_CLS = {
+  pending: 'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400',
+  reviewing: 'bg-sky-100 text-sky-700 hover:bg-sky-100 dark:bg-sky-500/15 dark:text-sky-400',
+  resolved: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400',
+}
 const STATUS_LABEL = { pending: 'Chờ xử lý', reviewing: 'Đang xem xét', resolved: 'Đã xử lý' }
 
 const RESOLUTIONS = [
-  { value: 'warn',   label: 'Cảnh cáo người dùng', desc: 'Gửi email cảnh báo về hành vi vi phạm' },
-  { value: 'ban7',   label: 'Khoá 7 ngày',         desc: 'Tạm khoá tài khoản trong 7 ngày' },
-  { value: 'ban30',  label: 'Khoá 30 ngày',        desc: 'Tạm khoá tài khoản trong 30 ngày' },
-  { value: 'remove', label: 'Xoá nội dung',         desc: 'Xoá nội dung vi phạm và thông báo' },
-  { value: 'ignore', label: 'Bỏ qua',               desc: 'Báo cáo không hợp lệ, không có hành động' },
+  { value: 'warn', label: 'Cảnh cáo người dùng', desc: 'Gửi email cảnh báo về hành vi vi phạm' },
+  { value: 'ban7', label: 'Khoá 7 ngày', desc: 'Tạm khoá tài khoản trong 7 ngày' },
+  { value: 'ban30', label: 'Khoá 30 ngày', desc: 'Tạm khoá tài khoản trong 30 ngày' },
+  { value: 'remove', label: 'Xoá nội dung', desc: 'Xoá nội dung vi phạm và thông báo' },
+  { value: 'ignore', label: 'Bỏ qua', desc: 'Báo cáo không hợp lệ, không có hành động' },
 ]
 
-function ResolveModal({ report, onClose, onResolve }) {
+function ResolveDialog({ report, open, onClose, onResolve }) {
   const [pick, setPick] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setPick('')
+      setNote('')
+    }
+  }, [open])
 
   async function handleResolve() {
     if (!pick) return
@@ -29,54 +68,78 @@ function ResolveModal({ report, onClose, onResolve }) {
     onClose()
   }
 
+  if (!report) return null
+
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>Xử lý báo cáo {report.id}</h3>
-          <button className="btn btn--ghost btn--sm" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-body">
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 13, color: 'var(--text-h)', marginBottom: 6 }}>{report.description}</div>
-          </div>
-          <div className="field" style={{ marginBottom: 14 }}>
-            <label>Hành động xử lý</label>
-            <div className="resolution-options">
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Xử lý báo cáo {report.id}</DialogTitle>
+          <DialogDescription>{report.description}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Hành động xử lý</Label>
+            <div className="space-y-2">
               {RESOLUTIONS.map(r => (
-                <div key={r.value} className={`resolution-option${pick === r.value ? ' selected' : ''}`} onClick={() => setPick(r.value)}>
-                  <div className="resolution-option-radio" />
-                  <div>
-                    <div className="resolution-option-label">{r.label}</div>
-                    <div className="resolution-option-desc">{r.desc}</div>
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => setPick(r.value)}
+                  className={cn(
+                    'flex w-full items-start gap-3 rounded-lg border-2 p-3 text-left transition-colors',
+                    pick === r.value
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border hover:bg-muted/50',
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'mt-0.5 size-4 shrink-0 rounded-full border-2 transition-colors',
+                      pick === r.value ? 'border-primary bg-primary' : 'border-input',
+                    )}
+                  >
+                    {pick === r.value ? <span className="block size-full rounded-full ring-4 ring-inset ring-card" /> : null}
                   </div>
-                </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">{r.label}</div>
+                    <div className="text-xs text-muted-foreground">{r.desc}</div>
+                  </div>
+                </button>
               ))}
             </div>
           </div>
-          <div className="field">
-            <label>Ghi chú (tuỳ chọn)</label>
-            <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Ghi chú thêm về quyết định xử lý..." rows={3} />
+          <div className="space-y-2">
+            <Label>Ghi chú (tuỳ chọn)</Label>
+            <Textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="Ghi chú thêm về quyết định xử lý..."
+              rows={3}
+            />
           </div>
         </div>
-        <div className="modal-footer">
-          <button className="btn" onClick={onClose}>Huỷ</button>
-          <button className="btn btn--primary" onClick={handleResolve} disabled={!pick || saving}>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Huỷ</Button>
+          <Button onClick={handleResolve} disabled={!pick || saving}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
             {saving ? 'Đang xử lý...' : 'Xác nhận xử lý'}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 export default function Reports() {
-  const [list, setList]       = useState([])
+  const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
-  const [filter, setFilter]   = useState('all')
-  const [modal, setModal]     = useState(null)
+  const [filter, setFilter] = useState('all')
+  const [modal, setModal] = useState(null)
 
-  useEffect(() => { api.getReports().then(d => { setList(d); setLoading(false) }) }, [])
+  useEffect(() => {
+    api.getReports().then(d => { setList(d); setLoading(false) })
+  }, [])
 
   async function handleResolve(id, data) {
     await api.resolveReport(id, data)
@@ -84,83 +147,129 @@ export default function Reports() {
   }
 
   const filtered = list.filter(r => filter === 'all' || r.status === filter)
-  const counts = { pending: list.filter(r => r.status === 'pending').length, reviewing: list.filter(r => r.status === 'reviewing').length, resolved: list.filter(r => r.status === 'resolved').length }
+  const counts = {
+    pending: list.filter(r => r.status === 'pending').length,
+    reviewing: list.filter(r => r.status === 'reviewing').length,
+    resolved: list.filter(r => r.status === 'resolved').length,
+  }
+
+  const statCards = [
+    { key: 'pending', label: 'Chờ xử lý', icon: Clock, color: 'amber' },
+    { key: 'reviewing', label: 'Đang xem xét', icon: Search, color: 'sky' },
+    { key: 'resolved', label: 'Đã xử lý', icon: CheckCircle2, color: 'emerald' },
+  ]
 
   return (
-    <div className="page">
-      <div className="page-title">
-        <h2>Báo cáo</h2>
-        <p>{counts.pending} báo cáo đang chờ xử lý</p>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Báo cáo</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {counts.pending} báo cáo đang chờ xử lý
+        </p>
       </div>
 
-      {/* Stats row */}
-      <div className="report-stats-row">
+      <div className="grid gap-4 sm:grid-cols-3">
+        {statCards.map(s => {
+          const Icon = s.icon
+          return (
+            <Card key={s.key}>
+              <CardContent className="flex items-center justify-between p-5">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                  <div className="text-3xl font-bold tracking-tight">{counts[s.key]}</div>
+                </div>
+                <div className={cn(
+                  'flex size-11 items-center justify-center rounded-xl',
+                  s.color === 'amber' && 'bg-amber-500/10 text-amber-600',
+                  s.color === 'sky' && 'bg-sky-500/10 text-sky-600',
+                  s.color === 'emerald' && 'bg-emerald-500/10 text-emerald-600',
+                )}>
+                  <Icon className="size-5" />
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 rounded-md border bg-card p-1 w-fit">
         {[
-          { label: 'Chờ xử lý',    val: counts.pending,   icon: '⏳', cls: 'badge--hiatus'    },
-          { label: 'Đang xem xét', val: counts.reviewing, icon: '🔍', cls: 'badge--ongoing'   },
-          { label: 'Đã xử lý',     val: counts.resolved,  icon: '✅', cls: 'badge--completed' },
-        ].map(s => (
-          <div key={s.label} className="stat-card">
-            <div className="stat-card__label">{s.label}</div>
-            <div className="stat-card__value">{s.val}</div>
-          </div>
+          { v: 'all', label: 'Tất cả' },
+          { v: 'pending', label: STATUS_LABEL.pending },
+          { v: 'reviewing', label: STATUS_LABEL.reviewing },
+          { v: 'resolved', label: STATUS_LABEL.resolved },
+        ].map(f => (
+          <Button
+            key={f.v}
+            size="sm"
+            variant={filter === f.v ? 'secondary' : 'ghost'}
+            onClick={() => setFilter(f.v)}
+          >
+            {f.label}
+          </Button>
         ))}
       </div>
 
-      {/* Filter */}
-      <div className="table-toolbar">
-        {['all','pending','reviewing','resolved'].map(f => (
-          <button key={f} className={`btn btn--sm${filter === f ? ' btn--primary' : ''}`} onClick={() => setFilter(f)}>
-            {f === 'all' ? 'Tất cả' : STATUS_LABEL[f]}
-          </button>
-        ))}
-      </div>
-
-      {loading && <div className="page-empty"><div className="page-empty__icon">⏳</div><div className="page-empty__text">Đang tải...</div></div>}
-
-      {!loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
+          <Loader2 className="size-7 animate-spin" />
+          <p className="mt-3 text-sm">Đang tải...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center py-16 text-muted-foreground">
+            <PartyPopper className="size-10 opacity-40" />
+            <p className="mt-3 text-sm">Không có báo cáo nào</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
           {filtered.map(r => (
-            <div key={r.id} className="report-card">
-              <div className="report-card-header">
-                <div className="report-card-icon">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+            <Card key={r.id} className="transition-shadow hover:shadow-md">
+              <CardContent className="space-y-3 p-5">
+                <div className="flex items-start gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600">
+                    <Flag className="size-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold">{r.type}</h3>
+                      <span className="text-xs text-muted-foreground">{r.id}</span>
+                      <span className={cn('rounded border px-2 py-0.5 text-[10px] font-medium', SEV_CLS[r.severity])}>
+                        <AlertTriangle className="mr-1 inline size-2.5" />
+                        {SEV_LABEL[r.severity]}
+                      </span>
+                      <Badge className={STATUS_CLS[r.status]} variant="secondary">{STATUS_LABEL[r.status]}</Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">{r.description}</p>
+                  </div>
                 </div>
-                <div className="report-card-meta">
-                  <div className="report-card-type">{r.type}</div>
-                  <div className="report-card-id">{r.id}</div>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <User className="size-3.5" />
+                    {r.reporter} <ArrowRight className="size-3" /> {r.target}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-muted-foreground">{r.createdAt}</span>
+                    {r.status !== 'resolved' ? (
+                      <Button size="sm" onClick={() => setModal(r)}>
+                        Xử lý <ArrowRight className="size-3.5" />
+                      </Button>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-emerald-600">
+                        <CheckCircle2 className="size-3.5" />
+                        {r.resolution}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <span className={SEV_CLS[r.severity]}>{SEV_LABEL[r.severity]}</span>
-                <span className={`badge ${STATUS_CLS[r.status]}`}>{STATUS_LABEL[r.status]}</span>
-              </div>
-              <div className="report-card-body">{r.description}</div>
-              <div className="report-card-footer">
-                <div className="report-card-reporter">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-                  {r.reporter} → {r.target}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="report-card-date">{r.createdAt}</span>
-                  {r.status !== 'resolved' && (
-                    <button className="btn btn--primary btn--sm" onClick={() => setModal(r)}>Xử lý →</button>
-                  )}
-                  {r.status === 'resolved' && (
-                    <span style={{ fontSize: 12, color: 'var(--teal-text)' }}>✓ {r.resolution}</span>
-                  )}
-                </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           ))}
-          {filtered.length === 0 && (
-            <div className="page-empty">
-              <div className="page-empty__icon">🎉</div>
-              <div className="page-empty__text">Không có báo cáo nào</div>
-            </div>
-          )}
         </div>
       )}
 
-      {modal && <ResolveModal report={modal} onClose={() => setModal(null)} onResolve={handleResolve} />}
+      <ResolveDialog report={modal} open={modal !== null} onClose={() => setModal(null)} onResolve={handleResolve} />
     </div>
   )
 }

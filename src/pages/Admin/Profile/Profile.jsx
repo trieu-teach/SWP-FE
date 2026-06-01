@@ -1,70 +1,110 @@
-import { useState, useEffect } from 'react'
-import { api } from '../../../api/index.js'
-import './Profile.css'
+import { useEffect, useState } from 'react'
+import { Edit, Key, Loader2, Mail, Shield, ShieldCheck } from 'lucide-react'
+import { api } from '@/api/index.js'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
 
 export default function Profile() {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    api.getProfile()
-      .then(setProfile)
-      .finally(() => setLoading(false))
+    api.getProfile().then(setProfile).finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <div className="page-empty"><div className="page-empty__text">Đang tải...</div></div>
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 text-muted-foreground">
+        <Loader2 className="size-8 animate-spin" />
+        <p className="mt-3 text-sm">Đang tải hồ sơ...</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="page">
-      <div className="page-title">
-        <h2>Hồ sơ</h2>
-        <p>Thông tin tài khoản Admin</p>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Hồ sơ</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Thông tin tài khoản Admin</p>
       </div>
 
-      <div className="profile-wrap">
-
-        <div className="panel profile-card">
-          <div className="profile-avatar">{profile.initials}</div>
-          <div className="profile-name">{profile.name}</div>
-          <div className="profile-role">{profile.role}</div>
-        </div>
-
-        <div className="panel profile-info">
-          <div className="panel-title">Thông tin cá nhân</div>
-
-          <div className="profile-field">
-            <div className="profile-field__label">Họ tên</div>
-            <div className="profile-field__value">{profile.name}</div>
+      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
+        <Card className="overflow-hidden p-0">
+          <div className="relative h-32 bg-gradient-to-br from-primary via-rose-500 to-amber-400">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.3),transparent_70%)]" />
           </div>
-          <div className="profile-field">
-            <div className="profile-field__label">Email</div>
-            <div className="profile-field__value">{profile.email}</div>
-          </div>
-          <div className="profile-field">
-            <div className="profile-field__label">Vai trò</div>
-            <div className="profile-field__value">
-              <span className="profile-badge">{profile.role}</span>
+          <div className="-mt-12 flex flex-col items-center px-6 pb-6 text-center">
+            <Avatar className="size-24 border-4 border-card shadow-lg">
+              <AvatarFallback className="bg-gradient-to-br from-primary to-rose-500 text-3xl font-bold text-primary-foreground">
+                {profile.initials}
+              </AvatarFallback>
+            </Avatar>
+            <h2 className="mt-3 text-xl font-bold">{profile.name}</h2>
+            <Badge variant="secondary" className="mt-1">
+              <ShieldCheck className="size-3.5" />
+              {profile.role}
+            </Badge>
+            <div className="mt-4 flex w-full gap-2">
+              <Button className="flex-1">
+                <Edit className="size-4" />
+                Chỉnh sửa
+              </Button>
+              <Button variant="outline" className="flex-1">
+                <Key className="size-4" />
+                Đổi mật khẩu
+              </Button>
             </div>
           </div>
-          <div className="profile-field">
-            <div className="profile-field__label">Ngày tạo</div>
-            <div className="profile-field__value">{profile.createdAt}</div>
-          </div>
-          <div className="profile-field">
-            <div className="profile-field__label">Trạng thái</div>
-            <div className="profile-field__value">
-              <span className={`profile-badge ${profile.status === 'active' ? 'profile-badge--green' : ''}`}>
-                {profile.status === 'active' ? 'Hoạt động' : 'Bị khóa'}
-              </span>
-            </div>
-          </div>
+        </Card>
 
-          <div className="profile-actions">
-            <button className="btn btn--primary btn--sm">✏️ Chỉnh sửa</button>
-            <button className="btn btn--sm">🔑 Đổi mật khẩu</button>
-          </div>
-        </div>
-
+        <Card>
+          <CardHeader>
+            <CardTitle>Thông tin cá nhân</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {[
+              { label: 'Họ tên', value: profile.name, icon: null },
+              { label: 'Email', value: profile.email, icon: Mail },
+              { label: 'Vai trò', value: profile.role, icon: Shield, badge: true },
+              { label: 'Ngày tạo', value: profile.createdAt, icon: null },
+              {
+                label: 'Trạng thái',
+                value: profile.status === 'active' ? 'Hoạt động' : 'Bị khoá',
+                statusOk: profile.status === 'active',
+              },
+            ].map((row, i, arr) => {
+              const Icon = row.icon
+              return (
+                <div key={row.label}>
+                  <div className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      {Icon ? <Icon className="size-4" /> : null}
+                      {row.label}
+                    </div>
+                    {row.badge ? (
+                      <Badge variant="secondary">{row.value}</Badge>
+                    ) : row.statusOk !== undefined ? (
+                      <Badge
+                        className={row.statusOk
+                          ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400'
+                          : 'bg-rose-100 text-rose-700 hover:bg-rose-100 dark:bg-rose-500/15 dark:text-rose-400'}
+                        variant="secondary"
+                      >
+                        {row.value}
+                      </Badge>
+                    ) : (
+                      <span className="font-medium">{row.value}</span>
+                    )}
+                  </div>
+                  {i < arr.length - 1 ? <Separator /> : null}
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
       </div>
     </div>
   )

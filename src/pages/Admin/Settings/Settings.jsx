@@ -1,20 +1,70 @@
-import { useState, useEffect } from 'react'
-import { api } from '../../../api/index.js'
-import './Settings.css'
+import { useEffect, useState } from 'react'
+import {
+  AlertTriangle,
+  Bell,
+  CheckCircle2,
+  Cloud,
+  Database,
+  Globe,
+  Loader2,
+  Plug,
+  RefreshCw,
+} from 'lucide-react'
+import { api } from '@/api/index.js'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 
 const NAV = [
-  { id: 'site',   label: 'Trang web',    icon: '🌐' },
-  { id: 'notif',  label: 'Thông báo',    icon: '🔔' },
-  { id: 'storage',label: 'Lưu trữ',      icon: '💾' },
-  { id: 'api',    label: 'API & Tích hợp',icon: '🔌' },
-  { id: 'danger', label: 'Vùng nguy hiểm',icon: '⚠️' },
+  { id: 'site', label: 'Trang web', icon: Globe },
+  { id: 'notif', label: 'Thông báo', icon: Bell },
+  { id: 'storage', label: 'Lưu trữ', icon: Database },
+  { id: 'api', label: 'API & Tích hợp', icon: Plug },
+  { id: 'danger', label: 'Vùng nguy hiểm', icon: AlertTriangle },
 ]
 
+function Toggle({ checked, onChange }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={onChange}
+      className={cn(
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors',
+        checked ? 'bg-primary' : 'bg-input',
+      )}
+    >
+      <span
+        className={cn(
+          'pointer-events-none inline-block size-5 transform rounded-full bg-background shadow-lg transition-transform',
+          checked ? 'translate-x-5' : 'translate-x-0',
+        )}
+      />
+    </button>
+  )
+}
+
+function Row({ label, desc, children }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-t py-4 first:border-t-0 first:pt-0">
+      <div>
+        <div className="text-sm font-medium">{label}</div>
+        {desc ? <div className="text-xs text-muted-foreground">{desc}</div> : null}
+      </div>
+      {children}
+    </div>
+  )
+}
+
 export default function Settings() {
-  const [active, setActive]   = useState('site')
-  const [cfg, setCfg]         = useState(null)
+  const [active, setActive] = useState('site')
+  const [cfg, setCfg] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [saved, setSaved]     = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => { api.getSettings().then(d => { setCfg(d); setLoading(false) }) }, [])
 
@@ -28,161 +78,191 @@ export default function Settings() {
     setCfg(c => ({ ...c, [section]: { ...c[section], [key]: val } }))
   }
 
-  if (loading) return <div className="page"><div className="page-empty"><div className="page-empty__icon">⏳</div><div className="page-empty__text">Đang tải...</div></div></div>
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 text-muted-foreground">
+        <Loader2 className="size-8 animate-spin" />
+        <p className="mt-3 text-sm">Đang tải cài đặt...</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="page">
-      <div className="page-title">
-        <h2>Cài đặt</h2>
-        {saved && <p style={{ color: 'var(--teal-text)' }}>✓ Đã lưu thay đổi</p>}
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Cài đặt</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Quản lý cấu hình hệ thống</p>
+        </div>
+        {saved ? (
+          <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400" variant="secondary">
+            <CheckCircle2 className="size-3.5" />
+            Đã lưu thay đổi
+          </Badge>
+        ) : null}
       </div>
 
-      <div className="settings-layout">
-        {/* Sidebar nav */}
-        <nav className="settings-nav">
-          {NAV.map(n => (
-            <button key={n.id} className={`settings-nav-item${active === n.id ? ' active' : ''}`} onClick={() => setActive(n.id)}>
-              <span>{n.icon}</span>{n.label}
-            </button>
-          ))}
-        </nav>
+      <div className="grid gap-6 md:grid-cols-[220px_1fr]">
+        <Card className="h-fit p-2">
+          <nav className="space-y-1">
+            {NAV.map(n => {
+              const Icon = n.icon
+              const isActive = active === n.id
+              return (
+                <button
+                  key={n.id}
+                  type="button"
+                  onClick={() => setActive(n.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    isActive ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                >
+                  <Icon className="size-4" />
+                  {n.label}
+                </button>
+              )
+            })}
+          </nav>
+        </Card>
 
-        {/* Content */}
-        <div className="settings-panels">
-
-          {/* Site */}
-          {active === 'site' && (
-            <div className="settings-section">
-              <div className="settings-section-header">
-                <div className="settings-section-title">Cài đặt trang web</div>
-                <div className="settings-section-desc">Thông tin cơ bản hiển thị với người dùng</div>
-              </div>
-              <div className="settings-section-body">
-                <div className="settings-form-grid">
-                  <div className="field">
-                    <label>Tên trang web</label>
-                    <input value={cfg.site.name} onChange={e => set('site','name', e.target.value)} />
+        <div>
+          {active === 'site' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Cài đặt trang web</CardTitle>
+                <CardDescription>Thông tin cơ bản hiển thị với người dùng</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Tên trang web</Label>
+                    <Input value={cfg.site.name} onChange={e => set('site', 'name', e.target.value)} />
                   </div>
-                  <div className="field">
-                    <label>Slogan</label>
-                    <input value={cfg.site.tagline} onChange={e => set('site','tagline', e.target.value)} />
+                  <div className="space-y-2">
+                    <Label>Slogan</Label>
+                    <Input value={cfg.site.tagline} onChange={e => set('site', 'tagline', e.target.value)} />
                   </div>
                 </div>
-                <div className="settings-row">
-                  <div className="settings-row-info">
-                    <div className="settings-row-label">Chế độ bảo trì</div>
-                    <div className="settings-row-desc">Tạm thời ẩn trang với người dùng thông thường</div>
-                  </div>
-                  <button className={`toggle${cfg.site.maintenanceMode ? ' on' : ''}`} onClick={() => set('site','maintenanceMode', !cfg.site.maintenanceMode)} />
+                <Row label="Chế độ bảo trì" desc="Tạm thời ẩn trang với người dùng thông thường">
+                  <Toggle checked={cfg.site.maintenanceMode} onChange={() => set('site', 'maintenanceMode', !cfg.site.maintenanceMode)} />
+                </Row>
+                <div className="border-t pt-4">
+                  <Button onClick={() => handleSave('site', cfg.site)}>Lưu thay đổi</Button>
                 </div>
-              </div>
-              <div className="settings-section-footer">
-                <button className="btn btn--primary" onClick={() => handleSave('site', cfg.site)}>Lưu thay đổi</button>
-              </div>
-            </div>
-          )}
+              </CardContent>
+            </Card>
+          ) : null}
 
-          {/* Notifications */}
-          {active === 'notif' && (
-            <div className="settings-section">
-              <div className="settings-section-header">
-                <div className="settings-section-title">Thông báo qua email</div>
-                <div className="settings-section-desc">Cấu hình khi nào admin nhận email</div>
-              </div>
-              <div className="settings-section-body">
+          {active === 'notif' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Thông báo qua email</CardTitle>
+                <CardDescription>Cấu hình khi nào admin nhận email</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-1">
                 {[
-                  { key: 'emailOnReport',  label: 'Có báo cáo mới',        desc: 'Gửi email khi có báo cáo vi phạm' },
-                  { key: 'emailOnNewUser', label: 'Người dùng mới đăng ký', desc: 'Thông báo khi có tài khoản mới'   },
-                  { key: 'emailOnComment', label: 'Bình luận bị gắn cờ',   desc: 'Khi bình luận bị báo cáo'         },
+                  { key: 'emailOnReport', label: 'Có báo cáo mới', desc: 'Gửi email khi có báo cáo vi phạm' },
+                  { key: 'emailOnNewUser', label: 'Người dùng mới đăng ký', desc: 'Thông báo khi có tài khoản mới' },
+                  { key: 'emailOnComment', label: 'Bình luận bị gắn cờ', desc: 'Khi bình luận bị báo cáo' },
                 ].map(row => (
-                  <div key={row.key} className="settings-row">
-                    <div className="settings-row-info">
-                      <div className="settings-row-label">{row.label}</div>
-                      <div className="settings-row-desc">{row.desc}</div>
-                    </div>
-                    <button className={`toggle${cfg.notifications[row.key] ? ' on' : ''}`} onClick={() => set('notifications', row.key, !cfg.notifications[row.key])} />
-                  </div>
+                  <Row key={row.key} label={row.label} desc={row.desc}>
+                    <Toggle
+                      checked={cfg.notifications[row.key]}
+                      onChange={() => set('notifications', row.key, !cfg.notifications[row.key])}
+                    />
+                  </Row>
                 ))}
-                <div className="field">
-                  <label>Slack Webhook URL</label>
-                  <input value={cfg.notifications.slackWebhook} onChange={e => set('notifications','slackWebhook', e.target.value)} placeholder="https://hooks.slack.com/..." />
-                  <span className="field-hint">Để trống nếu không dùng Slack</span>
+                <div className="space-y-2 border-t pt-5">
+                  <Label>Slack Webhook URL</Label>
+                  <Input
+                    value={cfg.notifications.slackWebhook}
+                    onChange={e => set('notifications', 'slackWebhook', e.target.value)}
+                    placeholder="https://hooks.slack.com/..."
+                  />
+                  <p className="text-xs text-muted-foreground">Để trống nếu không dùng Slack</p>
                 </div>
-              </div>
-              <div className="settings-section-footer">
-                <button className="btn btn--primary" onClick={() => handleSave('notifications', cfg.notifications)}>Lưu thay đổi</button>
-              </div>
-            </div>
-          )}
-
-          {/* Storage */}
-          {active === 'storage' && (
-            <div className="settings-section">
-              <div className="settings-section-header">
-                <div className="settings-section-title">Lưu trữ</div>
-                <div className="settings-section-desc">Dung lượng hệ thống</div>
-              </div>
-              <div className="settings-section-body">
-                <div className="usage-bar-wrap">
-                  <div className="usage-bar-labels">
-                    <span>Đã dùng: {cfg.storage.used} {cfg.storage.unit}</span>
-                    <span>Tổng: {cfg.storage.total} {cfg.storage.unit}</span>
-                  </div>
-                  <div className="usage-bar-track">
-                    <div className="usage-bar-fill" style={{ width: `${(cfg.storage.used/cfg.storage.total*100).toFixed(0)}%` }} />
-                  </div>
-                  <span className="field-hint">{(cfg.storage.used/cfg.storage.total*100).toFixed(0)}% dung lượng đã sử dụng</span>
+                <div className="pt-4">
+                  <Button onClick={() => handleSave('notifications', cfg.notifications)}>Lưu thay đổi</Button>
                 </div>
-              </div>
-            </div>
-          )}
+              </CardContent>
+            </Card>
+          ) : null}
 
-          {/* API */}
-          {active === 'api' && (
-            <div className="settings-section">
-              <div className="settings-section-header">
-                <div className="settings-section-title">API & Tích hợp</div>
-                <div className="settings-section-desc">Quản lý API keys và webhook</div>
-              </div>
-              <div className="settings-section-body">
-                <div className="field">
-                  <label>API Key</label>
-                  <div className="api-key-field">
-                    <input className="api-key-input" value={cfg.apiKey} readOnly />
-                    <button className="btn btn--sm">Tạo mới</button>
-                  </div>
-                  <span className="field-hint">Không chia sẻ API key với bất kỳ ai</span>
+          {active === 'storage' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Lưu trữ</CardTitle>
+                <CardDescription>Dung lượng hệ thống</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2 text-sm">
+                  <Cloud className="size-4 text-muted-foreground" />
+                  <span>Đã dùng: <strong>{cfg.storage.used} {cfg.storage.unit}</strong></span>
+                  <span className="text-muted-foreground">·</span>
+                  <span>Tổng: <strong>{cfg.storage.total} {cfg.storage.unit}</strong></span>
                 </div>
-              </div>
-            </div>
-          )}
+                <div className="mt-3 h-3 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-primary to-rose-400 transition-all"
+                    style={{ width: `${(cfg.storage.used / cfg.storage.total * 100).toFixed(0)}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {(cfg.storage.used / cfg.storage.total * 100).toFixed(0)}% dung lượng đã sử dụng
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
 
-          {/* Danger zone */}
-          {active === 'danger' && (
-            <div className="settings-section danger-zone">
-              <div className="settings-section-header">
-                <div className="settings-section-title">Vùng nguy hiểm</div>
-                <div className="settings-section-desc">Những hành động không thể hoàn tác</div>
-              </div>
-              <div className="settings-section-body">
+          {active === 'api' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>API & Tích hợp</CardTitle>
+                <CardDescription>Quản lý API keys và webhook</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Label>API Key</Label>
+                <div className="flex gap-2">
+                  <Input readOnly value={cfg.apiKey} className="font-mono text-xs" />
+                  <Button variant="outline">
+                    <RefreshCw className="size-4" />
+                    Tạo mới
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Không chia sẻ API key với bất kỳ ai</p>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {active === 'danger' ? (
+            <Card className="border-destructive/30">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-destructive">
+                  <AlertTriangle className="size-5" />
+                  Vùng nguy hiểm
+                </CardTitle>
+                <CardDescription>Những hành động không thể hoàn tác</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
                 {[
-                  { label: 'Xoá tất cả bình luận',   desc: 'Xoá vĩnh viễn toàn bộ bình luận trong hệ thống' },
-                  { label: 'Reset thống kê',          desc: 'Đặt lại toàn bộ dữ liệu thống kê về 0' },
-                  { label: 'Xoá dữ liệu người dùng',  desc: 'Xoá toàn bộ tài khoản người dùng (không thể phục hồi)' },
+                  { label: 'Xoá tất cả bình luận', desc: 'Xoá vĩnh viễn toàn bộ bình luận trong hệ thống' },
+                  { label: 'Reset thống kê', desc: 'Đặt lại toàn bộ dữ liệu thống kê về 0' },
+                  { label: 'Xoá dữ liệu người dùng', desc: 'Xoá toàn bộ tài khoản người dùng (không thể phục hồi)' },
                 ].map(item => (
-                  <div key={item.label} className="danger-item">
+                  <div key={item.label} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
                     <div>
-                      <div className="danger-item-label">{item.label}</div>
-                      <div className="danger-item-desc">{item.desc}</div>
+                      <div className="text-sm font-medium">{item.label}</div>
+                      <div className="text-xs text-muted-foreground">{item.desc}</div>
                     </div>
-                    <button className="btn btn--danger btn--sm" onClick={() => alert('Chức năng này đã bị khoá trong môi trường demo')}>
+                    <Button variant="destructive" size="sm" onClick={() => alert('Chức năng này đã bị khoá trong môi trường demo')}>
                       {item.label}
-                    </button>
+                    </Button>
                   </div>
                 ))}
-              </div>
-            </div>
-          )}
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       </div>
     </div>
