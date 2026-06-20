@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
+  ChevronLeft,
   ChevronRight,
   FileImage,
   ImageIcon,
   Inbox,
+  Layers,
   PenSquare,
   Sparkles,
   Upload,
@@ -36,7 +38,9 @@ import {
   updateSeriesInWorkspace,
 } from '@/utils/mangakaWorkspaceReader.js'
 import { LABEL_EDITOR_BOARD } from '@/constants/roleTerminology.js'
+import { useChapters, usePages } from '@/api/hooks'
 import AddSeriesModal from './AddSeriesModal.jsx'
+import './ChapterReader.css'
 import '@/styles/mangaPage.css'
 
 const NAV_LINKS = [
@@ -50,6 +54,15 @@ const STATUS_BADGE = {
   review: { label: 'Chờ duyệt', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400' },
   tantou: { label: 'Tantou', className: 'bg-sky-100 text-sky-700 hover:bg-sky-100 dark:bg-sky-500/15 dark:text-sky-400' },
   done: { label: 'Hoàn tất', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400' },
+}
+
+function mapChapterStatus(s) {
+  const v = String(s ?? '').toLowerCase()
+  if (v === 'approved' || v === 'published' || v === 'done') return 'done'
+  if (v === 'pending' || v === 'review') return 'review'
+  if (v === 'assistant' || v === 'drawing') return 'assistant'
+  if (v === 'tantou' || v === 'editing') return 'tantou'
+  return 'draft'
 }
 
 function findSeriesBySlug(seriesList, slug) {
@@ -95,6 +108,261 @@ function Breadcrumb({ items }) {
   )
 }
 
+function ChapterReader({ series, activeRow, pages, staleOnly, progressPct, statusBadge, basePath, chapterId, onOpenAnnotate, onLogout, onOpenLayerWorkspace }) {
+  const [pageIndex, setPageIndex] = useState(0)
+  const total = pages.length
+  const safeIndex = total > 0 ? Math.min(Math.max(pageIndex, 0), total - 1) : 0
+
+  useEffect(() => {
+    setPageIndex(0)
+  }, [activeRow?.id, total])
+
+  useEffect(() => {
+    function onKey(e) {
+      if (total <= 1) return
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+        setPageIndex(i => Math.min(i + 1, total - 1))
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        setPageIndex(i => Math.max(i - 1, 0))
+      } else if (e.key === 'Home') {
+        setPageIndex(0)
+      } else if (e.key === 'End') {
+        setPageIndex(total - 1)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [total])
+
+  function goPrev() { setPageIndex(i => Math.max(i - 1, 0)) }
+  function goNext() { setPageIndex(i => Math.min(i + 1, total - 1)) }
+  function goTo(i) { setPageIndex(Math.max(0, Math.min(i, total - 1))) }
+
+  const current = total > 0 ? pages[safeIndex] : null
+  const canPrev = safeIndex > 0
+  const canNext = safeIndex < total - 1
+
+  return (
+    <DetailShell onLogout={onLogout}>
+      <Breadcrumb
+        items={[
+          { label: 'Mangaka', to: '/mangaka' },
+          { label: series.title, to: basePath },
+          { label: `Ch. ${activeRow.num}` },
+        ]}
+      />
+
+      <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
+        <aside className="space-y-4">
+          <Card className="overflow-hidden p-0">
+            <div className="h-1.5" style={{ background: series.color }} />
+            <CardHeader className="pb-3">
+              <CardDescription>{series.title}</CardDescription>
+              <CardTitle className="text-2xl">Chapter {activeRow.num}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className={statusBadge.className} variant="secondary">{statusBadge.label}</Badge>
+                <span className="text-xs text-muted-foreground">{activeRow.date}</span>
+              </div>
+              <p className="text-sm">
+                {pages.length} trang đã upload
+              </p>
+              {progressPct !== null ? (
+                <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div className="h-full rounded-full transition-all" style={{ width: `${progressPct}%`, background: series.color }} />
+                </div>
+              ) : null}
+              <p className="text-xs text-muted-foreground">Khổ trang: 728×1030 px (chuẩn manga)</p>
+            </CardContent>
+            <Separator />
+            <CardContent className="space-y-2 pt-4">
+              <Button asChild variant="outline" className="w-full">
+                <Link to={basePath}>
+                  <ArrowLeft className="size-4" />
+                  Danh sách chapter
+                </Link>
+              </Button>
+              <Button className="w-full" onClick={onOpenAnnotate}>
+                <PenSquare className="size-4" />
+                Mở ghi chú / upload
+              </Button>
+              {activeRow ? (
+                <Button
+                  asChild
+                  variant="outline"
+                  className="w-full"
+                >
+                  <Link to={`${basePath}/chapter/${chapterId}/page/${activeRow.localPageId ?? `u-${activeRow.id}`}`}>
+                    <Layers className="size-4" />
+                    Quản lý Layers
+                  </Link>
+                </Button>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          {staleOnly ? (
+            <Card className="border-amber-300 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/5">
+              <CardContent className="space-y-2 p-4">
+                <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Ảnh chưa hiển thị được</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  Dữ liệu cũ (trước khi lưu ảnh) — upload lại 1 lần trên Mangaka.
+                </p>
+                <Button size="sm" className="w-full" onClick={onOpenAnnotate}>
+                  Upload lại chapter
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
+        </aside>
+
+        <section aria-label={`Trang chapter ${activeRow.num}`}>
+          {pages.length === 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+                <ImageIcon className="size-12 text-muted-foreground/60" />
+                <p>Chapter chưa có ảnh.</p>
+                <Button onClick={onOpenAnnotate}>
+                  <Upload className="size-4" />
+                  Upload tại Mangaka
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              <div className="cr-stage-wrap">
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  disabled={!canPrev}
+                  aria-label="Trang trước"
+                  className={cn(
+                    'cr-nav cr-nav--prev',
+                    !canPrev && 'cr-nav--disabled',
+                  )}
+                >
+                  <ChevronLeft className="size-7" />
+                </button>
+
+                <div
+                  className="cr-stage"
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const x = e.clientX - rect.left
+                    if (x < rect.width / 3) goPrev()
+                    else if (x > (rect.width * 2) / 3) goNext()
+                  }}
+                  role="presentation"
+                >
+                  {current?.url ? (
+                    <img
+                      key={current.id ?? safeIndex}
+                      src={current.url}
+                      alt={`${series.title} Ch.${activeRow.num} trang ${safeIndex + 1}`}
+                      className="cr-stage__img"
+                      decoding="async"
+                    />
+                  ) : (
+                    <div className="cr-stage__empty">
+                      <span>Trang {safeIndex + 1}</span>
+                      <p>728×1030 · upload lại để hiện ảnh</p>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={!canNext}
+                  aria-label="Trang sau"
+                  className={cn(
+                    'cr-nav cr-nav--next',
+                    !canNext && 'cr-nav--disabled',
+                  )}
+                >
+                  <ChevronRight className="size-7" />
+                </button>
+              </div>
+
+              <div className="cr-toolbar">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={goPrev}
+                  disabled={!canPrev}
+                  className="cr-toolbar__btn"
+                >
+                  <ChevronLeft className="size-4" />
+                  Trang trước
+                </Button>
+
+                <div className="cr-counter">
+                  <span className="cr-counter__current">{safeIndex + 1}</span>
+                  <span className="cr-counter__divider">/</span>
+                  <span className="cr-counter__total">{total}</span>
+                  {current?.name ? (
+                    <span className="cr-counter__name">· {current.name}</span>
+                  ) : null}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  {onOpenLayerWorkspace && activeRow ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onOpenLayerWorkspace(activeRow, pageIndex)}
+                      className="cr-toolbar__btn"
+                      title="Quản lý Layers cho trang này"
+                    >
+                      <Layers className="size-4" />
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={goNext}
+                    disabled={!canNext}
+                    className="cr-toolbar__btn cr-toolbar__btn--primary"
+                  >
+                    Trang sau
+                    <ChevronRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {total > 1 ? (
+                <div className="cr-thumbs" role="tablist" aria-label="Danh sách trang">
+                  {pages.map((pg, i) => (
+                    <button
+                      key={pg.id ?? i}
+                      type="button"
+                      role="tab"
+                      aria-selected={i === safeIndex}
+                      aria-label={`Trang ${i + 1}`}
+                      onClick={() => goTo(i)}
+                      className={cn('cr-thumb', i === safeIndex && 'cr-thumb--active')}
+                    >
+                      {pg.url ? (
+                        <img src={pg.url} alt="" className="cr-thumb__img" loading="lazy" />
+                      ) : (
+                        <span className="cr-thumb__empty">{i + 1}</span>
+                      )}
+                      <span className="cr-thumb__num">{i + 1}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          )}
+        </section>
+      </div>
+    </DetailShell>
+  )
+}
+
 export default function SeriesUploadDetail() {
   const { seriesSlug, chapterId } = useParams()
   const navigate = useNavigate()
@@ -104,6 +372,12 @@ export default function SeriesUploadDetail() {
   function handleLogout() {
     logout()
     navigate('/login')
+  }
+
+  function handleOpenLayerWorkspace(activeRow, pageIdx) {
+    if (!series || !activeRow) return
+    const pageId = activeRow.localPageId ?? `u-${activeRow.id}-${pageIdx}`
+    navigate(`${basePath}/chapter/${chapterId}/page/${pageId}`)
   }
 
   useEffect(() => {
@@ -125,15 +399,44 @@ export default function SeriesUploadDetail() {
     [workspace.seriesList, seriesSlug],
   )
 
+  const serverSeriesId = series?.seriesid ?? series?.id
+  const { data: serverChapters = [] } = useChapters(serverSeriesId)
+  const { data: rawServerPages = [] } = usePages(chapterId)
+
   const seriesTitle = series?.title ?? ''
 
   const chapterRows = useMemo(() => {
+    // Ưu tiên local chapters (từ workspace) nếu có
     if (!seriesTitle) return []
-    return workspace.chapterRows.filter(r => r.series === seriesTitle)
-  }, [workspace.chapterRows, seriesTitle])
+    const localRows = workspace.chapterRows.filter(r => r.series === seriesTitle)
+    // Nếu backend có chapters → merge server data
+    if (serverChapters.length > 0) {
+      const localIds = new Set(localRows.map(r => String(r.id)))
+      const serverRows = serverChapters.map(ch => ({
+        id: ch.chapterid ?? ch.Chapterid ?? ch.id,
+        series: seriesTitle,
+        num: ch.chapternumber ?? ch.ChapterNumber ?? ch.chapterNumber ?? ch.number ?? 1,
+        type: 'IMAGE',
+        pages: ch.pagecount ?? ch.pageCount ?? ch.totalPages ?? 0,
+        status: mapChapterStatus(ch.status ?? ch.Status ?? 'draft'),
+        date: ch.createdat ?? ch.Createdat ?? new Date().toLocaleDateString('vi-VN'),
+        apiChapterId: ch.chapterid ?? ch.Chapterid ?? ch.id,
+        localPageId: `srv-${ch.chapterid ?? ch.Chapterid ?? ch.id}`,
+      }))
+      // Giữ local rows + thêm server rows chưa có trong local
+      const merged = [...localRows]
+      serverRows.forEach(sr => {
+        if (!localIds.has(String(sr.id))) {
+          merged.push(sr)
+        }
+      })
+      return merged
+    }
+    return localRows
+  }, [workspace.chapterRows, seriesTitle, serverChapters])
 
   const activeRow = useMemo(
-    () => (chapterId ? chapterRows.find(r => String(r.id) === String(chapterId)) : null),
+    () => (chapterId ? chapterRows.find(r => String(r.id) === String(chapterId) || String(r.apiChapterId) === String(chapterId)) : null),
     [chapterRows, chapterId],
   )
 
@@ -158,12 +461,23 @@ export default function SeriesUploadDetail() {
 
   const chapterCards = useMemo(() => chapterRows.map(row => {
     const annot = resolveAnnotatorChapter(row, workspace.annotatorChapters)
+    // Server pages: lọc theo chapter tương ứng của mỗi row
+    const rowChapterId = row.apiChapterId ?? null
+    const rowServerPages = rawServerPages.filter(p => {
+      const pid = p.pageid ?? p.Pageid ?? p.id
+      return String(pid) === String(rowChapterId)
+    })
+    const serverPageCover = rowServerPages.length > 0 && rowServerPages[0]?.pageImageUrl
+      ? { url: rowServerPages[0].pageImageUrl, name: 'cover' }
+      : null
     const cover = annot?.cover?.url
       ? { url: annot.cover.url, name: annot.cover.name ?? 'cover' }
+      : serverPageCover
+      ? serverPageCover
       : annot?.pages?.find(p => p?.url) ?? annot?.pages?.[0]
-    const uploaded = annot?.pages?.length ?? row.pages ?? 0
-    return { row, annot, cover, uploaded }
-  }), [chapterRows, workspace.annotatorChapters])
+    const uploaded = annot?.pages?.length ?? row.pages ?? rowServerPages.length ?? 0
+    return { row, annot, cover, uploaded, serverPages: rowServerPages }
+  }), [chapterRows, workspace.annotatorChapters, rawServerPages])
 
   if (!series) {
     return (
@@ -189,7 +503,21 @@ export default function SeriesUploadDetail() {
   const basePath = `/mangaka/series/${slug}`
 
   if (chapterId && activeRow) {
-    const pages = activeAnnotator?.pages ?? []
+    // Xây dựng danh sách pages: ưu tiên server pages nếu là chapter server
+    const apiChapterId = activeRow.apiChapterId ?? null
+    const serverPageList = (rawServerPages.length > 0)
+      ? rawServerPages.map((p, i) => ({
+          id: p.pageid ?? p.Pageid ?? p.id ?? `srv-p-${i}`,
+          name: p.pagetitle ?? `Trang ${i + 1}`,
+          url: p.pageImageUrl ?? p.compositeImageUrl ?? p.imageUrl ?? null,
+          apiPageId: p.pageid ?? p.Pageid ?? p.id,
+          index: i,
+        }))
+      : []
+
+    const pages = serverPageList.length > 0
+      ? serverPageList
+      : (activeAnnotator?.pages ?? [])
     const pagesWithMedia = pages.filter(p => p?.url)
     const staleOnly = pages.length > 0 && pagesWithMedia.length === 0
     const progressPct = pages.length > 0 ? Math.min(100, pages.length * 4) : null
@@ -200,111 +528,19 @@ export default function SeriesUploadDetail() {
     })
 
     return (
-      <DetailShell onLogout={handleLogout}>
-        <Breadcrumb
-          items={[
-            { label: 'Mangaka', to: '/mangaka' },
-            { label: series.title, to: basePath },
-            { label: `Ch. ${activeRow.num}` },
-          ]}
-        />
-
-        <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-          <aside className="space-y-4">
-            <Card className="overflow-hidden p-0">
-              <div className="h-1.5" style={{ background: series.color }} />
-              <CardHeader className="pb-3">
-                <CardDescription>{series.title}</CardDescription>
-                <CardTitle className="text-2xl">Chapter {activeRow.num}</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className={statusBadge.className} variant="secondary">{statusBadge.label}</Badge>
-                  <span className="text-xs text-muted-foreground">{activeRow.date}</span>
-                </div>
-                <p className="text-sm">
-                  {pages.length} trang đã upload
-                </p>
-                {progressPct !== null ? (
-                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${progressPct}%`, background: series.color }} />
-                  </div>
-                ) : null}
-                <p className="text-xs text-muted-foreground">Khổ trang: 728×1030 px (chuẩn manga)</p>
-              </CardContent>
-              <Separator />
-              <CardContent className="space-y-2 pt-4">
-                <Button asChild variant="outline" className="w-full">
-                  <Link to={basePath}>
-                    <ArrowLeft className="size-4" />
-                    Danh sách chapter
-                  </Link>
-                </Button>
-                <Button className="w-full" onClick={openAnnotate}>
-                  <PenSquare className="size-4" />
-                  Mở ghi chú / upload
-                </Button>
-              </CardContent>
-            </Card>
-
-            {staleOnly ? (
-              <Card className="border-amber-300 bg-amber-50/50 dark:border-amber-500/30 dark:bg-amber-500/5">
-                <CardContent className="space-y-2 p-4">
-                  <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Ảnh chưa hiển thị được</p>
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    Dữ liệu cũ (trước khi lưu ảnh) — upload lại 1 lần trên Mangaka.
-                  </p>
-                  <Button size="sm" className="w-full" onClick={openAnnotate}>
-                    Upload lại chapter
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : null}
-          </aside>
-
-          <section aria-label={`Trang chapter ${activeRow.num}`}>
-            {pages.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
-                  <ImageIcon className="size-12 text-muted-foreground/60" />
-                  <p>Chapter chưa có ảnh.</p>
-                  <Button onClick={openAnnotate}>
-                    <Upload className="size-4" />
-                    Upload tại Mangaka
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-6">
-                {pages.map((pg, i) => (
-                  <figure key={pg.id ?? i} className="space-y-2">
-                    <figcaption className="flex items-center gap-2 text-sm">
-                      <Badge variant="outline">Trang {i + 1}</Badge>
-                      {pg.name ? <span className="truncate text-xs text-muted-foreground">{pg.name}</span> : null}
-                    </figcaption>
-                    <div className="manga-page manga-page--reader mx-auto overflow-hidden rounded-lg border shadow-sm">
-                      {pg.url ? (
-                        <img
-                          src={pg.url}
-                          alt={`${series.title} Ch.${activeRow.num} trang ${i + 1}`}
-                          className="manga-page__media"
-                          loading="lazy"
-                          decoding="async"
-                        />
-                      ) : (
-                        <div className="manga-page__empty">
-                          <span>Trang {i + 1}</span>
-                          <p>728×1030 · upload lại để hiện ảnh</p>
-                        </div>
-                      )}
-                    </div>
-                  </figure>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-      </DetailShell>
+      <ChapterReader
+        series={series}
+        activeRow={activeRow}
+        pages={pages}
+        staleOnly={staleOnly}
+        progressPct={progressPct}
+        statusBadge={statusBadge}
+        basePath={basePath}
+        chapterId={chapterId}
+        onOpenAnnotate={openAnnotate}
+        onLogout={handleLogout}
+        onOpenLayerWorkspace={handleOpenLayerWorkspace}
+      />
     )
   }
 

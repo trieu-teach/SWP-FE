@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { AlertCircle, Check } from 'lucide-react'
+import { AlertCircle, Check, Loader2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -13,7 +11,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -22,22 +19,14 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
-import { LABEL_EDITOR_BOARD, PATH_EDITOR_BOARD } from '@/constants/roleTerminology.js'
 import {
   SERIES_CONTENT_RATINGS,
-  SERIES_DEMOGRAPHICS,
-  SERIES_FORMATS,
-  SERIES_GENRES,
-  SERIES_LANGUAGES,
-  SERIES_PALETTE,
-  SERIES_PUBLICATION_STATUSES,
-  SERIES_PUBLISH_TYPES,
   createEmptySeriesForm,
   seriesToForm,
   validateSeriesForm,
 } from '@/utils/seriesModel.js'
+import { useGenres, useTags } from '@/api/hooks'
 
 export default function AddSeriesModal({
   open,
@@ -50,6 +39,9 @@ export default function AddSeriesModal({
 }) {
   const isEdit = mode === 'edit' && initialSeries
 
+  const { data: apiGenres = [], isLoading: genresLoading } = useGenres()
+  const { data: apiTags = [], isLoading: tagsLoading } = useTags()
+
   const [form, setForm] = useState(() => createEmptySeriesForm(authorName))
   const [touched, setTouched] = useState(false)
 
@@ -58,20 +50,22 @@ export default function AddSeriesModal({
     if (isEdit) setForm(seriesToForm(initialSeries))
     else setForm(createEmptySeriesForm(authorName))
     setTouched(false)
-  }, [open, isEdit, initialSeries?.id, authorName])
+  }, [open, isEdit, initialSeries, authorName])
 
   const titlesForValidation = useMemo(() => {
     if (!isEdit) return existingTitles
-    const self = String(initialSeries.title ?? '').toLowerCase()
+    const self = String(initialSeries?.title ?? '').toLowerCase()
     return existingTitles.filter(t => String(t).toLowerCase() !== self)
-  }, [existingTitles, isEdit, initialSeries?.title])
+  }, [existingTitles, isEdit, initialSeries])
 
   const validation = useMemo(
     () => validateSeriesForm(form, titlesForValidation),
     [form, titlesForValidation],
   )
 
-  function patch(updates) { setForm(prev => ({ ...prev, ...updates })) }
+  function patch(updates) {
+    setForm(prev => ({ ...prev, ...updates }))
+  }
 
   function toggleGenre(genre) {
     setForm(prev => {
@@ -102,278 +96,267 @@ export default function AddSeriesModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="flex max-h-[92vh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl">
-        <DialogHeader className="relative shrink-0 space-y-1.5 border-b bg-gradient-to-br from-rose-50 via-background to-background px-6 py-5 dark:from-rose-500/10">
-          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-rose-600 dark:text-rose-400">
-            <span className="inline-flex size-5 items-center justify-center rounded-full bg-rose-500 text-white">{isEdit ? '✎' : '+'}</span>
-            {isEdit ? 'Chỉnh sửa hồ sơ' : 'Tạo mới'}
-          </div>
-          <DialogTitle className="text-xl">{isEdit ? `Series · ${initialSeries?.title || ''}` : 'Đăng ký series mới'}</DialogTitle>
-          <DialogDescription>
-            {isEdit
-              ? 'Bổ sung hoặc sửa thông tin còn thiếu — tóm tắt, thể loại, phân loại…'
-              : 'Khai báo hồ sơ một lần — các bên khác chỉ xem tóm tắt.'}
-          </DialogDescription>
-          {isEdit && !initialSeries.metadataComplete ? (
-            <Alert className="mt-3 border-amber-200 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/5">
-              <AlertCircle className="size-4 text-amber-600" />
-              <AlertDescription className="text-amber-700 dark:text-amber-400">
-                Hồ sơ chưa đầy đủ — nên điền tóm tắt và thể loại.
-              </AlertDescription>
-            </Alert>
-          ) : null}
+      <DialogContent className="asm-dialog">
+        <DialogHeader className="sr-only">
+          <DialogTitle>{isEdit ? 'Chỉnh sửa series' : 'Tạo series mới'}</DialogTitle>
+          <DialogDescription>Điền thông tin để tạo hoặc cập nhật series truyện.</DialogDescription>
         </DialogHeader>
+        {/* Header — gradient hero */}
+        <div className="asm-hero">
+          <div className="asm-hero__glow asm-hero__glow--1" />
+          <div className="asm-hero__glow asm-hero__glow--2" />
+          <div className="asm-hero__inner">
+            <div className="asm-hero__pill">
+              <span className="asm-hero__pill-dot" />
+              {isEdit ? 'Chinh sua series' : 'Series moi'}
+            </div>
+            <h2 className="asm-hero__title">
+              {isEdit ? `✦ ${initialSeries?.title || ''}` : 'Dang ky series moi'}
+            </h2>
+            <p className="asm-hero__sub">
+              {isEdit
+                ? 'Cap nhat thong tin de hoan thien ho so truyen.'
+                : 'Khai bao ho so de cac ben phoi hop tren cung mot nguon chuan.'}
+            </p>
+            {isEdit && !initialSeries?.metadataComplete ? (
+              <Alert className="asm-warn">
+                <AlertCircle className="size-4" />
+                <AlertDescription>
+                  Ho so chua day du — nen dien tom tat va the loai.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </div>
+        </div>
 
-        <form id="series-form" onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-6">
-            <div className="space-y-7">
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="size-6 justify-center p-0 text-xs">1</Badge>
-                  <h3 className="font-semibold">Thông tin truyện</h3>
-                </div>
+        <form id="series-form" onSubmit={handleSubmit} className="asm-body">
+          {/* ===== SECTION 1: Thong tin truyen ===== */}
+          <section className="asm-section">
+            <div className="asm-section__head">
+              <span className="asm-section__num">1</span>
+              <h3 className="asm-section__title">Thong tin truyen</h3>
+            </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="series-title">
-                    Tên hiển thị <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="series-title"
-                    value={form.title}
-                    onChange={e => patch({ title: e.target.value })}
-                    placeholder="Ví dụ: Huyền Long Ký"
-                    maxLength={120}
-                    autoFocus
-                    aria-invalid={!!err('title')}
-                  />
-                  {err('title') ? <p className="text-xs text-destructive">{err('title')}</p> : null}
-                </div>
+            <div className="asm-field">
+              <Label className="asm-label" htmlFor="series-title">
+                Ten hien thi <span className="asm-req">*</span>
+              </Label>
+              <Input
+                id="series-title"
+                className="asm-input"
+                value={form.title}
+                onChange={e => patch({ title: e.target.value })}
+                placeholder="Vi du: Huyen Long Ky"
+                maxLength={120}
+                autoFocus
+                aria-invalid={!!err('title')}
+              />
+              {err('title') && <p className="asm-error">{err('title')}</p>}
+            </div>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="series-alt">Tên khác / Romaji</Label>
-                    <Input
-                      id="series-alt"
-                      value={form.altTitle}
-                      onChange={e => patch({ altTitle: e.target.value })}
-                      placeholder="Tùy chọn"
-                      maxLength={120}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="series-tags">Tag</Label>
-                    <Input
-                      id="series-tags"
-                      value={form.tags}
-                      onChange={e => patch({ tags: e.target.value })}
-                      placeholder="school-life, magic"
-                      maxLength={120}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="series-synopsis">
-                    Tóm tắt / giới thiệu <span className="text-destructive">*</span>
-                  </Label>
-                  <Textarea
-                    id="series-synopsis"
-                    value={form.synopsis}
-                    onChange={e => patch({ synopsis: e.target.value })}
-                    placeholder="Cốt truyện, bối cảnh, nhân vật chính..."
-                    rows={4}
-                    maxLength={2000}
-                    aria-invalid={!!err('synopsis')}
-                  />
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>{form.synopsis.length}/2000 · tối thiểu 30 ký tự</span>
-                    {err('synopsis') ? <span className="text-destructive">{err('synopsis')}</span> : null}
-                  </div>
-                </div>
-              </section>
-
-              <Separator />
-
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="size-6 justify-center p-0 text-xs">2</Badge>
-                  <h3 className="font-semibold">Phân loại</h3>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Thể loại <span className="text-xs text-muted-foreground">(tối đa 5)</span></Label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {SERIES_GENRES.map(g => {
-                      const active = form.genres.includes(g)
-                      return (
-                        <button
-                          key={g}
-                          type="button"
-                          onClick={() => toggleGenre(g)}
-                          aria-pressed={active}
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-                            active
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : 'border-input bg-background hover:border-primary/50 hover:bg-muted',
-                          )}
-                        >
-                          {active ? <Check className="size-3" /> : null}
-                          {g}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  {err('genres') ? <p className="text-xs text-destructive">{err('genres')}</p> : null}
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Độc giả mục tiêu</Label>
-                    <Select value={form.demographic} onValueChange={v => patch({ demographic: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {SERIES_DEMOGRAPHICS.map(d => (
-                          <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Định dạng</Label>
-                    <Select value={form.format} onValueChange={v => patch({ format: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {SERIES_FORMATS.map(f => (
-                          <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Ngôn ngữ gốc</Label>
-                    <Select value={form.language} onValueChange={v => patch({ language: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {SERIES_LANGUAGES.map(l => (
-                          <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Phân loại nội dung</Label>
-                    <Select value={form.contentRating} onValueChange={v => patch({ contentRating: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {SERIES_CONTENT_RATINGS.map(r => (
-                          <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </section>
-
-              <Separator />
-
-              <section className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="size-6 justify-center p-0 text-xs">3</Badge>
-                  <h3 className="font-semibold">Phát hành & luồng duyệt</h3>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Trạng thái phát hành</Label>
-                  <Select value={form.publicationStatus} onValueChange={v => patch({ publicationStatus: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
+            <div className="asm-row">
+              <div className="asm-field">
+                <Label className="asm-label" htmlFor="series-alt">Ten khac / Romaji</Label>
+                <Input
+                  id="series-alt"
+                  className="asm-input"
+                  value={form.altTitle}
+                  onChange={e => patch({ altTitle: e.target.value })}
+                  placeholder="Tuy chon"
+                  maxLength={120}
+                />
+              </div>
+              <div className="asm-field">
+                <Label className="asm-label" htmlFor="series-tags">
+                  Tag
+                  {tagsLoading && <Loader2 className="ml-1 inline size-3 animate-spin text-muted-foreground" />}
+                </Label>
+                {apiTags.length > 0 ? (
+                  <Select
+                    value={form.tagInput ?? ''}
+                    onValueChange={v => {
+                      patch({ tagInput: v })
+                      const current = form.tags
+                      if (current.includes(v)) {
+                        patch({ tags: current.filter(t => t !== v) })
+                      } else {
+                        patch({ tags: [...current, v].slice(0, 8) })
+                      }
+                    }}
+                  >
+                    <SelectTrigger id="series-tags" className="asm-input">
+                      <SelectValue placeholder="Chọn tag..." />
+                    </SelectTrigger>
                     <SelectContent>
-                      {SERIES_PUBLICATION_STATUSES.map(p => (
-                        <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-                      ))}
+                      {apiTags.map(t => {
+                        const name = t.tagName ?? t.TagName ?? t.name ?? t.Name ?? String(t)
+                        const tagId = t.tagid ?? t.Tagid ?? t.id
+                        const selKey = String(tagId ?? name)
+                        return (
+                          <SelectItem key={selKey} value={name}>
+                            {name}
+                          </SelectItem>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Loại phát hành</Label>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {SERIES_PUBLISH_TYPES.map(pt => {
-                      const active = form.publishType === pt.value
-                      return (
-                        <button
-                          key={pt.value}
-                          type="button"
-                          onClick={() => patch({ publishType: pt.value })}
-                          aria-pressed={active}
-                          className={cn(
-                            'flex flex-col items-start gap-1 rounded-xl border-2 p-3 text-left transition-colors',
-                            active
-                              ? 'border-primary bg-primary/5'
-                              : 'border-border hover:border-primary/50 hover:bg-muted/50',
-                          )}
-                        >
-                          <span className="text-sm font-medium">{pt.label}</span>
-                          <span className="text-xs text-muted-foreground">{pt.hint}</span>
-                        </button>
-                      )
-                    })}
+                ) : (
+                  <Input
+                    id="series-tags"
+                    className="asm-input"
+                    value={form.tags.join(', ')}
+                    onChange={e => {
+                      const tags = e.target.value.split(/[,;#]+/).map(t => t.trim()).filter(Boolean)
+                      patch({ tags: tags.slice(0, 8) })
+                    }}
+                    placeholder="school-life, magic, adventure..."
+                    maxLength={120}
+                  />
+                )}
+                {form.tags.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {form.tags.map(t => (
+                      <button
+                        key={t}
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => patch({ tags: form.tags.filter(x => x !== t) })}
+                      >
+                        {t}
+                        <span className="text-muted-foreground">×</span>
+                      </button>
+                    ))}
                   </div>
-                </div>
-
-                {form.publishType === 'debut' ? (
-                  <Alert>
-                    <AlertCircle className="size-4" />
-                    <AlertDescription>
-                      {LABEL_EDITOR_BOARD} duyệt trên{' '}
-                      <Link to={PATH_EDITOR_BOARD} className="font-medium text-primary hover:underline">
-                        trang {LABEL_EDITOR_BOARD}
-                      </Link>
-                      {' '}— Mangaka không tự chấp nhận.
-                    </AlertDescription>
-                  </Alert>
-                ) : null}
-              </section>
-
-              <Separator />
-
-              <section className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="size-6 justify-center p-0 text-xs">4</Badge>
-                  <h3 className="font-semibold">Màu bìa (draft)</h3>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {SERIES_PALETTE.map(c => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => patch({ color: c })}
-                      aria-pressed={form.color === c}
-                      aria-label={`Màu ${c}`}
-                      className={cn(
-                        'size-9 rounded-lg ring-offset-background transition-transform hover:scale-110',
-                        form.color === c && 'ring-2 ring-primary ring-offset-2',
-                      )}
-                      style={{ background: c }}
-                    />
-                  ))}
-                </div>
-              </section>
+                )}
+              </div>
             </div>
-          </div>
 
-          <DialogFooter className="shrink-0 gap-2 border-t bg-card/95 px-6 py-3 backdrop-blur sm:gap-3">
-            {touched && !validation.ok ? (
-              <p className="mr-auto self-center text-xs text-destructive sm:order-first">
-                Vui lòng kiểm tra các trường còn thiếu
-              </p>
-            ) : null}
-            <Button type="button" variant="outline" onClick={handleClose}>Hủy</Button>
-            <Button type="submit" form="series-form" className="min-w-[140px]">
-              {isEdit ? 'Lưu thay đổi' : 'Tạo series draft'}
-            </Button>
-          </DialogFooter>
+            <div className="asm-field">
+              <Label className="asm-label" htmlFor="series-synopsis">
+                Tom tat / gioi thieu <span className="asm-req">*</span>
+              </Label>
+              <Textarea
+                id="series-synopsis"
+                className="asm-textarea"
+                value={form.synopsis}
+                onChange={e => patch({ synopsis: e.target.value })}
+                placeholder="Cot truyen, boi canh, nhan vat chinh..."
+                rows={4}
+                maxLength={2000}
+                aria-invalid={!!err('synopsis')}
+              />
+              <div className="asm-char-count">
+                <span className={form.synopsis.length < 1 ? 'asm-char-count--warn' : ''}>
+                  {form.synopsis.length}/2000
+                </span>
+                {err('synopsis') && (
+                  <span className="asm-error">{err('synopsis')}</span>
+                )}
+              </div>
+            </div>
+
+            {/* File uploads — bat buoc theo backend (proposalFile + coverImage) */}
+            <div className="asm-row">
+              <div className="asm-field">
+                <Label className="asm-label" htmlFor="series-cover">
+                  Anh bia <span className="asm-req">*</span>
+                </Label>
+                <Input
+                  id="series-cover"
+                  className="asm-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={e => patch({ coverImage: e.target.files?.[0] ?? null })}
+                />
+              </div>
+              <div className="asm-field">
+                <Label className="asm-label" htmlFor="series-proposal">
+                  File ban de xuat (PDF) <span className="asm-req">*</span>
+                </Label>
+                <Input
+                  id="series-proposal"
+                  className="asm-input"
+                  type="file"
+                  accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={e => patch({ proposalFile: e.target.files?.[0] ?? null })}
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* ===== SECTION 2: Phan loai ===== */}
+          <section className="asm-section">
+            <div className="asm-section__head">
+              <span className="asm-section__num">2</span>
+              <h3 className="asm-section__title">Phan loai</h3>
+            </div>
+
+            {/* The loai */}
+            <div className="asm-field">
+              <Label className="asm-label">
+                The loai <span className="asm-hint">(toi da 5)</span>
+                {genresLoading && <Loader2 className="ml-1 inline size-3 animate-spin text-muted-foreground" />}
+              </Label>
+              <div className="asm-genres">
+                {genresLoading ? (
+                  <p className="text-xs text-muted-foreground py-2">Đang tải thể loại...</p>
+                ) : apiGenres.length > 0 ? (
+                  apiGenres.map(g => {
+                    const name = g.genreName ?? g.GenreName ?? g.name ?? g.Name ?? String(g)
+                    const active = form.genres.includes(name)
+                    return (
+                      <button
+                        key={g.genreid ?? g.Genreid ?? g.id ?? name}
+                        type="button"
+                        onClick={() => toggleGenre(name)}
+                        aria-pressed={active}
+                        className={cn('asm-genre-chip', active && 'asm-genre-chip--on')}
+                      >
+                        {active && <Check className="size-3" />}
+                        {name}
+                      </button>
+                    )
+                  })
+                ) : (
+                  <p className="text-xs text-muted-foreground py-2">Không tải được thể loại từ server.</p>
+                )}
+              </div>
+              {err('genres') && <p className="asm-error">{err('genres')}</p>}
+            </div>
+
+            {/* Phan loai noi dung */}
+            <div className="asm-field">
+              <Label className="asm-label">Phan loai noi dung</Label>
+              <Select value={form.contentRating} onValueChange={v => patch({ contentRating: v })}>
+                <SelectTrigger className="asm-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SERIES_CONTENT_RATINGS.map(r => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </section>
         </form>
+
+        {/* Footer */}
+        <div className="asm-footer">
+              {touched && !validation.ok ? (
+                <p className="asm-footer__warn">Vui long kiem tra cac truong con thieu</p>
+              ) : null}
+          <Button type="button" variant="outline" onClick={handleClose} className="asm-btn-cancel">
+            Huy
+          </Button>
+          <Button
+            type="submit"
+            form="series-form"
+            className="asm-btn-submit"
+          >
+            {isEdit ? 'Luu thay doi' : 'Tao series'}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   )

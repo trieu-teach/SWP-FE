@@ -65,6 +65,9 @@ export default function Header({ links = [], onLogout, className }) {
                     <Link to={workspacePath}>Workspace</Link>
                   </DropdownMenuItem>
                 ) : null}
+                <DropdownMenuItem asChild>
+                  <Link to="/profile">Hồ sơ</Link>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogoutClick} className="text-destructive focus:text-destructive">
                   <LogOut className="size-4" />

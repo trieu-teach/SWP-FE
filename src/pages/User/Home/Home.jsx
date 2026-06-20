@@ -21,7 +21,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { getSession, getRolePath } from '@/lib/auth.js'
+import { useSeries } from '@/api'
 import { PATH_EDITOR_BOARD, PATH_TANTOU_EDITOR } from '@/constants/roleTerminology.js'
+import { mapApiSeriesListToLocal } from '@/utils/seriesModel.js'
 import { cn } from '@/lib/utils'
 
 const NAV_LINKS = [
@@ -90,18 +92,20 @@ const STEPS = [
   { step: '04', icon: Rocket, title: 'Publish', desc: 'Lên lịch phát hành tuần/tháng — chapter ra mắt.' },
 ]
 
-const STATS = [
-  { value: '10+', label: 'Series đang sản xuất', icon: BookOpen },
-  { value: '1.2K+', label: 'Chapter đã xuất bản', icon: Layers },
-  { value: '4', label: 'Vai trò chuyên biệt', icon: Users },
-  { value: '98%', label: 'Hài lòng quy trình', icon: Star },
-]
-
 const GENRES = ['Hành động', 'Huyền huyễn', 'Tình cảm', 'Sci-fi', 'Phiêu lưu', 'Kinh dị', 'Isekai', 'Hài hước', 'Học đường']
 
 export default function Home() {
   const user = getSession()
   const workspacePath = user ? getRolePath(user.role) : null
+  const { data: apiSeries = [] } = useSeries()
+  const featuredSeries = apiSeries.length > 0 ? mapApiSeriesListToLocal(apiSeries) : FEATURED
+
+  const stats = [
+    { value: featuredSeries?.length ?? 0, label: 'Series đang sản xuất', icon: BookOpen },
+    { value: featuredSeries.reduce((sum, s) => sum + (s?.chapters ?? 0), 0), label: 'Chapter đã xuất bản', icon: Layers },
+    { value: '4', label: 'Vai trò chuyên biệt', icon: Users },
+    { value: '98%', label: 'Hài lòng quy trình', icon: Star },
+  ]
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -245,7 +249,7 @@ export default function Home() {
 
           {/* Stats */}
           <div className="mt-16 grid gap-4 border-t pt-10 sm:grid-cols-2 lg:grid-cols-4">
-            {STATS.map(s => (
+            {stats.map(s => (
               <div key={s.label} className="flex items-center gap-4">
                 <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                   <s.icon className="size-5" />
@@ -297,12 +301,12 @@ export default function Home() {
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {FEATURED.map(m => (
+          {featuredSeries.slice(0, 8).map((m, i) => (
             <Card
-              key={m.title}
+              key={m.id ?? i}
               className="group cursor-pointer gap-0 overflow-hidden border-0 bg-card p-0 shadow-md transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl hover:shadow-primary/10"
             >
-              <div className={cn('relative aspect-[3/4] overflow-hidden bg-gradient-to-br', m.gradient)}>
+              <div className={cn('relative aspect-[3/4] overflow-hidden bg-gradient-to-br', m.gradient ?? 'from-gray-400 to-gray-600')}>
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/0 to-transparent" />
                 <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
@@ -318,23 +322,23 @@ export default function Home() {
 
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-7xl font-black text-white/95 drop-shadow-xl transition-transform duration-500 group-hover:scale-110">
-                    {m.initials}
+                    {m.initials ?? (m.title?.slice(0, 2) ?? '??').toUpperCase()}
                   </span>
                 </div>
 
                 <div className="absolute bottom-3 left-3 right-3 text-white">
-                  <p className="text-xs font-medium opacity-80">{m.genre}</p>
+                  <p className="text-xs font-medium opacity-80">{m.genres?.[0] ?? m.genre ?? 'Manga'}</p>
                   <h3 className="text-lg font-bold leading-tight">{m.title}</h3>
                 </div>
               </div>
               <div className="flex items-center justify-between px-4 py-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <Layers className="size-3.5" />
-                  {m.chapters} ch
+                  {m.chapters ?? 0} ch
                 </span>
                 <span className="flex items-center gap-1.5">
                   <TrendingUp className="size-3.5" />
-                  {m.reads}
+                  {m.reads ?? m.viewCount ?? '0'}
                 </span>
               </div>
             </Card>

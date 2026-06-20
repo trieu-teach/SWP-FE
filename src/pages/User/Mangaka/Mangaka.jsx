@@ -68,6 +68,7 @@ import {
   migrateAssistantStorage,
   updateDeliverableStatus,
 } from '@/utils/assistantWorkspaceStorage.js'
+import { pageIssuesService } from '@/api'
 import {
   listTantouSubmissions,
   pushTantouSubmissionFromMangaka,
@@ -80,10 +81,22 @@ import {
   buildSeriesFromForm,
   buildSeriesFromUploadTitle,
   formatSeriesCardLine,
+  mapApiSeriesToLocal,
   normalizeSeriesList,
   seriesToExternalSummary,
   slugifySeriesTitle,
 } from '@/utils/seriesModel.js'
+import {
+  useSeries,
+  useSeriesByMangaka,
+  useCreateSeries,
+  useUpdateSeries,
+  useDeleteSeries,
+  useChapters,
+  useCreateChapter,
+  useUpdateChapter,
+  useDeleteChapter,
+} from '@/api'
 import '@/styles/mangaPage.css'
 import './Mangaka.css'
 
@@ -386,17 +399,33 @@ export default function Mangaka() {
   const navigate = useNavigate()
   const location = useLocation()
   const user = getSession()
-  const mangakaId = user?.id ?? 'demo-mangaka'
-  const mangakaName = user?.name ?? 'Demo Mangaka'
+  const mangakaId = user?.id ?? user?.userid ?? null
+  const mangakaName = user?.fullname ?? user?.name ?? 'Demo Mangaka'
+
+  // API data
+  const { data: apiSeriesRaw = [], isLoading: seriesLoading } = useSeriesByMangaka(mangakaId)
+  const { data: apiChapters = [], isLoading: chaptersLoading } = useChapters()
+  const createSeries = useCreateSeries()
+  const updateSeries = useUpdateSeries()
+  const deleteSeries = useDeleteSeries()
+  const createChapter = useCreateChapter()
+  const updateChapter = useUpdateChapter()
+  const deleteChapter = useDeleteChapter()
+
+  const apiSeries = useMemo(
+    () => (Array.isArray(apiSeriesRaw) ? apiSeriesRaw.map((s, i) => mapApiSeriesToLocal(s, i)).filter(Boolean) : []),
+    [apiSeriesRaw],
+  )
+
   const wsDefaults = useMemo(() => createMangakaWorkspaceDefaults(), [])
   const hydrated = useMemo(() => loadMangakaWorkspaceState(wsDefaults), [wsDefaults])
 
   const [tab, setTab] = useState(() => hydrated.tab)
   const [annotateSeries, setAnnotateSeries] = useState(() => hydrated.annotateSeries)
-  const [seriesList, setSeriesList] = useState(() => hydrated.seriesList)
+  const [localSeriesList, setLocalSeriesList] = useState(INITIAL_SERIES)
   const [addSeriesOpen, setAddSeriesOpen] = useState(false)
   const [editingSeries, setEditingSeries] = useState(null)
-  const [chapterRows, setChapterRows] = useState(() => hydrated.chapterRows)
+  const [localChapterRows, setLocalChapterRows] = useState(INITIAL_CHAPTERS)
   const [uploadPctBySeries, setUploadPctBySeries] = useState({})
   const [annotatorChapters, setAnnotatorChapters] = useState(() => hydrated.annotatorChapters)
   const [annotatorNotes, setAnnotatorNotes] = useState(() => hydrated.annotatorNotes)
@@ -412,6 +441,10 @@ export default function Mangaka() {
   const [tantouTick, setTantouTick] = useState(0)
   const [tantouSendReady, setTantouSendReady] = useState(null)
   const [rosterTick, setRosterTick] = useState(0)
+
+  // Use API data if available, otherwise fallback to local
+  const seriesList = apiSeries.length > 0 ? apiSeries : localSeriesList
+  const chapterRows = localChapterRows
 
   const hiredAssistants = useMemo(() => {
     void rosterTick
@@ -519,7 +552,26 @@ export default function Mangaka() {
       mangakaName: user?.name ?? 'Mangaka',
     })
     void pushAssistantSubmission(submission)
-    setChapterRows(prev =>
+
+    // Save notes to API (mapping sang field backend: Pageid, CreatedById, IssueType, WorkCategory, BoxX/Y/W/H, Description)
+    if (user?.id && chapter?.apiPageId) {
+      notes.forEach((note) => {
+        const issueType = note.taskType === 'background' ? 'background' : note.taskType === 'fx' ? 'effect' : 'other'
+        pageIssuesService.create({
+          pageid: chapter.apiPageId,
+          createdById: user.id,
+          issueType,
+          workCategory: note.taskType ?? 'general',
+          boxX: note.x,
+          boxY: note.y,
+          boxWidth: note.w,
+          boxHeight: note.h,
+          description: note.text,
+        }).catch(console.error)
+      })
+    }
+
+    setLocalChapterRows(prev =>
       prev.map(r =>
         r.series === chapter.series && String(r.num) === String(chapter.num)
           ? { ...r, status: 'assistant', statusLabel: 'Chờ Assistant' }
@@ -553,7 +605,7 @@ export default function Mangaka() {
       mangakaName: user?.name ?? 'Mangaka',
       pipeline,
     })
-    setChapterRows(prev =>
+    setLocalChapterRows(prev =>
       prev.map(r =>
         r.series === chapter.series && String(r.num) === String(chapter.num)
           ? { ...r, status: 'tantou', statusLabel: `Chờ ${LABEL_TANTOU_EDITOR}` }
@@ -603,7 +655,7 @@ export default function Mangaka() {
       )
       setDeliverableTick(t => t + 1)
     }
-    setChapterRows(prev => prev.map(r => {
+    setLocalChapterRows(prev => prev.map(r => {
       if (r.id !== pendingCompositeReview.id) return r
       if (decision === 'approve') {
         return { ...r, status: 'done', statusLabel: 'Đã duyệt bản tổng hợp' }
@@ -689,7 +741,7 @@ export default function Mangaka() {
       })
       marksBySeries[ch.series] = (marksBySeries[ch.series] ?? 0) + c
     })
-    setSeriesList(prev => {
+    setLocalSeriesList(prev => {
       let changed = false
       const next = prev.map(s => {
         const nextMarks = marksBySeries[s.title]
@@ -761,9 +813,9 @@ export default function Mangaka() {
       }, ...chapterRows]
     })()
 
-    setChapterRows(nextChapterRows)
+    setLocalChapterRows(nextChapterRows)
 
-    setSeriesList(prev => {
+    setLocalSeriesList(prev => {
       const idx = prev.findIndex(s => s.title === title)
       const bump = Math.min(22, Math.max(10, Math.round((pages ?? 18) / 5)))
       if (idx === -1) {
@@ -816,16 +868,27 @@ export default function Mangaka() {
     )
     const newTitle = updated.title
 
-    setSeriesList((prev) => {
-      const next = prev.map(s => (s.id === editingSeries.id ? updated : s))
-      syncEbDebutPendingFromSeries(
-        next.filter(s => s.needsFullDebutPipeline).map(seriesToExternalSummary),
-      )
-      return next
-    })
+    // Update trên server — multipart theo backend (PUT /api/Series/{id})
+    const fd = new FormData()
+    fd.append('title', newTitle)
+    fd.append('synopsis', String(updated.synopsis ?? ''))
+    fd.append('agerating', String(updated.contentRating ?? 'all'))
+    if (Array.isArray(updated.genres)) updated.genres.forEach(g => fd.append('genreIds', String(g)))
+    if (Array.isArray(updated.tags)) updated.tags.forEach(t => fd.append('tagIds', String(t)))
+
+    updateSeries.mutate(
+      { id: editingSeries.id, data: fd },
+      {
+        onSuccess: () => toast.success('Đã cập nhật series trên server!'),
+        onError: (err) => toast.error(err?.response?.data?.message ?? 'Không cập nhật được series trên server.'),
+      },
+    )
+
+    // Update local state
+    setLocalSeriesList(prev => prev.map(s => (s.id === editingSeries.id ? updated : s)))
 
     if (oldTitle !== newTitle) {
-      setChapterRows(prev => prev.map(c => (c.series === oldTitle ? { ...c, series: newTitle } : c)))
+      setLocalChapterRows(prev => prev.map(c => (c.series === oldTitle ? { ...c, series: newTitle } : c)))
       setAnnotatorChapters(prev => prev.map(ch => (ch.series === oldTitle ? { ...ch, series: newTitle } : ch)))
       if (annotateSeries === oldTitle) setAnnotateSeries(newTitle)
     }
@@ -838,10 +901,72 @@ export default function Mangaka() {
     const maxId = seriesList.reduce((m, s) => Math.max(m, s.id), 0)
     const newSeries = buildSeriesFromForm(form, {
       id: maxId + 1,
-      authorName: user?.name,
-      authorId: user?.email ?? null,
+      authorName: user?.fullname ?? user?.name,
+      authorId: user?.id ?? null,
     })
-    setSeriesList(prev => [newSeries, ...prev])
+
+    // Gửi multipart tạo series trên server theo backend DTOs/SeriesDto.Create
+    if (user?.id) {
+      const fd = new FormData()
+      fd.append('title', newSeries.title)
+      fd.append('synopsis', String(newSeries.synopsis ?? ''))
+      fd.append('mangakaid', String(user.id))
+      fd.append('tantoueditorid', String(user.tantouEditorId ?? 1))
+      fd.append('agerating', String(newSeries.contentRating ?? 'all'))
+      if (Array.isArray(newSeries.genres)) {
+        newSeries.genres.forEach(g => fd.append('genreIds', String(g)))
+      }
+      if (Array.isArray(newSeries.tags)) {
+        newSeries.tags.forEach(t => fd.append('tagIds', String(t)))
+      }
+      // File bắt buộc theo backend — backend yêu cầu proposalFile + coverImage.
+      // Nếu chưa có file, dùng blob trống để vẫn tạo được (sẽ hiển thị empty cho đến khi upload lại).
+      if (form.proposalFile instanceof File) {
+        fd.append('proposalFile', form.proposalFile)
+      } else {
+        fd.append('proposalFile', new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: 'application/pdf' }), 'empty.pdf')
+      }
+      if (form.coverImage instanceof File) {
+        fd.append('coverImage', form.coverImage)
+      } else {
+        // Tạo PNG 1x1 làm fallback
+        const canvas = document.createElement('canvas')
+        canvas.width = 1
+        canvas.height = 1
+        canvas.toBlob((blob) => {
+          if (blob) fd.set('coverImage', blob, 'cover.png')
+          sendCreate(fd, newSeries)
+        }, 'image/png')
+        return
+      }
+      sendCreate(fd, newSeries)
+      return
+    }
+
+    // Không có user (chưa login) — chỉ lưu local
+    setLocalSeriesList(prev => [newSeries, ...prev])
+    setAnnotateSeries(newSeries.title)
+    closeAddSeriesModal()
+    navigate(seriesPath(newSeries))
+  }
+
+  function sendCreate(fd, newSeries) {
+    createSeries.mutate(fd, {
+      onSuccess: (res) => {
+        const serverId = res?.data?.data?.Id ?? res?.data?.Id ?? res?.data?.id
+        if (serverId) {
+          newSeries.id = serverId
+          newSeries.seriesid = serverId
+        }
+        toast.success('Đã tạo series trên server!')
+      },
+      onError: (err) => {
+        const body = err?.response?.data
+        const msg = typeof body === 'string' ? body : body?.message ?? body?.title
+        toast.error(msg || 'Không tạo được series trên server.')
+      },
+    })
+    setLocalSeriesList(prev => [newSeries, ...prev])
     setAnnotateSeries(newSeries.title)
     closeAddSeriesModal()
     navigate(seriesPath(newSeries))
@@ -852,7 +977,7 @@ export default function Mangaka() {
   function completeDebutPipeline(seriesId) {
     const target = seriesList.find(x => x.id === seriesId)
     if (target?.title) removeEbDebutApproval(target.title)
-    setSeriesList(prev => prev.map(s => (
+    setLocalSeriesList(prev => prev.map(s => (
       s.id === seriesId
         ? {
           ...s,
@@ -862,6 +987,21 @@ export default function Mangaka() {
         }
         : s
     )))
+    // Update on API — backend PUT /api/Series/{id} requires multipart/form-data
+    const updatedSeries = localSeriesList.find(s => s.id === seriesId)
+    if (updatedSeries) {
+      const fd = new FormData()
+      fd.append('title', updatedSeries.title ?? '')
+      fd.append('synopsis', String(updatedSeries.synopsis ?? ''))
+      fd.append('agerating', String(updatedSeries.contentRating ?? 'all'))
+      if (Array.isArray(updatedSeries.genres)) {
+        updatedSeries.genres.forEach(g => fd.append('genreIds', String(g)))
+      }
+      if (Array.isArray(updatedSeries.tags)) {
+        updatedSeries.tags.forEach(t => fd.append('tagIds', String(t)))
+      }
+      updateSeries.mutate({ id: seriesId, data: fd })
+    }
   }
 
   function deleteSeriesById(seriesId) {
@@ -872,6 +1012,12 @@ export default function Mangaka() {
       `Xóa series "${title}"?\n\nCác chapter của series này sẽ bị gỡ. Thao tác không hoàn tác.`,
     )
     if (!ok) return
+
+    // Delete from API
+    deleteSeries.mutate(seriesId, {
+      onSuccess: () => toast.success('Đã xóa series trên server!'),
+      onError: () => toast.error('Không xóa được series trên server.'),
+    })
 
     removeEbDebutApproval(title)
 
@@ -899,9 +1045,9 @@ export default function Mangaka() {
     })
     setAnnotatorPageIndex(0)
 
-    const remainingSeries = seriesList.filter(s => s.id !== seriesId)
-    setSeriesList(remainingSeries)
-    setChapterRows(prev => prev.filter(c => c.series !== title))
+    const remainingSeries = localSeriesList.filter(s => s.id !== seriesId)
+    setLocalSeriesList(remainingSeries)
+    setLocalChapterRows(prev => prev.filter(c => c.series !== title))
     setUploadPctBySeries((prev) => {
       const next = { ...prev }
       delete next[title]

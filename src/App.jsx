@@ -1,6 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
+import { QueryProvider, AuthProvider } from '@/lib/providers'
+import { ProtectedRoute, GuestRoute } from '@/lib/router'
 import Layout from '@/components/Admin/Layout/Layout.jsx'
+
+// Pages
 import Dashboard from '@/pages/Admin/Dashboard/Dashboard.jsx'
 import AdminManga from '@/pages/Admin/Manga/Manga.jsx'
 import Chapters from '@/pages/Admin/Chapters/Chapters.jsx'
@@ -15,9 +19,11 @@ import Login from '@/pages/User/Login/Login.jsx'
 import Register from '@/pages/User/Register/Register.jsx'
 import Mangaka from '@/pages/User/Mangaka/Mangaka.jsx'
 import SeriesUploadDetail from '@/pages/User/Mangaka/SeriesUploadDetail.jsx'
+import PageLayerWorkspace from '@/pages/User/Mangaka/PageLayerWorkspace.jsx'
 import Assistant from '@/pages/User/Assistant/Assistant.jsx'
 import Eb from '@/pages/User/Eb/Eb.jsx'
 import TantouEditor from '@/pages/User/Tantou/TantouEditor.jsx'
+import UserProfile from '@/pages/User/Profile/Profile.jsx'
 
 function AdminShell() {
   const navigate = useNavigate()
@@ -34,34 +40,52 @@ function AdminShell() {
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/mangaka" element={<Mangaka />} />
-        <Route path="/mangaka/series/:seriesSlug" element={<SeriesUploadDetail />} />
-        <Route path="/mangaka/series/:seriesSlug/chapter/:chapterId" element={<SeriesUploadDetail />} />
-        <Route path="/assistant" element={<Assistant />} />
-        <Route path="/eb" element={<Eb />} />
-        <Route path="/tantou" element={<TantouEditor />} />
+      <QueryProvider>
+        <AuthProvider>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/" element={<Home />} />
 
-        <Route path="/admin" element={<AdminShell />}>
-          <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<Dashboard />} />
-          <Route path="manga" element={<AdminManga />} />
-          <Route path="chapters" element={<Chapters />} />
-          <Route path="users" element={<Users />} />
-          <Route path="comments" element={<Comments />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="stats" element={<Stats />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="profile" element={<Profile />} />
-          <Route path="*" element={<Navigate to="dashboard" replace />} />
-        </Route>
+            {/* Guest routes - chỉ dành cho chưa đăng nhập */}
+            <Route element={<GuestRoute />}>
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+            </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-      <Toaster richColors position="top-center" />
+            {/* Protected routes - cần đăng nhập */}
+            <Route element={<ProtectedRoute />}>
+              <Route path="/mangaka" element={<Mangaka />} />
+              <Route path="/mangaka/series/:seriesSlug" element={<SeriesUploadDetail />} />
+              <Route path="/mangaka/series/:seriesSlug/chapter/:chapterId" element={<SeriesUploadDetail />} />
+              <Route path="/mangaka/series/:seriesSlug/chapter/:chapterId/page/:pageId" element={<PageLayerWorkspace />} />
+              <Route path="/assistant" element={<Assistant />} />
+              <Route path="/eb" element={<Eb />} />
+              <Route path="/tantou" element={<TantouEditor />} />
+              <Route path="/profile" element={<UserProfile />} />
+            </Route>
+
+            {/* Admin routes - cần đăng nhập + role Admin */}
+            <Route element={<ProtectedRoute roles={['Admin']} />}>
+              <Route path="/admin" element={<AdminShell />}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="manga" element={<AdminManga />} />
+                <Route path="chapters" element={<Chapters />} />
+                <Route path="users" element={<Users />} />
+                <Route path="comments" element={<Comments />} />
+                <Route path="reports" element={<Reports />} />
+                <Route path="stats" element={<Stats />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="profile" element={<Profile />} />
+                <Route path="*" element={<Navigate to="dashboard" replace />} />
+              </Route>
+            </Route>
+
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+          <Toaster richColors position="top-center" />
+        </AuthProvider>
+      </QueryProvider>
     </BrowserRouter>
   )
 }

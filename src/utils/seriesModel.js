@@ -89,7 +89,8 @@ export function createEmptySeriesForm(authorName = '') {
     publicationStatus: 'preparing',
     publishType: 'debut',
     color: SERIES_PALETTE[0],
-    tags: '',
+    tags: [],
+    tagInput: '',
   }
 }
 
@@ -209,7 +210,8 @@ export function seriesToForm(series) {
     publicationStatus: s.publicationStatus,
     publishType: s.publishType,
     color: s.color,
-    tags: Array.isArray(s.tags) ? s.tags.join(', ') : '',
+    tags: Array.isArray(s.tags) ? [...s.tags] : [],
+    tagInput: '',
   }
 }
 
@@ -227,7 +229,7 @@ export function validateSeriesForm(form, existingTitles = [], options = {}) {
   }
 
   const synopsis = String(form.synopsis ?? '').trim()
-  if (synopsis.length < 30) errors.synopsis = 'Tóm tắt nên có ít nhất 30 ký tự (mô tả cốt truyện / bối cảnh).'
+  if (synopsis.length < 1) errors.synopsis = 'Vui lòng nhập tóm tắt.'
 
   if (!Array.isArray(form.genres) || form.genres.length === 0) {
     errors.genres = 'Chọn ít nhất một thể loại.'
@@ -248,11 +250,9 @@ export function buildSeriesFromForm(form, { id, authorName, authorId }) {
   const title = String(form.title).trim()
   const publishType = form.publishType === 'continuing' ? 'continuing' : 'debut'
   const needsFullDebutPipeline = publishType === 'debut'
-  const tags = String(form.tags ?? '')
-    .split(/[,;#]+/)
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .slice(0, 8)
+  const tags = Array.isArray(form.tags)
+    ? form.tags.filter(Boolean).slice(0, 8)
+    : String(form.tags ?? '').split(/[,;#]+/).map((t) => t.trim()).filter(Boolean).slice(0, 8)
 
   const series = normalizeSeries({
     id,
@@ -294,11 +294,9 @@ export function applySeriesFormUpdate(existing, form) {
   const publishType = form.publishType === 'continuing' ? 'continuing' : 'debut'
   const needsFullDebutPipeline = publishType === 'debut'
   const synopsis = String(form.synopsis ?? '').trim()
-  const tags = String(form.tags ?? '')
-    .split(/[,;#]+/)
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .slice(0, 8)
+  const tags = Array.isArray(form.tags)
+    ? form.tags.filter(Boolean).slice(0, 8)
+    : String(form.tags ?? '').split(/[,;#]+/).map((t) => t.trim()).filter(Boolean).slice(0, 8)
 
   const merged = normalizeSeries({
     ...base,
@@ -316,7 +314,7 @@ export function applySeriesFormUpdate(existing, form) {
     needsFullDebutPipeline,
     tags,
     color: form.color ?? base.color,
-    metadataComplete: synopsis.length >= 30,
+    metadataComplete: synopsis.length >= 1,
     updated: 'Vừa cập nhật hồ sơ',
   })
 
@@ -348,4 +346,56 @@ export function buildSeriesFromUploadTitle(title, { id, authorName, colorIndex =
     metadataComplete: false,
   })
   return series
+}
+
+/**
+ * Map 1 record Series từ backend (DTOs/SeriesDto) sang shape local.
+ * Backend fields: Seriesid, Title, Synopsis, Coverimageurl, Agerating, Mangakaid,
+ *   Tantoueditorid, Publishformat, Status, Proposalfileurl, Createdat, Approvedat, Isdeleted,
+ *   Genres[{GenreId, GenreName}], Tags[{TagId, TagName}]
+ */
+export function mapApiSeriesToLocal(raw, index = 0) {
+  if (!raw) return null
+  const id = raw.seriesid ?? raw.Seriesid ?? raw.id ?? index + 1
+  const title = String(raw.title ?? raw.Title ?? '').trim() || `Series ${id}`
+  const status = String(raw.status ?? raw.Status ?? 'draft').toLowerCase()
+  // Backend trả PascalCase: Agerating, Publishformat, Proposalfileurl, Coverimageurl
+  // Axios mặc định giữ nguyên key như BE trả — thêm fallback để đề phòng
+  const agerating = String(raw.agerating ?? raw.Agerating ?? raw.ageRating ?? 'all')
+  const pubFormat = String(raw.publishformat ?? raw.Publishformat ?? raw.publishFormat ?? 'continuing')
+  return normalizeSeries({
+    id,
+    seriesid: id,
+    title,
+    altTitle: title,
+    synopsis: String(raw.synopsis ?? raw.Synopsis ?? '').trim(),
+    coverImage: raw.coverimageurl ?? raw.Coverimageurl ?? null,
+    proposalFileUrl: raw.proposalfileurl ?? raw.Proposalfileurl ?? null,
+    genres: Array.isArray(raw.genres)
+      ? raw.genres.map(g => g.genreName ?? g.GenreName).filter(Boolean)
+      : [],
+    tags: Array.isArray(raw.tags)
+      ? raw.tags.map(t => t.tagName ?? t.TagName).filter(Boolean)
+      : [],
+    contentRating: agerating,
+    publicationStatus: status,
+    publishType: pubFormat,
+    needsFullDebutPipeline: pubFormat.toLowerCase() === 'debut',
+    authorName: 'Mangaka',
+    mangakaid: raw.mangakaid ?? raw.Mangakaid,
+    tantoueditorid: raw.tantoueditorid ?? raw.Tantoueditorid,
+    chapters: 0,
+    marks: 0,
+    status: status === 'approved' ? 'done' : status === 'pending' ? 'review' : 'draft',
+    updated: 'Cập nhật từ server',
+    progress: 0,
+    metadataComplete: Boolean(String(raw.synopsis ?? raw.Synopsis ?? '').trim()),
+    createdat: raw.createdat ?? raw.Createdat,
+    approvedat: raw.approvedat ?? raw.Approvedat,
+  })
+}
+
+export function mapApiSeriesListToLocal(list) {
+  if (!Array.isArray(list)) return []
+  return list.map((s, i) => mapApiSeriesToLocal(s, i)).filter(Boolean)
 }
