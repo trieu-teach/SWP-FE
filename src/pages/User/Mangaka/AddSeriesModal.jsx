@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Check, Loader2 } from 'lucide-react'
+import { AlertCircle, Check, Loader2, Plus, X } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import {
   SERIES_CONTENT_RATINGS,
@@ -26,7 +28,32 @@ import {
   seriesToForm,
   validateSeriesForm,
 } from '@/utils/seriesModel.js'
-import { useGenres, useTags } from '@/api/hooks'
+import { useGenres, useTags, useCreateGenre, useCreateTag } from '@/api/hooks'
+
+// Helper: lay ID tu 1 genre/tag item (co the la object hoac string)
+// Backend tra ve: genreid/genrename (GenreService) hoac tagid/tagname (TagService)
+function itemId(item) {
+  if (!item) return null
+  if (typeof item === 'object') {
+    return item.genreid ?? item.genreId ?? item.GenreId ?? item.tagid ?? item.tagId ?? item.TagId ?? item.id ?? null
+  }
+  return null
+}
+function itemName(item) {
+  if (!item) return ''
+  if (typeof item === 'object') {
+    const found = item.genrename ?? item.genreName ?? item.GenreName ?? item.tagname ?? item.tagName ?? item.TagName ?? item.name ?? item.Name ?? null
+    if (found == null) return ''
+    if (typeof found === 'object') return JSON.stringify(found)
+    return String(found)
+  }
+  return String(item)
+}
+function itemKey(item, index) {
+  const id = itemId(item)
+  const name = itemName(item)
+  return id != null ? `id:${String(id)}` : (name && typeof name !== 'object') ? `name:${name}` : `idx:${index}`
+}
 
 export default function AddSeriesModal({
   open,
@@ -39,16 +66,81 @@ export default function AddSeriesModal({
 }) {
   const isEdit = mode === 'edit' && initialSeries
 
-  const { data: apiGenres = [], isLoading: genresLoading } = useGenres()
-  const { data: apiTags = [], isLoading: tagsLoading } = useTags()
+  // Danh sach tu API (dang object { id, name })
+  const { data: rawGenres = [], isLoading: genresLoading } = useGenres()
+  const { data: rawTags = [], isLoading: tagsLoading } = useTags()
+
+  // Chuyen doi API data sang array of { id, name } cho de truy cap
+  const apiGenres = useMemo(() => rawGenres.map((g) => {
+    return { id: itemId(g), name: itemName(g), _raw: g }
+  }).filter(g => g.id != null || g.name), [rawGenres])
+
+  const apiTags = useMemo(() => rawTags.map((t) => {
+    return { id: itemId(t), name: itemName(t), _raw: t }
+  }).filter(t => t.id != null || t.name), [rawTags])
+
+  // Mutation de create new genre/tag
+  const createGenre = useCreateGenre()
+  const createTag = useCreateTag()
 
   const [form, setForm] = useState(() => createEmptySeriesForm(authorName))
+  // genreIds: array of numbers (server IDs), tagIds: array of numbers
+  const [selectedGenreIds, setSelectedGenreIds] = useState([])
+  const [selectedTagIds, setSelectedTagIds] = useState([])
+
+  // Trang thai tao genre/tag moi inline
+  const [newGenreName, setNewGenreName] = useState('')
+  const [creatingGenre, setCreatingGenre] = useState(false)
+  const [newTagName, setNewTagName] = useState('')
+  const [creatingTag, setCreatingTag] = useState(false)
+
   const [touched, setTouched] = useState(false)
 
+  // Helper resolve: lay selected IDs tu series (co the la string names hoac numbers)
+  const resolveSelectedIds = (seriesGenres, seriesTags) => {
+    // Genres: seriesGenres la array of string names
+    const gIds = Array.isArray(seriesGenres) ? seriesGenres.map(gName => {
+      // Tim trong apiGenres da load
+      const found = apiGenres.find(g => g.name === String(gName))
+      if (found?.id != null) return Number(found.id)
+      // Neu apiGenres chua load, tra ve null de reset
+      return null
+    }).filter(id => id != null) : []
+    // Tags: seriesTags la array of string names
+    const tIds = Array.isArray(seriesTags) ? seriesTags.map(tName => {
+      const found = apiTags.find(t => t.name === String(tName))
+      if (found?.id != null) return Number(found.id)
+      return null
+    }).filter(id => id != null) : []
+    return { gIds, tIds }
+  }
+
+  // Khi apiGenres/apiTags load xong, populate selected IDs tu initialSeries
+  useEffect(() => {
+    if (!open || !initialSeries) return
+    const { gIds, tIds } = resolveSelectedIds(initialSeries.genres, initialSeries.tags)
+    if (gIds.length > 0) setSelectedGenreIds(gIds)
+    if (tIds.length > 0) setSelectedTagIds(tIds)
+  }, [open, apiGenres, apiTags, initialSeries])
+
+  // Khi modal mo, reset selected IDs de trigger effect phia tren
   useEffect(() => {
     if (!open) return
-    if (isEdit) setForm(seriesToForm(initialSeries))
-    else setForm(createEmptySeriesForm(authorName))
+    if (isEdit) {
+      const f = seriesToForm(initialSeries)
+      setForm(f)
+      // Reset selected IDs de effect phia tren populate lai
+      setSelectedGenreIds([])
+      setSelectedTagIds([])
+    } else {
+      setForm(createEmptySeriesForm(authorName))
+      setSelectedGenreIds([])
+      setSelectedTagIds([])
+    }
+    setNewGenreName('')
+    setNewTagName('')
+    setCreatingGenre(false)
+    setCreatingTag(false)
     setTouched(false)
   }, [open, isEdit, initialSeries, authorName])
 
@@ -67,18 +159,64 @@ export default function AddSeriesModal({
     setForm(prev => ({ ...prev, ...updates }))
   }
 
-  function toggleGenre(genre) {
-    setForm(prev => {
-      const has = prev.genres.includes(genre)
-      const genres = has
-        ? prev.genres.filter(g => g !== genre)
-        : [...prev.genres, genre].slice(0, 5)
-      return { ...prev, genres }
-    })
+  function toggleGenreById(id) {
+    setSelectedGenreIds(prev =>
+      prev.includes(id)
+        ? prev.filter(x => x !== id)
+        : [...prev, id].slice(0, 5)
+    )
+  }
+
+  function toggleTagById(id) {
+    setSelectedTagIds(prev =>
+      prev.includes(id)
+        ? prev.filter(x => x !== id)
+        : [...prev, id].slice(0, 8)
+    )
+  }
+
+  // Tao genre moi inline
+  async function handleCreateGenre() {
+    const name = newGenreName.trim()
+    if (!name) return
+    setCreatingGenre(true)
+    try {
+      const res = await createGenre.mutateAsync({ genreName: name })
+      const newId = res.data?.genreId ?? res.data?.GenreId ?? res.data?.id
+      if (newId != null) {
+        setSelectedGenreIds(prev => [...prev, Number(newId)].slice(0, 5))
+      }
+      setNewGenreName('')
+    } catch {
+      // interceptor se show toast loi
+    } finally {
+      setCreatingGenre(false)
+    }
+  }
+
+  // Tao tag moi inline
+  async function handleCreateTag() {
+    const name = newTagName.trim()
+    if (!name) return
+    setCreatingTag(true)
+    try {
+      const res = await createTag.mutateAsync({ tagName: name })
+      const newId = res.data?.tagId ?? res.data?.TagId ?? res.data?.id
+      if (newId != null) {
+        setSelectedTagIds(prev => [...prev, Number(newId)].slice(0, 8))
+      }
+      setNewTagName('')
+    } catch {
+      // interceptor se show toast loi
+    } finally {
+      setCreatingTag(false)
+    }
   }
 
   function handleClose() {
     setForm(isEdit ? seriesToForm(initialSeries) : createEmptySeriesForm(authorName))
+    setSelectedGenreIds(isEdit ? (initialSeries?._genreIds ?? []) : [])
+    setSelectedTagIds(isEdit ? (initialSeries?._tagIds ?? []) : [])
     setTouched(false)
     onClose()
   }
@@ -87,21 +225,47 @@ export default function AddSeriesModal({
     e.preventDefault()
     setTouched(true)
     if (!validation.ok) return
-    onSubmit(form, { mode: isEdit ? 'edit' : 'create', seriesId: initialSeries?.id })
-    if (!isEdit) setForm(createEmptySeriesForm(authorName))
+    // Gui genreIds/tagIds (numbers) de backend map
+    onSubmit(form, {
+      mode: isEdit ? 'edit' : 'create',
+      seriesId: initialSeries?.id,
+      genreIds: selectedGenreIds,
+      tagIds: selectedTagIds,
+    })
+    if (!isEdit) {
+      setForm(createEmptySeriesForm(authorName))
+      setSelectedGenreIds([])
+      setSelectedTagIds([])
+    }
     setTouched(false)
   }
 
   const err = (key) => (touched ? validation.errors[key] : null)
 
+  // Tra ve selected genre/tag names (hien thi tren chip)
+  const selectedGenreNames = useMemo(() => {
+    return selectedGenreIds.map(id => {
+      const found = apiGenres.find(g => g.id === id)
+      return found?.name ?? `Genre #${id}`
+    })
+  }, [selectedGenreIds, apiGenres])
+
+  const selectedTagNames = useMemo(() => {
+    return selectedTagIds.map(id => {
+      const found = apiTags.find(t => t.id === id)
+      return found?.name ?? `Tag #${id}`
+    })
+  }, [selectedTagIds, apiTags])
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="asm-dialog">
+      <DialogContent className="asm-dialog max-h-[90vh] overflow-y-auto">
         <DialogHeader className="sr-only">
           <DialogTitle>{isEdit ? 'Chỉnh sửa series' : 'Tạo series mới'}</DialogTitle>
           <DialogDescription>Điền thông tin để tạo hoặc cập nhật series truyện.</DialogDescription>
         </DialogHeader>
-        {/* Header — gradient hero */}
+
+        {/* Header */}
         <div className="asm-hero">
           <div className="asm-hero__glow asm-hero__glow--1" />
           <div className="asm-hero__glow asm-hero__glow--2" />
@@ -154,81 +318,105 @@ export default function AddSeriesModal({
               {err('title') && <p className="asm-error">{err('title')}</p>}
             </div>
 
-            <div className="asm-row">
-              <div className="asm-field">
-                <Label className="asm-label" htmlFor="series-alt">Ten khac / Romaji</Label>
-                <Input
-                  id="series-alt"
-                  className="asm-input"
-                  value={form.altTitle}
-                  onChange={e => patch({ altTitle: e.target.value })}
-                  placeholder="Tuy chon"
-                  maxLength={120}
-                />
-              </div>
-              <div className="asm-field">
-                <Label className="asm-label" htmlFor="series-tags">
-                  Tag
-                  {tagsLoading && <Loader2 className="ml-1 inline size-3 animate-spin text-muted-foreground" />}
-                </Label>
-                {apiTags.length > 0 ? (
-                  <Select
-                    value={form.tagInput ?? ''}
-                    onValueChange={v => {
-                      patch({ tagInput: v })
-                      const current = form.tags
-                      if (current.includes(v)) {
-                        patch({ tags: current.filter(t => t !== v) })
-                      } else {
-                        patch({ tags: [...current, v].slice(0, 8) })
-                      }
-                    }}
-                  >
-                    <SelectTrigger id="series-tags" className="asm-input">
-                      <SelectValue placeholder="Chọn tag..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {apiTags.map(t => {
-                        const name = t.tagName ?? t.TagName ?? t.name ?? t.Name ?? String(t)
-                        const tagId = t.tagid ?? t.Tagid ?? t.id
-                        const selKey = String(tagId ?? name)
-                        return (
-                          <SelectItem key={selKey} value={name}>
-                            {name}
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    id="series-tags"
-                    className="asm-input"
-                    value={form.tags.join(', ')}
-                    onChange={e => {
-                      const tags = e.target.value.split(/[,;#]+/).map(t => t.trim()).filter(Boolean)
-                      patch({ tags: tags.slice(0, 8) })
-                    }}
-                    placeholder="school-life, magic, adventure..."
-                    maxLength={120}
-                  />
-                )}
-                {form.tags.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {form.tags.map(t => (
+            <div className="asm-field">
+              <Label className="asm-label" htmlFor="series-alt">Ten khac / Romaji</Label>
+              <Input
+                id="series-alt"
+                className="asm-input"
+                value={form.altTitle}
+                onChange={e => patch({ altTitle: e.target.value })}
+                placeholder="Tuy chon"
+                maxLength={120}
+              />
+            </div>
+
+            {/* Tags */}
+            <div className="asm-field">
+              <Label className="asm-label">
+                Tag
+                {tagsLoading && <Loader2 className="ml-1 inline size-3 animate-spin text-muted-foreground" />}
+              </Label>
+
+              {/* Selected tag chips */}
+              {selectedTagNames.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {selectedTagNames.map((name, i) => (
+                    <Badge key={selectedTagIds[i]} variant="secondary" className="pl-2 pr-1 py-0.5 text-xs gap-1">
+                      #{name}
                       <button
-                        key={t}
                         type="button"
-                        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => patch({ tags: form.tags.filter(x => x !== t) })}
+                        onClick={() => toggleTagById(selectedTagIds[i])}
+                        className="ml-0.5 rounded-sm hover:bg-destructive/20"
                       >
-                        {t}
-                        <span className="text-muted-foreground">×</span>
+                        <X className="size-3" />
                       </button>
-                    ))}
-                  </div>
-                )}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Select
+                  value=""
+                  onValueChange={v => {
+                    // itemKey tra ve 'id:5' hoac 'name:HanhDong'
+                    const idMatch = v.match(/^id:(\d+)$/)
+                    if (idMatch) {
+                      toggleTagById(Number(idMatch[1]))
+                    } else {
+                      // fallback: tim theo name
+                      const tag = apiTags.find(t => t.name === v)
+                      if (tag && tag.id != null) toggleTagById(tag.id)
+                    }
+                  }}
+                >
+                  <SelectTrigger className="asm-input flex-1">
+                    <SelectValue placeholder="Chon tag..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {apiTags
+                      .filter(t => !selectedTagIds.includes(t.id))
+                      .map((t, i) => (
+                        <SelectItem key={itemKey(t, i)} value={itemKey(t, i)}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    {apiTags.filter(t => !selectedTagIds.includes(t.id)).length === 0 && (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">Tat ca tag da duoc chon</div>
+                    )}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1"
+                  onClick={() => setCreatingTag(v => !v)}
+                >
+                  <Plus className="size-3" />
+                  Tao moi
+                </Button>
               </div>
+
+              {/* Inline tao tag */}
+              {creatingTag && (
+                <div className="mt-2 flex gap-2">
+                  <Input
+                    className="asm-input flex-1"
+                    value={newTagName}
+                    onChange={e => setNewTagName(e.target.value)}
+                    placeholder="Ten tag moi..."
+                    maxLength={40}
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleCreateTag())}
+                  />
+                  <Button type="button" size="sm" onClick={handleCreateTag} disabled={!newTagName.trim() || creatingTag}>
+                    {creatingTag ? <Loader2 className="size-3 animate-spin" /> : 'Tao'}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setCreatingTag(false); setNewTagName('') }}>
+                    Huy
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div className="asm-field">
@@ -249,13 +437,11 @@ export default function AddSeriesModal({
                 <span className={form.synopsis.length < 1 ? 'asm-char-count--warn' : ''}>
                   {form.synopsis.length}/2000
                 </span>
-                {err('synopsis') && (
-                  <span className="asm-error">{err('synopsis')}</span>
-                )}
+                {err('synopsis') && <span className="asm-error">{err('synopsis')}</span>}
               </div>
             </div>
 
-            {/* File uploads — bat buoc theo backend (proposalFile + coverImage) */}
+            {/* File uploads */}
             <div className="asm-row">
               <div className="asm-field">
                 <Label className="asm-label" htmlFor="series-cover">
@@ -297,30 +483,90 @@ export default function AddSeriesModal({
                 The loai <span className="asm-hint">(toi da 5)</span>
                 {genresLoading && <Loader2 className="ml-1 inline size-3 animate-spin text-muted-foreground" />}
               </Label>
-              <div className="asm-genres">
-                {genresLoading ? (
-                  <p className="text-xs text-muted-foreground py-2">Đang tải thể loại...</p>
-                ) : apiGenres.length > 0 ? (
-                  apiGenres.map(g => {
-                    const name = g.genreName ?? g.GenreName ?? g.name ?? g.Name ?? String(g)
-                    const active = form.genres.includes(name)
-                    return (
+
+              {/* Selected genre chips */}
+              {selectedGenreNames.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {selectedGenreNames.map((name, i) => (
+                    <Badge key={selectedGenreIds[i]} variant="secondary" className="pl-2 pr-1 py-0.5 text-xs gap-1">
+                      {name}
                       <button
-                        key={g.genreid ?? g.Genreid ?? g.id ?? name}
                         type="button"
-                        onClick={() => toggleGenre(name)}
-                        aria-pressed={active}
-                        className={cn('asm-genre-chip', active && 'asm-genre-chip--on')}
+                        onClick={() => toggleGenreById(selectedGenreIds[i])}
+                        className="ml-0.5 rounded-sm hover:bg-destructive/20"
                       >
-                        {active && <Check className="size-3" />}
-                        {name}
+                        <X className="size-3" />
                       </button>
-                    )
-                  })
-                ) : (
-                  <p className="text-xs text-muted-foreground py-2">Không tải được thể loại từ server.</p>
-                )}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Select
+                  value=""
+                  onValueChange={v => {
+                    const idMatch = v.match(/^id:(\d+)$/)
+                    if (idMatch) {
+                      toggleGenreById(Number(idMatch[1]))
+                    } else {
+                      const genre = apiGenres.find(g => g.name === v)
+                      if (genre && genre.id != null) toggleGenreById(genre.id)
+                    }
+                  }}
+                >
+                  <SelectTrigger className="asm-input flex-1">
+                    <SelectValue placeholder="Chon the loai..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {apiGenres
+                      .filter(g => !selectedGenreIds.includes(g.id))
+                      .map((g, i) => (
+                        <SelectItem key={itemKey(g, i)} value={itemKey(g, i)}>
+                          {g.name}
+                        </SelectItem>
+                      ))}
+                    {apiGenres.filter(g => !selectedGenreIds.includes(g.id)).length === 0 && (
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">Tat ca the loai da duoc chon</div>
+                    )}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1"
+                  onClick={() => setCreatingGenre(v => !v)}
+                >
+                  <Plus className="size-3" />
+                  Tao moi
+                </Button>
               </div>
+
+              {/* Inline tao genre */}
+              {creatingGenre && (
+                <div className="mt-2 flex gap-2">
+                  <Input
+                    className="asm-input flex-1"
+                    value={newGenreName}
+                    onChange={e => setNewGenreName(e.target.value)}
+                    placeholder="Ten the loai moi..."
+                    maxLength={40}
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleCreateGenre())}
+                  />
+                  <Button type="button" size="sm" onClick={handleCreateGenre} disabled={!newGenreName.trim() || creatingGenre}>
+                    {creatingGenre ? <Loader2 className="size-3 animate-spin" /> : 'Tao'}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => { setCreatingGenre(false); setNewGenreName('') }}>
+                    Huy
+                  </Button>
+                </div>
+              )}
+
+              {/* Loading state */}
+              {genresLoading && apiGenres.length === 0 && (
+                <p className="text-xs text-muted-foreground py-2">Dang tai the loai...</p>
+              )}
               {err('genres') && <p className="asm-error">{err('genres')}</p>}
             </div>
 
@@ -333,19 +579,28 @@ export default function AddSeriesModal({
                 </SelectTrigger>
                 <SelectContent>
                   {SERIES_CONTENT_RATINGS.map(r => (
-                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                    <SelectItem key={r.value} value={r.value}>
+                      <span className="font-medium">{r.label}</span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {/* Mo ta chi tiet cua rating dang chon */}
+              {form.contentRating && (() => {
+                const selected = SERIES_CONTENT_RATINGS.find(r => r.value === form.contentRating)
+                return selected?.description ? (
+                  <p className="mt-1 text-xs text-muted-foreground">{selected.description}</p>
+                ) : null
+              })()}
             </div>
           </section>
         </form>
 
         {/* Footer */}
         <div className="asm-footer">
-              {touched && !validation.ok ? (
-                <p className="asm-footer__warn">Vui long kiem tra cac truong con thieu</p>
-              ) : null}
+          {touched && !validation.ok ? (
+            <p className="asm-footer__warn">Vui long kiem tra cac truong con thieu</p>
+          ) : null}
           <Button type="button" variant="outline" onClick={handleClose} className="asm-btn-cancel">
             Huy
           </Button>
