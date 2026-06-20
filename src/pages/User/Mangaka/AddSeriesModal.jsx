@@ -26,23 +26,26 @@ import {
   SERIES_CONTENT_RATINGS,
   createEmptySeriesForm,
   seriesToForm,
-  validateSeriesForm,
 } from '@/utils/seriesModel.js'
 import { useGenres, useTags, useCreateGenre, useCreateTag } from '@/api/hooks'
 
 // Helper: lay ID tu 1 genre/tag item (co the la object hoac string)
-// Backend tra ve: genreid/genrename (GenreService) hoac tagid/tagname (TagService)
+// Response sau normalize: genre_id, genre_name, tag_id, tag_name
 function itemId(item) {
   if (!item) return null
   if (typeof item === 'object') {
-    return item.genreid ?? item.genreId ?? item.GenreId ?? item.tagid ?? item.tagId ?? item.TagId ?? item.id ?? null
+    return item.genre_id ?? item.genreid ?? item.genreId ?? item.GenreId
+      ?? item.tag_id ?? item.tagid ?? item.tagId ?? item.TagId
+      ?? item.id ?? null
   }
   return null
 }
 function itemName(item) {
   if (!item) return ''
   if (typeof item === 'object') {
-    const found = item.genrename ?? item.genreName ?? item.GenreName ?? item.tagname ?? item.tagName ?? item.TagName ?? item.name ?? item.Name ?? null
+    const found = item.genre_name ?? item.genrename ?? item.genreName ?? item.GenreName
+      ?? item.tag_name ?? item.tagname ?? item.tagName ?? item.TagName
+      ?? item.name ?? item.Name ?? null
     if (found == null) return ''
     if (typeof found === 'object') return JSON.stringify(found)
     return String(found)
@@ -150,10 +153,19 @@ export default function AddSeriesModal({
     return existingTitles.filter(t => String(t).toLowerCase() !== self)
   }, [existingTitles, isEdit, initialSeries])
 
-  const validation = useMemo(
-    () => validateSeriesForm(form, titlesForValidation),
-    [form, titlesForValidation],
-  )
+  // Inline validation: khop voi selectedGenreIds/tagIds thay vi form.genres/tagIds
+  const validation = useMemo(() => {
+    const errors = {}
+    const title = String(form.title ?? '').trim()
+    if (title.length < 2) errors.title = 'Tên series tối thiểu 2 ký tự.'
+    else if (titlesForValidation.some(t => String(t).toLowerCase() === title.toLowerCase())) {
+      errors.title = 'Đã có series trùng tên.'
+    }
+    const synopsis = String(form.synopsis ?? '').trim()
+    if (synopsis.length < 1) errors.synopsis = 'Vui lòng nhập tóm tắt.'
+    if (selectedGenreIds.length === 0) errors.genres = 'Chọn ít nhất một thể loại.'
+    return { ok: Object.keys(errors).length === 0, errors }
+  }, [form, titlesForValidation, selectedGenreIds])
 
   function patch(updates) {
     setForm(prev => ({ ...prev, ...updates }))
@@ -226,11 +238,9 @@ export default function AddSeriesModal({
     setTouched(true)
     if (!validation.ok) return
     // Gui genreIds/tagIds (numbers) de backend map
-    onSubmit(form, {
+    onSubmit({ ...form, genreIds: selectedGenreIds, tagIds: selectedTagIds }, {
       mode: isEdit ? 'edit' : 'create',
       seriesId: initialSeries?.id,
-      genreIds: selectedGenreIds,
-      tagIds: selectedTagIds,
     })
     if (!isEdit) {
       setForm(createEmptySeriesForm(authorName))
@@ -359,30 +369,23 @@ export default function AddSeriesModal({
                 <Select
                   value=""
                   onValueChange={v => {
-                    // itemKey tra ve 'id:5' hoac 'name:HanhDong'
-                    const idMatch = v.match(/^id:(\d+)$/)
-                    if (idMatch) {
-                      toggleTagById(Number(idMatch[1]))
-                    } else {
-                      // fallback: tim theo name
-                      const tag = apiTags.find(t => t.name === v)
-                      if (tag && tag.id != null) toggleTagById(tag.id)
-                    }
+                    const tag = apiTags.find(t => t.name === v)
+                    if (tag && tag.id != null) toggleTagById(tag.id)
                   }}
                 >
                   <SelectTrigger className="asm-input flex-1">
-                    <SelectValue placeholder="Chon tag..." />
+                    <SelectValue placeholder="Chọn tag..." />
                   </SelectTrigger>
                   <SelectContent>
                     {apiTags
                       .filter(t => !selectedTagIds.includes(t.id))
-                      .map((t, i) => (
-                        <SelectItem key={itemKey(t, i)} value={itemKey(t, i)}>
+                      .map((t) => (
+                        <SelectItem key={t.id} value={t.name}>
                           {t.name}
                         </SelectItem>
                       ))}
                     {apiTags.filter(t => !selectedTagIds.includes(t.id)).length === 0 && (
-                      <div className="px-2 py-1.5 text-xs text-muted-foreground">Tat ca tag da duoc chon</div>
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">Tất cả tag đã được chọn</div>
                     )}
                   </SelectContent>
                 </Select>
@@ -506,28 +509,23 @@ export default function AddSeriesModal({
                 <Select
                   value=""
                   onValueChange={v => {
-                    const idMatch = v.match(/^id:(\d+)$/)
-                    if (idMatch) {
-                      toggleGenreById(Number(idMatch[1]))
-                    } else {
-                      const genre = apiGenres.find(g => g.name === v)
-                      if (genre && genre.id != null) toggleGenreById(genre.id)
-                    }
+                    const genre = apiGenres.find(g => g.name === v)
+                    if (genre && genre.id != null) toggleGenreById(genre.id)
                   }}
                 >
                   <SelectTrigger className="asm-input flex-1">
-                    <SelectValue placeholder="Chon the loai..." />
+                    <SelectValue placeholder="Chọn thể loại..." />
                   </SelectTrigger>
                   <SelectContent>
                     {apiGenres
                       .filter(g => !selectedGenreIds.includes(g.id))
-                      .map((g, i) => (
-                        <SelectItem key={itemKey(g, i)} value={itemKey(g, i)}>
+                      .map((g) => (
+                        <SelectItem key={g.id} value={g.name}>
                           {g.name}
                         </SelectItem>
                       ))}
                     {apiGenres.filter(g => !selectedGenreIds.includes(g.id)).length === 0 && (
-                      <div className="px-2 py-1.5 text-xs text-muted-foreground">Tat ca the loai da duoc chon</div>
+                      <div className="px-2 py-1.5 text-xs text-muted-foreground">Tất cả thể loại đã được chọn</div>
                     )}
                   </SelectContent>
                 </Select>

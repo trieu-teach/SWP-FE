@@ -5,9 +5,36 @@ const baseURL = import.meta.env.DEV
   ? '/api'
   : (import.meta.env.VITE_API_URL ?? 'https://localhost:7243/api')
 
+// ── PascalCase → snake_case normalizer (recursive) ──────────────────────────────
+// Converts: Seriesid→series_id, GenreId→genre_id, Pageimageurl→page_image_url
+function toSnakeCase(key) {
+  return key
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z])([A-Z])/g, '$1_$2')
+    .toLowerCase()
+}
+
+function normalizeKeys(obj) {
+  if (obj === null || obj === undefined) return obj
+  if (typeof obj !== 'object') return obj
+  if (Array.isArray(obj)) return obj.map(normalizeKeys)
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [toSnakeCase(k), normalizeKeys(v)])
+  )
+}
+
 const instance = axios.create({
   baseURL,
   headers: { 'Content-Type': 'application/json' },
+  transformResponse: [
+    ...(axios.defaults.transformResponse ?? []),
+    (data) => {
+      if (typeof data === 'string') {
+        try { data = JSON.parse(data) } catch { return data }
+      }
+      return normalizeKeys(data)
+    },
+  ],
 })
 
 // ── Request interceptor ─────────────────────────────────────────────────────────

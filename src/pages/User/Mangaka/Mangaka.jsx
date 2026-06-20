@@ -872,9 +872,10 @@ export default function Mangaka() {
     const fd = new FormData()
     fd.append('title', newTitle)
     fd.append('synopsis', String(updated.synopsis ?? ''))
-    fd.append('agerating', String(updated.contentRating ?? 'all'))
-    if (Array.isArray(updated.genres)) updated.genres.forEach(g => fd.append('genreIds', String(g)))
-    if (Array.isArray(updated.tags)) updated.tags.forEach(t => fd.append('tagIds', String(t)))
+    fd.append('agerating', String(updated.contentRating ?? 'G'))
+    // Gui genreIds/tagIds (numbers tu modal props), khong phai string names
+    if (Array.isArray(form.genreIds)) form.genreIds.forEach(g => fd.append('genreIds', String(g)))
+    if (Array.isArray(form.tagIds)) form.tagIds.forEach(t => fd.append('tagIds', String(t)))
 
     updateSeries.mutate(
       { id: editingSeries.id, data: fd },
@@ -905,40 +906,27 @@ export default function Mangaka() {
       authorId: user?.id ?? null,
     })
 
-    // Gửi multipart tạo series trên server theo backend DTOs/SeriesDto.Create
+    // Gửi multipart tạo series trên server (PUT /api/Series)
     if (user?.id) {
       const fd = new FormData()
       fd.append('title', newSeries.title)
       fd.append('synopsis', String(newSeries.synopsis ?? ''))
       fd.append('mangakaid', String(user.id))
       fd.append('tantoueditorid', String(user.tantouEditorId ?? 1))
-      fd.append('agerating', String(newSeries.contentRating ?? 'all'))
-      if (Array.isArray(newSeries.genres)) {
-        newSeries.genres.forEach(g => fd.append('genreIds', String(g)))
+      fd.append('agerating', String(newSeries.contentRating ?? 'G'))
+      // Gui genreIds/tagIds (numbers tu modal), khong phai string names
+      if (Array.isArray(form.genreIds)) {
+        form.genreIds.forEach(g => fd.append('genreIds', String(g)))
       }
-      if (Array.isArray(newSeries.tags)) {
-        newSeries.tags.forEach(t => fd.append('tagIds', String(t)))
+      if (Array.isArray(form.tagIds)) {
+        form.tagIds.forEach(t => fd.append('tagIds', String(t)))
       }
-      // File bắt buộc theo backend — backend yêu cầu proposalFile + coverImage.
-      // Nếu chưa có file, dùng blob trống để vẫn tạo được (sẽ hiển thị empty cho đến khi upload lại).
-      if (form.proposalFile instanceof File) {
-        fd.append('proposalFile', form.proposalFile)
-      } else {
-        fd.append('proposalFile', new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: 'application/pdf' }), 'empty.pdf')
-      }
-      if (form.coverImage instanceof File) {
-        fd.append('coverImage', form.coverImage)
-      } else {
-        // Tạo PNG 1x1 làm fallback
-        const canvas = document.createElement('canvas')
-        canvas.width = 1
-        canvas.height = 1
-        canvas.toBlob((blob) => {
-          if (blob) fd.set('coverImage', blob, 'cover.png')
-          sendCreate(fd, newSeries)
-        }, 'image/png')
-        return
-      }
+      // File bat buoc - backend tra ve BadRequest neu thieu
+      const proposalFile = form.proposalFile instanceof File ? form.proposalFile : null
+      const coverFile = form.coverImage instanceof File ? form.coverImage : null
+      if (proposalFile) fd.append('proposalFile', proposalFile)
+      if (coverFile) fd.append('coverImage', coverFile)
+      // Neu chua co file, gui request de nhan loi tu server (hien toast thong bao)
       sendCreate(fd, newSeries)
       return
     }

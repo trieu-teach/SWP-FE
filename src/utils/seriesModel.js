@@ -374,38 +374,32 @@ export function buildSeriesFromUploadTitle(title, { id, authorName, colorIndex =
 
 /**
  * Map 1 record Series từ backend (DTOs/SeriesDto) sang shape local.
- * Backend fields: Seriesid, Title, Synopsis, Coverimageurl, Agerating, Mangakaid,
- *   Tantoueditorid, Publishformat, Status, Proposalfileurl, Createdat, Approvedat, Isdeleted,
- *   Genres[{GenreId, GenreName}], Tags[{TagId, TagName}]
+ * Axios response đã được normalize về snake_case:
+ *   series_id, title, synopsis, cover_image_url, proposal_file_url,
+ *   age_rating, publish_format, mangaka_id, tantou_editor_id,
+ *   genres[{genre_id, genre_name}], tags[{tag_id, tag_name}]
  */
 export function mapApiSeriesToLocal(raw, index = 0) {
   if (!raw) return null
-  const id = raw.seriesid ?? raw.Seriesid ?? raw.id ?? index + 1
-  const title = String(raw.title ?? raw.Title ?? '').trim() || `Series ${id}`
-  const status = String(raw.status ?? raw.Status ?? 'draft').toLowerCase()
-  // Backend trả PascalCase: Agerating, Publishformat, Proposalfileurl, Coverimageurl
-  // Axios mặc định giữ nguyên key như BE trả — thêm fallback để đề phòng
-  // Gia tri backend: 'G', 'PG-13', 'R-16', 'R-18'
-  const agerating = String(raw.agerating ?? raw.Agerating ?? raw.ageRating ?? 'G').toUpperCase()
+  const id = raw.series_id ?? raw.id ?? index + 1
+  const title = String(raw.title ?? '').trim() || `Series ${id}`
+  const status = String(raw.status ?? 'draft').toLowerCase()
+  const agerating = String(raw.age_rating ?? 'G').toUpperCase()
   const validRatings = ['G', 'PG-13', 'R-16', 'R-18']
   const safeRating = validRatings.includes(agerating) ? agerating : 'G'
-  const pubFormat = String(raw.publishformat ?? raw.Publishformat ?? raw.publishFormat ?? 'continuing')
+  const pubFormat = String(raw.publish_format ?? 'continuing')
   return normalizeSeries({
     id,
     seriesid: id,
     title,
     altTitle: title,
-    synopsis: String(raw.synopsis ?? raw.Synopsis ?? '').trim(),
-    coverImage: raw.coverimageurl ?? raw.Coverimageurl ?? null,
-    proposalFileUrl: raw.proposalfileurl ?? raw.Proposalfileurl ?? null,
+    synopsis: String(raw.synopsis ?? '').trim(),
+    coverImage: raw.cover_image_url ?? null,
+    proposalFileUrl: raw.proposal_file_url ?? null,
     genres: Array.isArray(raw.genres)
       ? raw.genres.map(g => {
-          const v = g.genreName ?? g.GenreName ?? null
-          // Co the la object localized: { en: "Action", vi: "Han dong" } — lay gia tri dau tien
+          const v = g.genre_name ?? g.genreName ?? null
           if (typeof v === 'object' && v !== null) {
-            // #region agent log
-            fetch('http://127.0.0.1:7408/ingest/7abff659-e789-4be1-a01f-308a5700c006',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'08350d'},body:JSON.stringify({sessionId:'08350d',location:'seriesModel.js:mapApiSeriesToLocal',message:'genreName is object, extracting value',data:{rawGenreName: v, extracted: Object.values(v)[0]},timestamp:Date.now()})}).catch(()=>{})
-            // #endregion
             return Object.values(v).find(val => typeof val === 'string' && val) ?? null
           }
           return typeof v === 'string' ? v : null
@@ -413,7 +407,7 @@ export function mapApiSeriesToLocal(raw, index = 0) {
       : [],
     tags: Array.isArray(raw.tags)
       ? raw.tags.map(t => {
-          const v = t.tagName ?? t.TagName ?? null
+          const v = t.tag_name ?? t.tagName ?? null
           if (typeof v === 'object' && v !== null) {
             return Object.values(v).find(val => typeof val === 'string' && val) ?? null
           }
@@ -425,16 +419,16 @@ export function mapApiSeriesToLocal(raw, index = 0) {
     publishType: pubFormat,
     needsFullDebutPipeline: pubFormat.toLowerCase() === 'debut',
     authorName: 'Mangaka',
-    mangakaid: raw.mangakaid ?? raw.Mangakaid,
-    tantoueditorid: raw.tantoueditorid ?? raw.Tantoueditorid,
+    mangakaid: raw.mangaka_id ?? raw.mangakaid,
+    tantoueditorid: raw.tantou_editor_id ?? raw.tantoueditorid,
     chapters: 0,
     marks: 0,
     status: status === 'approved' ? 'done' : status === 'pending' ? 'review' : 'draft',
     updated: 'Cập nhật từ server',
     progress: 0,
-    metadataComplete: Boolean(String(raw.synopsis ?? raw.Synopsis ?? '').trim()),
-    createdat: raw.createdat ?? raw.Createdat,
-    approvedat: raw.approvedat ?? raw.Approvedat,
+    metadataComplete: Boolean(String(raw.synopsis ?? '').trim()),
+    createdat: raw.created_at ?? raw.createdat,
+    approvedat: raw.approved_at ?? raw.approvedat,
   })
 }
 
