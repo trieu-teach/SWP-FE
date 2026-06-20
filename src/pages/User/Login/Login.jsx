@@ -9,29 +9,24 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { getSession, getRolePath, mockLogin } from '@/lib/auth.js'
+import { login, getRolePath } from '@/lib/auth.js'
 
 const NAV_LINKS = [{ to: '/', label: 'Trang chủ' }]
 
-export { ROLES, ROLE_OPTIONS, ROLE_LABELS, getRolePath, getSession, logout, mockLogin, mockRegister } from '@/lib/auth.js'
+export { ROLES, ROLE_OPTIONS, ROLE_LABELS, getRolePath, logout } from '@/lib/auth.js'
 
 export default function Login() {
   const navigate = useNavigate()
-  const [form, setForm] = useState({ email: '', password: '' })
+  const [form, setForm] = useState({ username: '', password: '' })
   const [remember, setRemember] = useState(false)
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    const user = getSession()
-    if (user) {
-      navigate(getRolePath(user.role), { replace: true })
-      return
-    }
-    const saved = sessionStorage.getItem('rememberEmail')
-    if (saved) setForm(f => ({ ...f, email: saved }))
-  }, [navigate])
+    const saved = sessionStorage.getItem('rememberUsername')
+    if (saved) setForm(f => ({ ...f, username: saved }))
+  }, [])
 
   function setField(key, val) {
     setForm(f => ({ ...f, [key]: val }))
@@ -40,8 +35,8 @@ export default function Login() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!form.email.trim() || !form.password) {
-      setError('Vui lòng nhập email và mật khẩu.')
+    if (!form.username.trim() || !form.password) {
+      setError('Vui lòng nhập tên đăng nhập và mật khẩu.')
       return
     }
 
@@ -49,12 +44,16 @@ export default function Login() {
     setError('')
 
     try {
-      const user = await mockLogin(form.email, form.password)
-      if (remember) sessionStorage.setItem('rememberEmail', form.email.trim())
-      else sessionStorage.removeItem('rememberEmail')
-      navigate(getRolePath(user.role))
+      const user = await login(form.username.trim(), form.password)
+      if (remember) sessionStorage.setItem('rememberUsername', form.username.trim())
+      else sessionStorage.removeItem('rememberUsername')
+      navigate(getRolePath(user.role) || '/')
     } catch (err) {
-      setError(err?.message ?? 'Đăng nhập thất bại.')
+      const status = err?.response?.status
+      const msg = err?.response?.data
+        ? (typeof err.response.data === 'string' ? err.response.data : err.response.data?.message ?? JSON.stringify(err.response.data))
+        : err?.message
+      setError(status === 401 ? 'Sai tên đăng nhập hoặc mật khẩu.' : (msg || 'Đăng nhập thất bại.'))
     } finally {
       setLoading(false)
     }
@@ -65,7 +64,7 @@ export default function Login() {
       <Header links={NAV_LINKS} />
       <AuthShell
         title="Đăng nhập workspace"
-        subtitle="Demo: mangaka@test.com / assistant@test.com — mật khẩu 123456. Mỗi email gắn một vai trò."
+        subtitle="Tài khoản Mangaka/Assistant tự đăng ký. Tantou Editor / Editor Board / Admin do quản trị cấp."
         footer={
           <p className="text-center text-sm text-muted-foreground">
             Chưa có tài khoản?{' '}
@@ -78,7 +77,7 @@ export default function Login() {
         <Card className="border-0 shadow-lg">
           <CardHeader>
             <CardTitle>Đăng nhập</CardTitle>
-            <CardDescription>Email đã đăng ký sẽ luôn đăng nhập với đúng một vai trò.</CardDescription>
+            <CardDescription>Tên đăng nhập gắn liền một vai trò — không thể tự đổi.</CardDescription>
           </CardHeader>
           <CardContent>
             {error ? (
@@ -89,14 +88,14 @@ export default function Login() {
 
             <form className="space-y-4" onSubmit={handleSubmit} noValidate>
               <div className="space-y-2">
-                <Label htmlFor="login-email">Email</Label>
+                <Label htmlFor="login-username">Tên đăng nhập</Label>
                 <Input
-                  id="login-email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="ban@example.com"
-                  value={form.email}
-                  onChange={e => setField('email', e.target.value)}
+                  id="login-username"
+                  type="text"
+                  autoComplete="username"
+                  placeholder="mangaka_demo"
+                  value={form.username}
+                  onChange={e => setField('username', e.target.value)}
                 />
               </div>
 
@@ -133,7 +132,7 @@ export default function Login() {
                     onChange={e => setRemember(e.target.checked)}
                     className="rounded border-input"
                   />
-                  <span className="text-muted-foreground">Ghi nhớ email</span>
+                  <span className="text-muted-foreground">Ghi nhớ tên đăng nhập</span>
                 </label>
               </div>
 

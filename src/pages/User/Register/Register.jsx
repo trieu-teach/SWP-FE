@@ -12,16 +12,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import {
   ROLES,
   ROLE_OPTIONS,
+  register,
   getRolePath,
-  mockRegister,
 } from '@/lib/auth.js'
 
 const NAV_LINKS = [{ to: '/', label: 'Trang chủ' }]
 
+const ROLE_ICONS = {
+  MANGAKA: '✍️',
+  ASSISTANT: '🎨',
+}
+
+const ROLE_DESCS = {
+  MANGAKA: 'Tạo series, upload chapter, đánh dấu vùng giao việc cho Assistant.',
+  ASSISTANT: 'Nhận draft từ Mangaka, vẽ layer trong suốt và gửi lại bản ghép.',
+}
+
 export default function Register() {
   const navigate = useNavigate()
   const [form, setForm] = useState({
-    name: '',
+    username: '',
+    fullName: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -39,7 +50,9 @@ export default function Register() {
   }
 
   function validate() {
-    if (!form.name.trim()) return 'Vui lòng nhập họ tên.'
+    if (!form.username.trim()) return 'Vui lòng nhập tên đăng nhập.'
+    if (form.username.trim().length < 3) return 'Tên đăng nhập phải có ít nhất 3 ký tự.'
+    if (!form.fullName.trim()) return 'Vui lòng nhập họ tên.'
     if (!form.email.trim()) return 'Vui lòng nhập email.'
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return 'Email không hợp lệ.'
     if (!form.role) return 'Vui lòng chọn vai trò.'
@@ -61,15 +74,22 @@ export default function Register() {
     setError('')
 
     try {
-      const user = await mockRegister({
-        name: form.name,
-        email: form.email,
+      const user = await register({
+        username: form.username.trim(),
+        fullName: form.fullName.trim(),
+        email: form.email.trim(),
         password: form.password,
         role: form.role,
       })
-      navigate(getRolePath(user.role))
+      navigate(getRolePath(user.role) || '/')
     } catch (err) {
-      setError(err?.message ?? 'Đăng ký thất bại. Vui lòng thử lại.')
+      const status = err?.response?.status
+      const body = err?.response?.data
+      const message = typeof body === 'string' ? body : body?.message ?? body?.title
+      let text = message || err?.message || 'Đăng ký thất bại. Vui lòng thử lại.'
+      if (status === 409) text = 'Tên đăng nhập đã tồn tại.'
+      else if (status === 400) text = message || 'Dữ liệu không hợp lệ (chỉ được đăng ký Mangaka hoặc Assistant).'
+      setError(text)
     } finally {
       setLoading(false)
     }
@@ -80,7 +100,7 @@ export default function Register() {
       <Header links={NAV_LINKS} />
       <AuthShell
         title="Tham gia MangaHub"
-        subtitle="Đăng ký Mangaka hoặc Assistant. Tantou Editor / Editor Board do Admin cấp tài khoản."
+        subtitle="Tự đăng ký với vai trò Mangaka hoặc Assistant. Tantou Editor / Editor Board / Admin do quản trị cấp tài khoản."
         footer={
           <p className="text-center text-sm text-muted-foreground">
             Đã có tài khoản?{' '}
@@ -110,24 +130,36 @@ export default function Register() {
                     <RoleCard
                       key={opt.value}
                       active={form.role === opt.value}
-                      icon={opt.icon}
-                      title={opt.title}
-                      desc={opt.desc}
+                      icon={ROLE_ICONS[opt.value] ?? opt.icon ?? '👤'}
+                      title={opt.label}
+                      desc={ROLE_DESCS[opt.value] ?? opt.desc}
                       onSelect={() => setField('role', opt.value)}
                     />
                   ))}
                 </div>
               </fieldset>
 
-              <div className="space-y-2">
-                <Label htmlFor="reg-name">Họ và tên</Label>
-                <Input
-                  id="reg-name"
-                  autoComplete="name"
-                  placeholder="Nguyễn Văn A"
-                  value={form.name}
-                  onChange={e => setField('name', e.target.value)}
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="reg-username">Tên đăng nhập</Label>
+                  <Input
+                    id="reg-username"
+                    autoComplete="username"
+                    placeholder="mangaka_demo"
+                    value={form.username}
+                    onChange={e => setField('username', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="reg-name">Họ và tên</Label>
+                  <Input
+                    id="reg-name"
+                    autoComplete="name"
+                    placeholder="Nguyễn Văn A"
+                    value={form.fullName}
+                    onChange={e => setField('fullName', e.target.value)}
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

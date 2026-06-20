@@ -1,20 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
   ArrowDownToLine,
-  Brush,
   CheckCircle2,
   Clock,
-  DollarSign,
   Eye,
   EyeOff,
-  Handshake,
   Image as ImageIcon,
   Inbox,
   Layers as LayersIcon,
   Lightbulb,
-  Lock,
   Pencil,
   Plus,
   Send,
@@ -36,37 +32,27 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { getSession, logout } from '@/lib/auth.js'
-import { LAYER_ACCENT_COLORS } from '@/constants/paintPalette.js'
-import { MANGA_PAGE_HEIGHT, MANGA_PAGE_WIDTH } from '@/constants/mangaPageDimensions.js'
-import { noteTaskLabel } from '@/constants/workspaceTasks.js'
-import {
-  hydrateAssistantSubmission,
-  listAssistantSubmissions,
-  loadAssistantPaintLayers,
-  migrateAssistantStorage,
-  pushAssistantDeliverable,
-  saveAssistantPaintLayers,
-  updateAssistantSubmission,
-} from '@/utils/assistantWorkspaceStorage.js'
-import { getAssistantByUserId } from '@/constants/assistantCatalog.js'
-import {
-  listPendingRequestsForAssistantUser,
-  respondToHireRequest,
-} from '@/utils/assistantRosterStorage.js'
+import { useAssistantAssignments } from '@/hooks/useAssistantAssignments.js'
+import { usePageLayers } from '@/hooks/usePageLayers.js'
+import { pageIssuesService } from '@/api/api.js'
+import { LAYER_ACCENT_COLORS } from '@/constants/assistantPaintPalette.js'
+import { NOTE_TASK_LABELS } from '@/constants/assistantWorkspaceTasks.js'
 import '@/styles/mangaPage.css'
+import {
+  pushAssistantDeliverable,
+} from '@/utils/assistantWorkspaceStorage.js'
 
-const NAV_LINKS = [{ to: '/', label: 'Trang chủ' }]
+const NAV_LINKS = [{ to: '/', label: 'Trang chu' }]
 
 const STATS = [
-  { label: 'Việc được giao', icon: Inbox, color: 'sky' },
-  { label: 'Đang xử lý', icon: Brush, color: 'violet' },
-  { label: 'Chờ Mangaka duyệt', icon: Clock, color: 'amber' },
-  { label: 'Trang đã duyệt', icon: CheckCircle2, color: 'emerald' },
-  { label: 'Thu nhập tháng này', icon: DollarSign, color: 'rose' },
+  { label: 'Chapter nhan', icon: Inbox, color: 'sky' },
+  { label: 'Dang xu ly', icon: LayersIcon, color: 'violet' },
+  { label: 'Cho duyet', icon: Clock, color: 'amber' },
+  { label: 'Da duyet', icon: CheckCircle2, color: 'emerald' },
+  { label: 'Thu nhap thang', icon: TrendingUp, color: 'rose' },
 ]
 
 const STAT_ICON_BG = {
@@ -78,16 +64,11 @@ const STAT_ICON_BG = {
 }
 
 const STATUS_BADGE = {
-  pending_assistant: { label: 'Chờ nhận', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400' },
-  in_progress: { label: 'Đang vẽ', className: 'bg-violet-100 text-violet-700 hover:bg-violet-100 dark:bg-violet-500/15 dark:text-violet-400' },
-  submitted_to_mangaka: { label: 'Đã gửi', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400' },
+  pending: { label: 'Cho nhan', className: 'bg-amber-100 text-amber-700' },
+  in_progress: { label: 'Dang xu ly', className: 'bg-violet-100 text-violet-700' },
+  submitted: { label: 'Da gui', className: 'bg-emerald-100 text-emerald-700' },
+  approved: { label: 'Da duyet', className: 'bg-green-100 text-green-700' },
 }
-
-const INCOME_MONTHS = [
-  { month: '05/2026', pages: 24, amount: '4.2M' },
-  { month: '04/2026', pages: 19, amount: '3.1M' },
-  { month: '03/2026', pages: 22, amount: '3.6M' },
-]
 
 function uid(prefix = 'layer') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -102,97 +83,6 @@ function fileToDataUrl(file) {
   })
 }
 
-function loadImage(src) {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = src
-  })
-}
-
-function drawFitted(ctx, img, width, height) {
-  const iw = img.naturalWidth || img.width || 1
-  const ih = img.naturalHeight || img.height || 1
-  const scale = Math.min(width / iw, height / ih)
-  const w = iw * scale
-  const h = ih * scale
-  const x = (width - w) / 2
-  const y = (height - h) / 2
-  ctx.drawImage(img, x, y, w, h)
-}
-
-async function renderComposite({
-  baseUrl,
-  notes,
-  paintLayers,
-  notesVisible,
-  includeBase,
-  transparentBg,
-}) {
-  const W = MANGA_PAGE_WIDTH
-  const H = MANGA_PAGE_HEIGHT
-  const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return null
-
-  if (!transparentBg) {
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, W, H)
-  }
-
-  if (includeBase && baseUrl) {
-    try {
-      const img = await loadImage(baseUrl)
-      drawFitted(ctx, img, W, H)
-    } catch {
-      /* ignore */
-    }
-  }
-
-  for (const layer of paintLayers) {
-    if (!layer.visible || !layer.dataUrl) continue
-    try {
-      const img = await loadImage(layer.dataUrl)
-      ctx.globalAlpha = Math.max(0, Math.min(1, (layer.opacity ?? 100) / 100))
-      drawFitted(ctx, img, W, H)
-      ctx.globalAlpha = 1
-    } catch {
-      /* ignore */
-    }
-  }
-
-  if (notesVisible && notes?.length) {
-    notes.forEach((n, idx) => {
-      const x = (n.x / 100) * W
-      const y = (n.y / 100) * H
-      const w = (n.w / 100) * W
-      const h = (n.h / 100) * H
-      ctx.save()
-      ctx.fillStyle = 'rgba(230, 57, 70, 0.10)'
-      ctx.fillRect(x, y, w, h)
-      ctx.strokeStyle = '#e63946'
-      ctx.lineWidth = 2
-      ctx.setLineDash([8, 5])
-      ctx.strokeRect(x, y, w, h)
-      ctx.setLineDash([])
-      ctx.fillStyle = 'rgba(230, 57, 70, 0.92)'
-      ctx.fillRect(x, y, 22, 18)
-      ctx.fillStyle = '#fff'
-      ctx.font = 'bold 12px system-ui, sans-serif'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText(String(idx + 1), x + 11, y + 9)
-      ctx.restore()
-    })
-  }
-
-  return canvas.toDataURL('image/png')
-}
-
 function LayerStack({ baseUrl, notes, baseVisible, notesVisible, paintLayers, className }) {
   return (
     <div
@@ -205,11 +95,10 @@ function LayerStack({ baseUrl, notes, baseVisible, notesVisible, paintLayers, cl
         <img src={baseUrl} alt="" className="manga-page__media absolute inset-0 size-full" />
       ) : (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/80 text-xs text-zinc-500">
-          {baseUrl ? 'Layer ảnh gốc đang ẩn' : 'Chưa có ảnh gốc'}
+          {baseUrl ? 'Anh goc dang an' : 'Chua co anh goc'}
         </div>
       )}
-
-      {paintLayers.map(layer => (
+      {paintLayers.map(layer =>
         layer.visible && layer.dataUrl ? (
           <img
             key={layer.id}
@@ -219,15 +108,19 @@ function LayerStack({ baseUrl, notes, baseVisible, notesVisible, paintLayers, cl
             style={{ opacity: Math.max(0, Math.min(1, (layer.opacity ?? 100) / 100)) }}
           />
         ) : null
-      ))}
-
+      )}
       {notesVisible && notes?.length ? (
         <div className="pointer-events-none absolute inset-0">
           {notes.map((n, idx) => (
             <div
-              key={n.id ?? idx}
+              key={n.pageissueid ?? n.Pageissueid ?? n.issueid ?? n.Issueid ?? idx}
               className="absolute rounded-md border-2 border-dashed border-rose-500/90 bg-rose-500/10"
-              style={{ left: `${n.x}%`, top: `${n.y}%`, width: `${n.w}%`, height: `${n.h}%` }}
+              style={{
+                left: `${n.boxx ?? n.boxX ?? n.BoxX ?? 0}%`,
+                top: `${n.boxy ?? n.boxY ?? n.BoxY ?? 0}%`,
+                width: `${n.boxwidth ?? n.boxWidth ?? n.BoxWidth ?? 10}%`,
+                height: `${n.boxheight ?? n.boxHeight ?? n.BoxHeight ?? 10}%`,
+              }}
             >
               <span className="absolute left-1 top-1 flex size-5 items-center justify-center rounded-sm bg-rose-500 text-[10px] font-bold text-white shadow">
                 {idx + 1}
@@ -240,10 +133,7 @@ function LayerStack({ baseUrl, notes, baseVisible, notesVisible, paintLayers, cl
   )
 }
 
-function LayerRow({ layer, accent, onToggle, onChangeOpacity, onRename, onRemove, onPickFile }) {
-  const isLocked = !!layer.locked
-  const isPaint = layer.type === 'paint'
-
+function LayerRow({ layer, accent, onToggle, onChangeOpacity, onRemove, onPickFile }) {
   return (
     <li
       className={cn(
@@ -257,70 +147,41 @@ function LayerRow({ layer, accent, onToggle, onChangeOpacity, onRename, onRemove
           size="icon-sm"
           variant={layer.visible ? 'default' : 'outline'}
           onClick={() => onToggle(layer.id)}
-          disabled={isLocked && layer.type === 'base'}
-          aria-label={layer.visible ? 'Ẩn layer' : 'Hiện layer'}
-          title={layer.visible ? 'Ẩn layer' : 'Hiện layer'}
+          aria-label={layer.visible ? 'An layer' : 'Hien layer'}
         >
           {layer.visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
         </Button>
-
         <div className="size-10 shrink-0 overflow-hidden rounded border bg-muted">
-          {layer.thumbUrl ? (
-            <img src={layer.thumbUrl} alt="" className="size-full object-contain" />
+          {layer.dataUrl ? (
+            <img src={layer.dataUrl} alt="" className="size-full object-contain" />
           ) : (
-            <span className="flex size-full items-center justify-center text-base">
-              {layer.type === 'base' ? '🖼️' : layer.type === 'notes' ? '📝' : '🎨'}
-            </span>
+            <span className="flex size-full items-center justify-center text-base">🎨</span>
           )}
         </div>
-
         <div className="min-w-0 flex-1">
-          {isPaint && onRename ? (
-            <Input
-              value={layer.name}
-              onChange={(e) => onRename(layer.id, e.target.value)}
-              className="h-7 px-2 text-sm"
-            />
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <span className="truncate text-sm font-medium">{layer.name}</span>
-              {isLocked ? <Lock className="size-3 text-muted-foreground" /> : null}
-            </div>
-          )}
-          <p className="text-[10px] text-muted-foreground">
-            {layer.type === 'base'
-              ? 'Ảnh gốc Mangaka gửi'
-              : layer.type === 'notes'
-                ? 'Ô ghi chú từ Mangaka'
-                : 'Layer Assistant tải lên'}
-          </p>
+          <span className="truncate text-sm font-medium">{layer.name}</span>
+          <p className="text-[10px] text-muted-foreground">Layer Assistant tai len</p>
         </div>
-
-        {isPaint ? (
-          <div className="flex items-center gap-1">
-            {onPickFile ? (
-              <Button size="icon-sm" variant="ghost" onClick={() => onPickFile(layer.id)} title="Thay file">
-                <Upload className="size-3.5" />
-              </Button>
-            ) : null}
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              onClick={() => onRemove(layer.id)}
-              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-              title="Xóa layer"
-            >
-              <Trash2 className="size-3.5" />
+        <div className="flex items-center gap-1">
+          {onPickFile ? (
+            <Button size="icon-sm" variant="ghost" onClick={() => onPickFile(layer.id)} title="Thay file">
+              <Upload className="size-3.5" />
             </Button>
-          </div>
-        ) : null}
+          ) : null}
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            onClick={() => onRemove(layer.id)}
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            title="Xoa layer"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
       </div>
-
-      {isPaint && layer.visible ? (
+      {layer.visible ? (
         <div className="mt-2 flex items-center gap-2 pl-11">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Đậm
-          </span>
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Dam</span>
           <input
             type="range"
             min={10}
@@ -341,154 +202,87 @@ function LayerRow({ layer, accent, onToggle, onChangeOpacity, onRename, onRemove
 
 export default function Assistant() {
   const navigate = useNavigate()
-  const user = getSession()
+  const session = getSession()
+  const user = session ?? {}
 
-  const [submissions, setSubmissions] = useState(() => listAssistantSubmissions())
-  const [selectedId, setSelectedId] = useState(() => listAssistantSubmissions()[0]?.id ?? null)
+  const { assignments, loading: assignmentsLoading } = useAssistantAssignments()
+  const [selectedChapterId, setSelectedChapterId] = useState(null)
   const [baseVisible, setBaseVisible] = useState(true)
   const [notesVisible, setNotesVisible] = useState(true)
   const [paintLayers, setPaintLayers] = useState([])
   const [busy, setBusy] = useState(false)
   const [layerToReplace, setLayerToReplace] = useState(null)
-  const [hydratedSelected, setHydratedSelected] = useState(null)
-  const skipNextPersistRef = useRef(false)
-  const [hireRequests, setHireRequests] = useState([])
-  const [hireBusyId, setHireBusyId] = useState(null)
+  const [pageNotes, setPageNotes] = useState([])
 
-  const assistantProfile = useMemo(
-    () => (user?.id ? getAssistantByUserId(user.id) : null),
-    [user?.id],
+  const selectedAssignment = useMemo(
+    () => assignments.find(a => a.chapterId === selectedChapterId) ?? null,
+    [assignments, selectedChapterId],
   )
 
-  const reloadHireRequests = useCallback(() => {
-    if (!user?.id) {
-      setHireRequests([])
+  const safePageIdx = 0
+  const safePage = selectedAssignment?.pages?.[safePageIdx] ?? null
+
+  const layersApi = usePageLayers(safePage?.id ?? null)
+  const { layers: remoteLayers, loading: remoteLoading, uploading, refresh: refreshLayers, addLayer } = layersApi
+
+  useEffect(() => {
+    if (!safePage?.id) { setPageNotes([]); return }
+    pageIssuesService.getAll(selectedAssignment?.chapterId).then(res => {
+      const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
+      setPageNotes(list)
+    }).catch(() => setPageNotes([]))
+  }, [safePage?.id, selectedAssignment?.chapterId])
+
+  useEffect(() => {
+    setPaintLayers(prev => {
+      if (prev.length === remoteLayers.length && prev.every((l, i) => l.id === remoteLayers[i]?.id)) return prev
+      return remoteLayers.map(l => ({
+        id: l.id,
+        name: l.name,
+        dataUrl: l.imageUrl,
+        thumbUrl: l.imageUrl,
+        visible: l.visible ?? true,
+        opacity: l.opacity ?? 100,
+        type: 'paint',
+      }))
+    })
+  }, [remoteLayers])
+
+  useEffect(() => {
+    if (!assignments.length) {
+      setSelectedChapterId(null)
       return
     }
-    setHireRequests(listPendingRequestsForAssistantUser(user.id))
-  }, [user?.id])
-
-  const reloadInbox = useCallback(() => {
-    const list = listAssistantSubmissions()
-    setSubmissions(list)
-    if (!list.some(s => s.id === selectedId)) {
-      setSelectedId(list[0]?.id ?? null)
+    if (!assignments.some(a => a.chapterId === selectedChapterId)) {
+      setSelectedChapterId(assignments[0]?.chapterId ?? null)
     }
-  }, [selectedId])
+  }, [assignments.length, selectedChapterId])
 
-  useEffect(() => {
-    migrateAssistantStorage().finally(() => reloadInbox())
-    const onSync = () => reloadInbox()
-    window.addEventListener('storage', onSync)
-    window.addEventListener('mk-assistant-storage', onSync)
-    return () => {
-      window.removeEventListener('storage', onSync)
-      window.removeEventListener('mk-assistant-storage', onSync)
-    }
-  }, [reloadInbox])
-
-  useEffect(() => {
-    reloadHireRequests()
-    const onRoster = () => reloadHireRequests()
-    window.addEventListener('storage', onRoster)
-    window.addEventListener('mk-assistant-roster-update', onRoster)
-    return () => {
-      window.removeEventListener('storage', onRoster)
-      window.removeEventListener('mk-assistant-roster-update', onRoster)
-    }
-  }, [reloadHireRequests])
-
-  const selectedSlim = useMemo(
-    () => submissions.find(s => s.id === selectedId) ?? null,
-    [submissions, selectedId],
-  )
-
-  // Hydrate selected submission (load mangakaImageUrl from IDB if needed)
-  useEffect(() => {
-    if (!selectedSlim) {
-      setHydratedSelected(null)
-      return undefined
-    }
-    let cancelled = false
-    hydrateAssistantSubmission(selectedSlim).then(h => {
-      if (!cancelled) setHydratedSelected(h)
-    })
-    return () => { cancelled = true }
-  }, [selectedSlim])
-
-  const selected = hydratedSelected ?? selectedSlim
-
-  // Load paint layers from IDB whenever selected changes
-  useEffect(() => {
-    if (!selectedSlim) {
-      setPaintLayers([])
-      return undefined
-    }
-    let cancelled = false
-    setBaseVisible(true)
-    setNotesVisible(true)
-    loadAssistantPaintLayers(selectedSlim.id).then(layers => {
-      if (cancelled) return
-      skipNextPersistRef.current = true
-      setPaintLayers(layers)
-    })
-    if (selectedSlim.status === 'pending_assistant') {
-      updateAssistantSubmission(selectedSlim.id, { status: 'in_progress' })
-      reloadInbox()
-    }
-    return () => { cancelled = true }
-  }, [selectedSlim?.id])
-
-  // Persist paint layers (skip if state was just loaded from IDB)
-  useEffect(() => {
-    if (!selectedSlim) return
-    if (skipNextPersistRef.current) {
-      skipNextPersistRef.current = false
-      return
-    }
-    saveAssistantPaintLayers(selectedSlim.id, paintLayers).catch((err) => {
-      console.error('saveAssistantPaintLayers failed', err)
-      toast.error('Không lưu được layer.')
-    })
-  }, [paintLayers, selectedSlim?.id])
+  const visibleLayerCount = paintLayers.filter(l => l.visible && l.dataUrl).length
 
   const statsDisplayed = useMemo(() => {
-    const progress = submissions.filter(s => s.status === 'in_progress').length
-    const review = submissions.filter(s => s.status === 'submitted_to_mangaka').length
+    const progress = assignments.filter(a => a.status === 'in_progress').length
+    const review = assignments.filter(a => a.status === 'submitted').length
+    const approved = assignments.filter(a => a.status === 'approved').length
     return [
-      { ...STATS[0], value: String(submissions.length) },
-      { ...STATS[1], value: String(progress || (selected ? 1 : 0)) },
+      { ...STATS[0], value: String(assignments.length || 0) },
+      { ...STATS[1], value: String(progress || (selectedAssignment ? 1 : 0)) },
       { ...STATS[2], value: String(review) },
-      { ...STATS[3], value: '24' },
-      { ...STATS[4], value: '4.2M' },
+      { ...STATS[3], value: String(approved) },
+      { ...STATS[4], value: '—' },
     ]
-  }, [submissions, selected])
+  }, [assignments, selectedAssignment])
 
   function handleLogout() {
     logout()
     navigate('/login')
   }
 
-  async function handleHireResponse(requestId, accept) {
-    if (!user?.id) return
-    setHireBusyId(requestId)
-    try {
-      const result = respondToHireRequest(requestId, accept, user.id)
-      if (accept) {
-        toast.success('Đã chấp nhận — bạn đã thêm vào đội của Mangaka này.')
-      } else {
-        toast.message('Đã từ chối yêu cầu thuê.')
-      }
-      reloadHireRequests()
-    } catch (err) {
-      toast.error(err?.message ?? 'Không xử lý được yêu cầu.')
-    } finally {
-      setHireBusyId(null)
-    }
-  }
-
-  function handleSelectSubmission(sub) {
-    setSelectedId(sub.id)
+  function handleSelectChapter(chapter) {
+    setSelectedChapterId(chapter.chapterId)
+    setPaintLayers([])
+    setNotesVisible(true)
+    setBaseVisible(true)
   }
 
   function toggleLayerVisible(layerId) {
@@ -506,47 +300,75 @@ export default function Assistant() {
   function removeLayer(layerId) {
     const layer = paintLayers.find(l => l.id === layerId)
     if (!layer) return
-    if (!window.confirm(`Xóa layer "${layer.name}"? Thao tác này không hoàn tác.`)) return
+    if (!window.confirm(`Xoa layer "${layer.name}"? Thao tac nay khong hoan tac.`)) return
     setPaintLayers(prev => prev.filter(l => l.id !== layerId))
   }
 
   async function handleAddLayerFiles(files, replaceLayerId = null) {
-    if (!selected || !files?.length) return
+    if (!safePage || !files?.length) return
     const arr = Array.from(files).filter(f => f.type.startsWith('image/'))
     if (!arr.length) {
-      toast.error('Chỉ chấp nhận file ảnh (PNG/JPG/WebP).')
+      toast.error('Chi chap nhan file anh (PNG/JPG/WebP).')
       return
     }
     setBusy(true)
     try {
       const filesToRead = replaceLayerId ? arr.slice(0, 1) : arr
       const dataUrls = await Promise.all(filesToRead.map(fileToDataUrl))
+
+      // Push to backend API
+      const createdLayers = []
+      for (let i = 0; i < filesToRead.length; i++) {
+        const file = filesToRead[i]
+        const idx = replaceLayerId ? -1 : paintLayers.length + i
+        try {
+          const ui = await layersApi.addLayer({ file, index: idx, uploaderId: user?.id ?? null })
+          if (ui) createdLayers.push(ui)
+        } catch {
+          // API failed — still add locally so user doesn't lose work
+        }
+      }
+
       setPaintLayers(prev => {
         if (replaceLayerId) {
-          return prev.map(l => (
+          // Replace: keep remote layer id if available, else update dataUrl
+          const remoteLayer = createdLayers[0]
+          return prev.map(l =>
             l.id === replaceLayerId
-              ? { ...l, dataUrl: dataUrls[0], thumbUrl: dataUrls[0], visible: true }
+              ? {
+                  ...l,
+                  dataUrl: dataUrls[0],
+                  thumbUrl: dataUrls[0],
+                  visible: true,
+                  id: remoteLayer?.id ?? l.id,
+                }
               : l
-          ))
+          )
         }
-        const baseCount = prev.length
-        const next = dataUrls.map((url, i) => ({
+        // Add new: merge remote layers with local ones
+        const localNew = dataUrls.map((url, i) => ({
           id: uid('paint'),
-          name: `Layer ${baseCount + i + 1}`,
+          name: `Layer ${prev.length + i + 1}`,
           dataUrl: url,
           thumbUrl: url,
           type: 'paint',
           visible: true,
           opacity: 100,
         }))
-        return [...prev, ...next]
+        const remoteNew = createdLayers.map((ui, i) => ({
+          id: ui.id,
+          name: ui.name,
+          dataUrl: ui.imageUrl || dataUrls[remoteNew ? i : 0],
+          thumbUrl: ui.imageUrl || dataUrls[remoteNew ? i : 0],
+          type: 'paint',
+          visible: true,
+          opacity: 100,
+        }))
+        return [...prev, ...remoteNew, ...localNew.filter(l => !remoteNew.some(r => r.dataUrl === l.dataUrl))]
       })
-      toast.success(replaceLayerId
-        ? 'Đã thay file cho layer.'
-        : `Đã thêm ${filesToRead.length} layer mới.`,
-      )
+      toast.success(replaceLayerId ? 'Da thay file cho layer.' : `Da them ${filesToRead.length} layer moi.`)
     } catch {
-      toast.error('Không đọc được ảnh — thử file khác.')
+      toast.error('Khong doc duoc anh.')
     } finally {
       setBusy(false)
       setLayerToReplace(null)
@@ -565,79 +387,81 @@ export default function Assistant() {
   }
 
   function handleDownloadOriginal() {
-    if (!selected?.mangakaImageUrl) return
+    if (!safePage?.url) return
     const a = document.createElement('a')
-    a.href = selected.mangakaImageUrl
-    a.download = `${selected.seriesTitle}-Ch${selected.chapterNum}-${selected.pageLabel || 'page'}.png`
+    a.href = safePage.url
+    a.download = `${selectedAssignment?.seriesTitle}-Ch${selectedAssignment?.chapterNum}.png`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    toast.success('Đã tải ảnh gốc — mở phần mềm vẽ ưa thích, vẽ trên layer trong suốt rồi quay lại tải lên.')
+    toast.success('Da tai anh goc ve may.')
   }
 
-  async function handleSubmitToMangaka(mode) {
-    if (!selected) return
+async function compositeLayers(layers) {
+  if (!layers?.length) return null
+  return new Promise((resolve) => {
+    const imgs = []
+    let loaded = 0
+    layers.forEach((l, i) => {
+      const img = new Image()
+      img.onload = () => {
+        imgs[i] = img
+        loaded++
+        if (loaded === layers.length) {
+          const canvas = document.createElement('canvas')
+          canvas.width = imgs[0].naturalWidth || imgs[0].width || 800
+          canvas.height = imgs[0].naturalHeight || imgs[0].height || 1200
+          const ctx = canvas.getContext('2d')
+          imgs.forEach(img => ctx.drawImage(img, 0, 0))
+          resolve(canvas.toDataURL('image/png'))
+        }
+      }
+      img.onerror = () => {
+        imgs[i] = null
+        loaded++
+        if (loaded === layers.length) resolve(null)
+      }
+      img.src = l.dataUrl
+    })
+  })
+}
+
+async function handleSubmitToMangaka() {
+    if (!selectedAssignment) return
     const visibleCount = paintLayers.filter(l => l.visible && l.dataUrl).length
     if (visibleCount === 0) {
-      toast.error('Hãy bật ít nhất một layer có ảnh trước khi gửi.')
+      toast.error('Hay bat it nhat mot layer co anh truoc khi gui.')
       return
     }
 
-    setBusy(true)
-    try {
-      const compositeDataUrl = mode === 'overlay' ? null : await renderComposite({
-        baseUrl: selected.mangakaImageUrl,
-        notes: selected.notes,
-        paintLayers,
-        notesVisible: false,
-        includeBase: true,
-        transparentBg: false,
-      })
-      const overlayDataUrl = mode === 'composite' ? null : await renderComposite({
-        baseUrl: null,
-        notes: selected.notes,
-        paintLayers,
-        notesVisible: false,
-        includeBase: false,
-        transparentBg: true,
-      })
+    const visibleLayers = paintLayers.filter(l => l.visible && l.dataUrl)
+    const hasOverlay = visibleLayers.length === 1
+    const hasComposite = visibleLayers.length > 1
 
-      await pushAssistantDeliverable({
-        id: `del-${Date.now()}`,
-        submissionId: selected.id,
-        seriesTitle: selected.seriesTitle,
-        chapterId: selected.chapterId,
-        chapterNum: selected.chapterNum,
-        pageIndex: selected.pageIndex,
-        pageLabel: selected.pageLabel,
-        mangakaImageUrl: selected.mangakaImageUrl,
-        mangakaImageBlobKey: selectedSlim?.mangakaImageBlobKey,
-        compositeDataUrl,
-        overlayDataUrl,
-        layersMeta: paintLayers.map(l => ({
-          id: l.id,
-          name: l.name,
-          type: l.type,
-          visible: l.visible,
-          opacity: l.opacity ?? 100,
-        })),
-        status: 'pending_mangaka_review',
-        sentAt: new Date().toISOString(),
-        sendMode: mode,
-      })
-
-      const label = mode === 'overlay' ? 'layer trong suốt' : 'bản ghép (ảnh gốc + layer)'
-      toast.success(`Đã gửi ${label} — ${selected.seriesTitle} ${selected.pageLabel}.`)
-      reloadInbox()
-    } catch {
-      toast.error('Không tạo được file gửi đi — thử lại.')
-    } finally {
-      setBusy(false)
+    const deliverable = {
+      id: `del-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      seriesTitle: selectedAssignment.seriesTitle,
+      chapterId: selectedAssignment.chapterId,
+      chapterNum: selectedAssignment.chapterNum,
+      pageIndex: safePageIdx,
+      pageLabel: `Ch.${selectedAssignment.chapterNum} — Trang ${safePageIdx + 1}`,
+      submissionId: null,
+      sendMode: hasOverlay ? 'overlay' : 'composite',
+      // overlay: 1 layer = gửi layer trong suốt + ảnh gốc
+      overlayDataUrl: hasOverlay ? visibleLayers[0].dataUrl : null,
+      // composite: nhiều layer = gửi ảnh đã ghép
+      compositeDataUrl: hasComposite ? await compositeLayers(visibleLayers) : null,
+      mangakaImageUrl: safePage?.url ?? null,
+      assistantName: user?.fullname ?? user?.name ?? 'Assistant',
+      createdAt: new Date().toISOString(),
     }
+
+    await pushAssistantDeliverable(deliverable)
+    window.dispatchEvent(new Event('mk-assistant-storage'))
+    toast.success('Da gui cho Mangaka.')
   }
 
-  const noteCount = selected?.notes?.length ?? 0
-  const visibleLayerCount = paintLayers.filter(l => l.visible && l.dataUrl).length
+  const noteCount = pageNotes.length
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -646,21 +470,21 @@ export default function Assistant() {
       <WorkspaceHero
         className="from-violet-950 to-zinc-950"
         label="Assistant Workspace"
-        title={`Xin chào${user?.name ? `, ${user.name.split(' ')[0]}` : ''}`}
-        description="Tải ảnh gốc về vẽ trên phần mềm yêu thích, sau đó upload từng layer PNG trong suốt lên đây. Bật/tắt từng layer để xem cách chúng chồng lên nhau."
+        title={`Xin chao${user?.fullname ? `, ${user.fullname.split(' ')[0]}` : ''}`}
+        description="Tai anh goc ve ve tren phan mem yeu thich, sau do upload tung layer PNG trong suot len day. Bat/tat tung layer de xem cach chung chong len nhau."
       >
         <div className="mt-5 flex flex-wrap gap-3 text-xs text-zinc-300">
           <Badge variant="secondary" className="bg-white/10 text-white hover:bg-white/15">
             <LayersIcon className="size-3" />
-            Quản lý layer
+            Quan ly layer
           </Badge>
           <Badge variant="secondary" className="bg-white/10 text-white hover:bg-white/15">
             <ArrowDownToLine className="size-3" />
-            Tải ảnh gốc
+            Tai anh goc
           </Badge>
           <Badge variant="secondary" className="bg-white/10 text-white hover:bg-white/15">
             <Upload className="size-3" />
-            Upload PNG trong suốt
+            Upload PNG trong suot
           </Badge>
         </div>
       </WorkspaceHero>
@@ -675,58 +499,7 @@ export default function Assistant() {
           onChange={onFileInputChange}
         />
 
-        {assistantProfile && hireRequests.length > 0 ? (
-          <Card className="mb-6 overflow-hidden border-violet-200 bg-gradient-to-br from-violet-500/5 via-background to-background dark:border-violet-500/30">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Handshake className="size-4 text-violet-600" />
-                Yêu cầu thuê từ Mangaka
-              </CardTitle>
-              <CardDescription>
-                Assistant có thể chấp nhận nhiều Mangaka — mỗi lời mời thêm bạn vào đội của họ.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {hireRequests.map(req => (
-                <div
-                  key={req.id}
-                  className="flex flex-col gap-3 rounded-xl border bg-card p-4 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <p className="font-semibold">{req.mangakaName}</p>
-                    {req.note ? (
-                      <p className="text-sm text-muted-foreground">&ldquo;{req.note}&rdquo;</p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">Mời bạn làm Assistant cho dự án của họ.</p>
-                    )}
-                    <p className="text-[11px] text-muted-foreground">
-                      Gửi lúc {new Date(req.createdAt).toLocaleString('vi-VN')}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={hireBusyId === req.id}
-                      onClick={() => void handleHireResponse(req.id, false)}
-                    >
-                      Từ chối
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={hireBusyId === req.id}
-                      onClick={() => void handleHireResponse(req.id, true)}
-                    >
-                      <CheckCircle2 className="size-3.5" />
-                      Chấp nhận
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        ) : null}
-
+        {/* Stats row */}
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {statsDisplayed.map(s => {
             const Icon = s.icon
@@ -746,47 +519,51 @@ export default function Assistant() {
           })}
         </div>
 
+        {/* 3-column layout: Left | Center | Right */}
         <div className="grid gap-6 xl:grid-cols-[300px_1fr_360px]">
+
+          {/* LEFT: Chapter list */}
           <Card className="flex flex-col gap-0 overflow-hidden p-0">
             <CardHeader className="border-b p-4">
-              <CardTitle className="text-base">Trang từ Mangaka</CardTitle>
-              <CardDescription>Chọn trang để mở chế độ layer</CardDescription>
+              <CardTitle className="text-base">Chapter duoc giao</CardTitle>
+              <CardDescription>Chon chapter de xu ly</CardDescription>
             </CardHeader>
-            {submissions.length === 0 ? (
+            {assignmentsLoading ? (
+              <div className="p-6 text-center text-xs text-muted-foreground">Dang tai...</div>
+            ) : assignments.length === 0 ? (
               <div className="p-6 text-center text-xs text-muted-foreground">
-                Chưa có trang nào. Mangaka bấm <strong>Gửi Assistant</strong> ở tab Upload &amp; Ghi chú.
+                Chua co chapter nao duoc gan.
               </div>
             ) : (
               <ScrollArea className="max-h-[calc(100vh-220px)]">
                 <ul className="divide-y">
-                  {submissions.map(sub => {
-                    const badge = STATUS_BADGE[sub.status] ?? STATUS_BADGE.pending_assistant
-                    const layerCount = Array.isArray(sub.paintLayers) ? sub.paintLayers.length : 0
+                  {assignments.map(a => {
+                    const badge = STATUS_BADGE[a.status] ?? STATUS_BADGE.pending
+                    const cover = a.pages?.find(p => p.url)
+                    const isSelected = a.chapterId === selectedChapterId
                     return (
-                      <li key={sub.id}>
+                      <li key={a.chapterId}>
                         <button
                           type="button"
-                          onClick={() => handleSelectSubmission(sub)}
+                          onClick={() => handleSelectChapter(a)}
                           className={cn(
                             'flex w-full items-start gap-3 p-3 text-left transition-colors',
-                            selectedId === sub.id ? 'bg-primary/10' : 'hover:bg-muted/50',
+                            isSelected ? 'bg-primary/10' : 'hover:bg-muted/50',
                           )}
                         >
                           <span className="manga-page manga-page--thumb-md shrink-0 overflow-hidden rounded">
-                            {sub.mangakaImageUrl ? (
-                              <img src={sub.mangakaImageUrl} alt="" className="manga-page__media" />
+                            {cover?.url ? (
+                              <img src={cover.url} alt="" className="manga-page__media" />
                             ) : (
                               <span className="flex h-full items-center justify-center text-xs text-muted-foreground">📄</span>
                             )}
                           </span>
                           <div className="min-w-0 flex-1 space-y-0.5">
-                            <p className="truncate text-sm font-semibold">{sub.seriesTitle}</p>
+                            <p className="truncate text-sm font-semibold">{a.seriesTitle}</p>
                             <p className="text-xs text-muted-foreground">
-                              Ch. {sub.chapterNum} · {sub.pageLabel}
+                              Ch.{a.chapterNum}{a.title ? ` · ${a.title}` : ''}
                             </p>
-                            <p className="text-xs text-muted-foreground">
-                              {sub.notes?.length ?? 0} vùng · {layerCount} layer
-                            </p>
+                            <p className="text-xs text-muted-foreground">{a.pageCount ?? a.pages?.length ?? 0} trang</p>
                             <Badge className={cn('mt-1', badge.className)} variant="secondary">
                               {badge.label}
                             </Badge>
@@ -800,21 +577,24 @@ export default function Assistant() {
             )}
           </Card>
 
+          {/* CENTER: Canvas + Notes */}
           <div className="space-y-4">
-            {selected ? (
+            {selectedAssignment ? (
               <>
                 <Card className="overflow-hidden p-0">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-4 py-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold">
-                        {selected.seriesTitle} · Ch. {selected.chapterNum}
+                        {selectedAssignment.seriesTitle} · Ch.{selectedAssignment.chapterNum}
                       </p>
-                      <p className="text-xs text-muted-foreground">{selected.pageLabel}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Trang {safePageIdx + 1} / {selectedAssignment.pages?.length ?? 0}
+                      </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Button size="sm" variant={baseVisible ? 'default' : 'outline'} onClick={() => setBaseVisible(v => !v)}>
                         {baseVisible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                        Ảnh gốc
+                        Anh goc
                       </Button>
                       <Button
                         size="sm"
@@ -823,54 +603,51 @@ export default function Assistant() {
                         disabled={noteCount === 0}
                       >
                         {notesVisible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                        Ghi chú ({noteCount})
+                        Ghi chu ({noteCount})
                       </Button>
                     </div>
                   </div>
 
                   <div className="bg-zinc-950 p-4">
                     <LayerStack
-                      baseUrl={selected.mangakaImageUrl}
-                      notes={selected.notes}
+                      baseUrl={safePage?.url}
+                      notes={pageNotes}
                       baseVisible={baseVisible}
                       notesVisible={notesVisible}
                       paintLayers={paintLayers}
                       className="w-full max-w-[640px]"
                     />
                     <p className="mt-3 text-center text-xs text-zinc-400">
-                      Đang hiển thị <strong className="text-white">{visibleLayerCount}</strong> / {paintLayers.length} layer Assistant
-                      {baseVisible ? ' + ảnh gốc' : ''}
-                      {notesVisible && noteCount > 0 ? ' + ghi chú' : ''}
+                      Hien thi <strong className="text-white">{visibleLayerCount}</strong> / {paintLayers.length} layer
+                      {baseVisible ? ' + anh goc' : ''}
+                      {notesVisible && noteCount > 0 ? ' + ghi chu' : ''}
                     </p>
                   </div>
                 </Card>
 
-                {selected.notes?.length > 0 ? (
+                {pageNotes.length > 0 ? (
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="flex items-center gap-2 text-base">
                         <StickyNote className="size-4 text-rose-500" />
-                        Vùng việc Mangaka đã đánh dấu
+                        Vung viec Mangaka da danh dau
                       </CardTitle>
                       <CardDescription>
-                        Tải ảnh gốc, vẽ những phần này trên phần mềm yêu thích rồi upload PNG trong suốt lên đây.
+                        Tai anh goc, ve nhung phan nay tren phan mem yeu thich roi upload PNG trong suot len day.
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
                       <ul className="grid gap-2 sm:grid-cols-2">
-                        {selected.notes.map((n, i) => (
-                          <li key={n.id ?? i} className="flex items-start gap-2 rounded-md border p-2.5">
+                        {pageNotes.map((n, i) => (
+                          <li key={n.pageissueid ?? n.Pageissueid ?? i} className="flex items-start gap-2 rounded-md border p-2.5">
                             <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-rose-500 text-xs font-bold text-white">
                               {i + 1}
                             </span>
                             <div className="min-w-0 flex-1 space-y-1">
                               <Badge variant="outline" className="text-[10px]">
-                                {noteTaskLabel(n.taskType)}
+                                {NOTE_TASK_LABELS[n.issuetype] ?? n.issuetype ?? 'Khac'}
                               </Badge>
-                              <p className="text-xs">{n.text || <span className="italic text-muted-foreground">Không có mô tả</span>}</p>
-                              {n.assignee ? (
-                                <p className="text-[10px] text-muted-foreground">Giao: {n.assignee}</p>
-                              ) : null}
+                              <p className="text-xs">{n.description ?? 'Khong co mo ta'}</p>
                             </div>
                           </li>
                         ))}
@@ -883,30 +660,25 @@ export default function Assistant() {
               <Card>
                 <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
                   <ImageIcon className="size-12 text-muted-foreground/40" />
-                  <p className="text-sm text-muted-foreground">Chọn một trang ở danh sách bên trái để bắt đầu.</p>
+                  <p className="text-sm text-muted-foreground">Chon mot chapter o danh sach ben trai de bat dau.</p>
                 </CardContent>
               </Card>
             )}
           </div>
 
+          {/* RIGHT: Layer panel + Actions */}
           <aside className="space-y-4">
             <Card className="border-violet-200 bg-gradient-to-b from-violet-50 to-transparent dark:border-violet-500/20 dark:from-violet-500/10">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Sparkles className="size-4 text-violet-600" />
-                  Cách hoạt động của Layer
+                  Cach hoat dong cua Layer
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2 text-xs text-muted-foreground">
-                <p>
-                  Bật <strong className="text-foreground">Layer 1</strong> → bạn chỉ thấy bản vẽ của layer 1.
-                </p>
-                <p>
-                  Bật thêm <strong className="text-foreground">Layer 2</strong> → cả 2 layer chồng lên nhau.
-                </p>
-                <p>
-                  Tắt 1 layer → ẩn bản vẽ đó nhưng vẫn giữ file. Bạn có thể bật/tắt liên tục để so sánh.
-                </p>
+                <p>Bat <strong className="text-foreground">Layer 1</strong> → chi thay ban ve cua layer 1.</p>
+                <p>Bat them <strong className="text-foreground">Layer 2</strong> → ca 2 layer chong len nhau.</p>
+                <p>Tat 1 layer → an ban ve do nhung van giu file.</p>
               </CardContent>
             </Card>
 
@@ -918,24 +690,24 @@ export default function Assistant() {
                 </CardTitle>
                 <Button
                   size="sm"
-                  disabled={!selected || busy}
+                  disabled={!selectedAssignment || busy}
                   onClick={() => {
                     setLayerToReplace(null)
                     document.getElementById('as-layer-file-input')?.click()
                   }}
                 >
                   <Plus className="size-3.5" />
-                  Tải lên
+                  Tai len
                 </Button>
               </CardHeader>
               <CardContent className="space-y-3">
-                {!selected ? (
+                {!selectedAssignment ? (
                   <p className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
-                    Chọn một trang để bắt đầu quản lý layer.
+                    Chon mot chapter de bat dau quan ly layer.
                   </p>
                 ) : (
                   <>
-                    <div className="space-y-2">
+                    {safePage?.url ? (
                       <div
                         className={cn(
                           'flex items-center gap-2 rounded-lg border p-2.5',
@@ -951,46 +723,18 @@ export default function Assistant() {
                           {baseVisible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
                         </Button>
                         <div className="size-9 shrink-0 overflow-hidden rounded border bg-muted">
-                          {selected.mangakaImageUrl ? (
-                            <img src={selected.mangakaImageUrl} alt="" className="size-full object-cover" />
+                          {safePage.url ? (
+                            <img src={safePage.url} alt="" className="size-full object-cover" />
                           ) : (
                             <span className="flex size-full items-center justify-center">🖼️</span>
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="flex items-center gap-1 truncate text-sm font-medium">
-                            Ảnh gốc Mangaka
-                            <Lock className="size-3 text-muted-foreground" />
-                          </p>
-                          <p className="text-[10px] text-muted-foreground">Không thể chỉnh sửa</p>
+                          <p className="truncate text-sm font-medium">Anh goc Mangaka</p>
+                          <p className="text-[10px] text-muted-foreground">Khong the chinh sua</p>
                         </div>
                       </div>
-
-                      {selected.notes?.length ? (
-                        <div
-                          className={cn(
-                            'flex items-center gap-2 rounded-lg border p-2.5',
-                            notesVisible ? 'bg-card' : 'border-dashed bg-muted/40',
-                          )}
-                          style={{ borderLeftColor: '#e63946', borderLeftWidth: 3 }}
-                        >
-                          <Button
-                            size="icon-sm"
-                            variant={notesVisible ? 'default' : 'outline'}
-                            onClick={() => setNotesVisible(v => !v)}
-                          >
-                            {notesVisible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-                          </Button>
-                          <div className="flex size-9 shrink-0 items-center justify-center rounded border bg-rose-500/10 text-base">
-                            📝
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">Ô ghi chú ({selected.notes.length})</p>
-                            <p className="text-[10px] text-muted-foreground">Đỏ – chỉ tham khảo</p>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
+                    ) : null}
 
                     {paintLayers.length > 0 ? (
                       <ul className="space-y-2">
@@ -1001,7 +745,6 @@ export default function Assistant() {
                             accent={LAYER_ACCENT_COLORS[(paintLayers.length - 1 - i) % LAYER_ACCENT_COLORS.length]}
                             onToggle={toggleLayerVisible}
                             onChangeOpacity={changeLayerOpacity}
-                            onRename={renameLayer}
                             onRemove={removeLayer}
                             onPickFile={pickReplaceFile}
                           />
@@ -1011,7 +754,7 @@ export default function Assistant() {
                       <div className="rounded-lg border border-dashed p-4 text-center">
                         <Pencil className="mx-auto mb-2 size-8 text-muted-foreground/40" />
                         <p className="text-xs text-muted-foreground">
-                          Chưa có layer Assistant. Bấm <strong>Tải lên</strong> để thêm.
+                          Chua co layer. Bam <strong>Tai len</strong> de them.
                         </p>
                       </div>
                     )}
@@ -1022,38 +765,29 @@ export default function Assistant() {
 
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Hành động</CardTitle>
+                <CardTitle className="text-base">Hanh dong</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 <Button
                   variant="outline"
                   className="w-full"
-                  disabled={!selected?.mangakaImageUrl}
+                  disabled={!safePage?.url}
                   onClick={handleDownloadOriginal}
                 >
                   <ArrowDownToLine className="size-4" />
-                  Tải ảnh gốc về máy
+                  Tai anh goc ve may
                 </Button>
                 <Button
                   className="w-full"
-                  disabled={!selected || busy || visibleLayerCount === 0}
-                  onClick={() => handleSubmitToMangaka('overlay')}
-                  variant="outline"
-                >
-                  <LayersIcon className="size-4" />
-                  Gửi layer trong suốt
-                </Button>
-                <Button
-                  className="w-full"
-                  disabled={!selected || busy || visibleLayerCount === 0}
-                  onClick={() => handleSubmitToMangaka('composite')}
+                  disabled={!selectedAssignment || busy || visibleLayerCount === 0}
+                  onClick={handleSubmitToMangaka}
                 >
                   <Send className="size-4" />
-                  Gửi bản ghép
+                  Gui cho Mangaka
                 </Button>
-                {visibleLayerCount === 0 && selected ? (
+                {visibleLayerCount === 0 && selectedAssignment ? (
                   <p className="text-[10px] text-amber-600">
-                    Bật ít nhất 1 layer (có ảnh) trước khi gửi.
+                    Bat it nhat 1 layer (co anh) truoc khi gui.
                   </p>
                 ) : null}
               </CardContent>
@@ -1063,17 +797,17 @@ export default function Assistant() {
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <Lightbulb className="size-4 text-primary" />
-                  Quy trình gợi ý
+                  Quy trinh goi y
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <ol className="relative space-y-2.5 border-l border-muted pl-5">
                   {[
-                    { step: 1, text: 'Tải ảnh gốc về máy' },
-                    { step: 2, text: 'Mở Photoshop / Krita / Procreate, vẽ trên layer trong suốt' },
-                    { step: 3, text: 'Xuất từng layer ra PNG (giữ nền trong suốt)' },
-                    { step: 4, text: 'Upload từng PNG ở đây — bật/tắt để xem hiệu ứng' },
-                    { step: 5, text: 'Gửi cho Mangaka duyệt (layer hoặc bản ghép)' },
+                    { step: 1, text: 'Tai anh goc ve may' },
+                    { step: 2, text: 'Mo Photoshop / Krita / Procreate, ve tren layer trong suot' },
+                    { step: 3, text: 'Xuat tung layer ra PNG (giu nen trong suot)' },
+                    { step: 4, text: 'Upload tung PNG o day — bat/tat de xem hieu ung' },
+                    { step: 5, text: 'Gui cho Mangaka duyet' },
                   ].map(it => (
                     <li key={it.step} className="relative">
                       <span className="absolute -left-[26px] flex size-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground ring-2 ring-card">
@@ -1090,19 +824,24 @@ export default function Assistant() {
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <TrendingUp className="size-4 text-emerald-600" />
-                  Trang duyệt & thu nhập
+                  Thong ke thu nhap
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {INCOME_MONTHS.map(m => (
-                  <div key={m.month} className="flex items-center justify-between rounded-md border p-2.5">
-                    <div>
-                      <p className="text-sm font-medium">{m.month}</p>
-                      <p className="text-xs text-muted-foreground">{m.pages} trang duyệt</p>
-                    </div>
-                    <span className="font-bold tabular-nums text-emerald-600">{m.amount}</span>
+                <div className="flex items-center justify-between rounded-md border p-2.5">
+                  <div>
+                    <p className="text-sm font-medium">Thang nay</p>
+                    <p className="text-xs text-muted-foreground">Chapter da duyet</p>
                   </div>
-                ))}
+                  <span className="font-bold tabular-nums text-emerald-600">—</span>
+                </div>
+                <div className="flex items-center justify-between rounded-md border p-2.5">
+                  <div>
+                    <p className="text-sm font-medium">Tong thu nhap</p>
+                    <p className="text-xs text-muted-foreground">Thang nay</p>
+                  </div>
+                  <span className="font-bold tabular-nums text-emerald-600">—</span>
+                </div>
               </CardContent>
             </Card>
           </aside>
