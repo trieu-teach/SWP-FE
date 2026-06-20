@@ -1,7 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
-import { QueryProvider, AuthProvider } from '@/lib/providers'
+import { QueryProvider, AuthProvider, useAuth } from '@/lib/providers'
 import { ProtectedRoute, GuestRoute } from '@/lib/router'
+import { getRolePath } from '@/lib/auth'
 import Layout from '@/components/Admin/Layout/Layout.jsx'
 
 // Pages
@@ -25,6 +26,15 @@ import Eb from '@/pages/User/Eb/Eb.jsx'
 import TantouEditor from '@/pages/User/Tantou/TantouEditor.jsx'
 import UserProfile from '@/pages/User/Profile/Profile.jsx'
 
+// Redirects logged-in user to their workspace, else shows Home
+function HomeOrWorkspace() {
+  const { user } = useAuth()
+  if (user) {
+    return <Navigate to={getRolePath(user.role)} replace />
+  }
+  return <Home />
+}
+
 function AdminShell() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -43,8 +53,8 @@ export default function App() {
       <QueryProvider>
         <AuthProvider>
           <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<Home />} />
+            {/* Public routes — redirect logged-in users to their workspace */}
+            <Route path="/" element={<HomeOrWorkspace />} />
 
             {/* Guest routes - chỉ dành cho chưa đăng nhập */}
             <Route element={<GuestRoute />}>
