@@ -793,6 +793,7 @@ export default function Mangaka() {
   function handleUploadComplete(payload) {
     const {
       series: titleRaw, num, pages, createdAt, chapterLocalId, isNewChapter,
+      title: chapterTitle, deadline: chapterDeadline,
       annotatorChapters: nextAnnotatorChapters,
     } = payload
     const title = typeof titleRaw === 'string' ? titleRaw.trim() : titleRaw
@@ -801,6 +802,10 @@ export default function Mangaka() {
     const rowId = chapterLocalId || `u-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
     const displayNum = typeof num === 'number' && Number.isFinite(num) ? num : num
     const dateStr = createdAt ?? new Date().toLocaleDateString('vi-VN')
+
+    // Lay mangakaId tu session de goi API
+    const mangakaId = user?.id ?? null
+    const serverSeriesId = apiSeries.find(s => s.title === title)?.id
 
     const nextChapterRows = (() => {
       const idx = chapterRows.findIndex(r => r.id === rowId)
@@ -840,6 +845,20 @@ export default function Mangaka() {
         }
       })
     })
+
+    // Goi API tao chapter khi isNewChapter (co the co hoac khong co pages)
+    if (isNewChapter && mangakaId && serverSeriesId) {
+        const chData = {
+          seriesid: serverSeriesId,
+          chapternumber: Number(displayNum),
+          title: String(chapterTitle ?? `Chapter ${displayNum}`).trim(),
+          deadline: chapterDeadline ? new Date(chapterDeadline).toISOString() : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        }
+        createChapter.mutate(chData, {
+          onSuccess: () => toast.success(`Đã tạo Ch. ${displayNum} trên server!`),
+          onError: (err) => toast.error(err?.response?.data?.message ?? `Không tạo được Ch. ${displayNum} trên server.`),
+        })
+      }
 
     void persistMangakaWorkspaceStateNow({
       ...workspaceSnapshot,

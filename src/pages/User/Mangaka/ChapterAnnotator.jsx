@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
 import {
   Eraser,
   Image as ImageIcon,
@@ -39,6 +39,10 @@ import { cn } from '@/lib/utils'
 
 function uid() {
   return `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+function noteStableKey(note) {
+  return note?.clientKey ?? note?.id ?? ''
 }
 
 function displayChapterNum(baseStr, index) {
@@ -84,6 +88,12 @@ export default function ChapterAnnotator({
   const coverFileRef = useRef(null)
   const boardRef = useRef(null)
   const fsBoardRef = useRef(null)
+  const noteSaveTimersRef = useRef({})
+  const loadedNoteKeysRef = useRef(new Set())
+  const draftTextRef = useRef(new Map())
+  const noteTextareaRefs = useRef(new Map())
+  const [newChapterTitle, setNewChapterTitle] = useState('')
+  const [newChapterDeadline, setNewChapterDeadline] = useState('')
 
   const [drawStart, setDrawStart] = useState(null)
   const [drawCurrent, setDrawCurrent] = useState(null)
@@ -115,12 +125,12 @@ export default function ChapterAnnotator({
     return () => window.clearTimeout(t)
   }, [uploadRejectMessage])
 
-  const deleteNote = useCallback((id) => {
+  const deleteNote = useCallback((stableKey) => {
     setNotes(prev => ({
       ...prev,
-      [pageKey]: (prev[pageKey] ?? []).filter(n => n.id !== id),
+      [pageKey]: (prev[pageKey] ?? []).filter(n => noteStableKey(n) !== stableKey),
     }))
-    setSelectedNoteId(prev => (prev === id ? null : prev))
+    setSelectedNoteId(prev => (prev === stableKey ? null : prev))
   }, [setNotes, pageKey])
 
   useEffect(() => {
@@ -135,6 +145,34 @@ export default function ChapterAnnotator({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedNoteId, deleteNote])
+
+  const persistNoteById = useCallback(async (stableKey) => {
+    let noteSnapshot = null
+    setNotes(prev => {
+      noteSnapshot = (prev[pageKey] ?? []).find(n => noteStableKey(n) === stableKey) ?? null
+      return prev
+    })
+    if (!noteSnapshot) return
+    const draftValue = draftTextRef.current.get(stableKey)
+    if (draftValue !== undefined) {
+      setNotes(prev => ({
+        ...prev,
+        [pageKey]: (prev[pageKey] ?? []).map(n =>
+          noteStableKey(n) === stableKey ? { ...n, text: draftValue } : n
+        ),
+      }))
+      draftTextRef.current.delete(stableKey)
+    }
+  }, [pageKey, setNotes])
+
+  const scheduleNoteSave = useCallback((stableKey, currentText) => {
+    if (!stableKey) return
+    if (!currentText?.trim()) return
+    clearTimeout(noteSaveTimersRef.current[stableKey])
+    noteSaveTimersRef.current[stableKey] = window.setTimeout(() => {
+      void persistNoteById(stableKey)
+    }, 1500)
+  }, [persistNoteById])
 
   const seriesChapters = useMemo(() => {
     const trimmed = selectedSeriesTitle.trim()
@@ -191,17 +229,25 @@ export default function ChapterAnnotator({
     }
 
     const createdAt = new Date().toLocaleDateString('vi-VN')
-    const ch = { id: uid(), series: trimmedSeries, num, pages: [], createdAt }
+    const title = newChapterTitle.trim() || `Chapter ${num}`
+    const deadline = newChapterDeadline ? new Date(newChapterDeadline).toISOString() : null
+    const ch = { id: uid(), series: trimmedSeries, num, title, pages: [], createdAt, deadline, deadlineRaw: newChapterDeadline }
     setChapters(prev => [ch, ...prev])
     setActiveChapterId(ch.id)
     setPageIndex(0)
     setSelectedNoteId(null)
     setUploadRejectMessage(null)
 
+    // Notify parent to persist / call API
+    onUploadComplete?.({ series: trimmedSeries, num, title, pages: 0, chapterLocalId: ch.id, isNewChapter: true })
+
+    setNewChapterTitle('')
+    setNewChapterDeadline('')
     onChapterNumChange?.(String(num + 1))
   }, [
     selectedSeriesTitle, nextChapterNum, chapters, setChapters,
     setActiveChapterId, setPageIndex, onChapterNumChange, activateChapter,
+    newChapterTitle, newChapterDeadline, onUploadComplete,
   ])
 
   const handleFiles = useCallback(async (files) => {
@@ -371,13 +417,13 @@ export default function ChapterAnnotator({
     return { x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) }
   }
 
-  function onNoteClick(e, noteId) {
+  function onNoteClick(e, stableKey) {
     e.stopPropagation()
     if (tool === 'delete') {
-      deleteNote(noteId)
+      deleteNote(stableKey)
       return
     }
-    setSelectedNoteId(noteId)
+    setSelectedNoteId(stableKey)
     setTool('select')
   }
 
@@ -406,18 +452,21 @@ export default function ChapterAnnotator({
     setDrawCurrent(null)
     if (w < 2 || h < 2) return
 
-    const newNote = { id: uid(), x, y, w, h, text: '', taskType: 'background', assignee: '' }
+    const clientKey = uid()
+    const newNote = { id: clientKey, clientKey, x, y, w, h, text: '', taskType: 'background', assignee: '' }
     setNotes(prev => ({
       ...prev,
       [pageKey]: [...(prev[pageKey] ?? []), newNote],
     }))
-    setSelectedNoteId(newNote.id)
+    setSelectedNoteId(clientKey)
   }
 
-  function updateNoteField(id, field, value) {
+  function updateNoteField(stableKey, field, value) {
     setNotes(prev => ({
       ...prev,
-      [pageKey]: (prev[pageKey] ?? []).map(n => (n.id === id ? { ...n, [field]: value } : n)),
+      [pageKey]: (prev[pageKey] ?? []).map(n => (
+        noteStableKey(n) === stableKey ? { ...n, [field]: value } : n
+      )),
     }))
   }
 
@@ -625,16 +674,18 @@ export default function ChapterAnnotator({
           </div>
         )}
 
-        {pageNotes.map((n, idx) => (
+        {pageNotes.map((n, idx) => {
+          const stableKey = noteStableKey(n)
+          return (
           <div
-            key={n.id}
+            key={stableKey}
             className={cn(
               'mk-note-box',
-              selectedNoteId === n.id && 'selected',
+              selectedNoteId === stableKey && 'selected',
               tool === 'delete' && 'mk-note-box--target',
             )}
             style={{ left: `${n.x}%`, top: `${n.y}%`, width: `${n.w}%`, height: `${n.h}%` }}
-            onClick={e => onNoteClick(e, n.id)}
+            onClick={e => onNoteClick(e, stableKey)}
           >
             <span className="mk-note-box__num">{idx + 1}</span>
             {n.taskType ? (
@@ -642,18 +693,18 @@ export default function ChapterAnnotator({
                 {noteTaskLabel(n.taskType)}
               </span>
             ) : null}
-            {(selectedNoteId === n.id || tool === 'delete') ? (
+            {(selectedNoteId === stableKey || tool === 'delete') ? (
               <button
                 type="button"
                 className="mk-note-box__delete"
-                onClick={e => { e.stopPropagation(); deleteNote(n.id) }}
+                onClick={e => { e.stopPropagation(); deleteNote(stableKey) }}
                 aria-label={`Gỡ ô ghi chú ${idx + 1}`}
               >
                 ×
               </button>
             ) : null}
           </div>
-        ))}
+        )})}
 
         {draftRect ? (
           <div
@@ -669,6 +720,61 @@ export default function ChapterAnnotator({
       </div>
     )
   }
+
+  const NoteItem = memo(function NoteItem({
+    note, index, selectedNoteId, hiredAssistants,
+    onDelete, onSelect, onUpdate, textareaRefMap,
+  }) {
+    const stableKey = noteStableKey(note)
+    return (
+      <li
+        className={cn(
+          'rounded-lg border p-3',
+          selectedNoteId === stableKey ? 'border-primary bg-primary/5' : 'bg-background',
+        )}
+      >
+        <div className="mb-2 flex items-center justify-between">
+          <Badge variant="outline">Ô #{index + 1}</Badge>
+          <Button size="xs" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(stableKey)}>
+            <Trash2 className="size-3" />
+            Gỡ
+          </Button>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Loại việc</Label>
+          <Select
+            value={note.taskType ?? 'background'}
+            onValueChange={v => onUpdate(stableKey, 'taskType', v)}
+          >
+            <SelectTrigger className="h-8" onFocus={() => onSelect(stableKey)}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {NOTE_TASK_TYPES.map(t => (
+                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <Textarea
+          ref={el => {
+            if (el) textareaRefMap.current.set(stableKey, el)
+            else textareaRefMap.current.delete(stableKey)
+          }}
+          className="mt-2 text-sm"
+          placeholder="Mô tả chi tiết (VD: vẽ cảnh phố đêm, thêm đèn neon)..."
+          defaultValue={note.text ?? ''}
+          onInput={e => {
+            const value = e.target.value
+            draftTextRef.current.set(stableKey, value)
+            scheduleNoteSave(stableKey, value)
+          }}
+          onFocus={() => onSelect(stableKey)}
+          rows={3}
+        />
+      </li>
+    )
+  })
 
   function NotesPanel({ inFullscreen = false }) {
     return (
@@ -722,73 +828,17 @@ export default function ChapterAnnotator({
             >
               <ul className="space-y-3">
                 {pageNotes.map((n, idx) => (
-                  <li
-                    key={n.id}
-                    className={cn(
-                      'rounded-lg border p-3 transition-colors',
-                      selectedNoteId === n.id ? 'border-primary bg-primary/5' : 'bg-background',
-                    )}
-                  >
-                    <div className="mb-2 flex items-center justify-between">
-                      <Badge variant="outline">Ô #{idx + 1}</Badge>
-                      <Button size="xs" variant="ghost" className="text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => deleteNote(n.id)}>
-                        <Trash2 className="size-3" />
-                        Gỡ
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Loại việc</Label>
-                        <Select
-                          value={n.taskType ?? 'background'}
-                          onValueChange={v => updateNoteField(n.id, 'taskType', v)}
-                        >
-                          <SelectTrigger className="h-8" onFocus={() => setSelectedNoteId(n.id)}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {NOTE_TASK_TYPES.map(t => (
-                              <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Trợ lý</Label>
-                        {hiredAssistants.length > 0 ? (
-                          <Select
-                            value={n.assignee || '__none__'}
-                            onValueChange={v => updateNoteField(n.id, 'assignee', v === '__none__' ? '' : v)}
-                          >
-                            <SelectTrigger className="h-8" onFocus={() => setSelectedNoteId(n.id)}>
-                              <SelectValue placeholder="Chọn Assistant" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="__none__">— Chưa chọn —</SelectItem>
-                              {hiredAssistants.map(a => (
-                                <SelectItem key={a.assistantId} value={a.value}>{a.label}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <Input
-                            className="h-8"
-                            placeholder="Thuê Assistant trước"
-                            value={n.assignee ?? ''}
-                            disabled
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <Textarea
-                      className="mt-2 text-sm"
-                      placeholder="Mô tả chi tiết (VD: vẽ cảnh phố đêm, thêm đèn neon)..."
-                      value={n.text}
-                      onChange={e => updateNoteField(n.id, 'text', e.target.value)}
-                      onFocus={() => setSelectedNoteId(n.id)}
-                      rows={3}
-                    />
-                  </li>
+                  <NoteItem
+                    key={noteStableKey(n)}
+                    note={n}
+                    index={idx}
+                    selectedNoteId={selectedNoteId}
+                    hiredAssistants={hiredAssistants}
+                    onDelete={deleteNote}
+                    onSelect={setSelectedNoteId}
+                    onUpdate={updateNoteField}
+                    textareaRefMap={noteTextareaRefs}
+                  />
                 ))}
               </ul>
             </div>
@@ -915,15 +965,37 @@ export default function ChapterAnnotator({
           <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
             <section className="space-y-3">
               <h3 className="text-sm font-semibold">Chapter</h3>
+              <div className="space-y-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Tiêu đề chapter (mặc định: Ch. {nextChapterNum})</Label>
+                  <Input
+                    size="sm"
+                    placeholder={`Ch. ${nextChapterNum}`}
+                    value={newChapterTitle}
+                    onChange={e => setNewChapterTitle(e.target.value)}
+                    maxLength={120}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Hạn nộp bản thảo</Label>
+                  <Input
+                    size="sm"
+                    type="date"
+                    value={newChapterDeadline}
+                    min={new Date().toISOString().split('T')[0]}
+                    onChange={e => setNewChapterDeadline(e.target.value)}
+                  />
+                </div>
               <Button
-                size="sm"
-                className="w-full"
-                disabled={!selectedSeriesTitle.trim()}
-                onClick={createNewChapter}
-              >
-                <Plus className="size-3.5" />
-                Tạo Chapter {nextChapterNum}
-              </Button>
+          size="sm"
+          className="w-full"
+          disabled={!selectedSeriesTitle.trim()}
+          onClick={createNewChapter}
+        >
+          <Plus className="size-3.5" />
+          Tạo Chapter {nextChapterNum}
+        </Button>
+              </div>
 
               {seriesChapters.length === 0 ? (
                 <p className="text-xs text-muted-foreground">Chưa có chapter — bấm nút trên để tạo Ch. {nextChapterNum}.</p>
