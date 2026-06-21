@@ -2,7 +2,12 @@
  * Tantou Editor ↔ Mangaka / Editor Board (demo localStorage).
  */
 
-import { readEbDebutApproved, readEbDebutPending } from './ebDebutStorage.js'
+import {
+  readEbDebutApproved,
+  readEbDebutPending,
+  readEbDebutRejected,
+  EB_DEBUT_PENDING_KEY,
+} from './ebDebutStorage.js'
 import { placeholderPageDataUrl } from './assistantWorkspaceStorage.js'
 
 export const TANTOU_SUBMISSIONS_KEY = 'mk-tantou-submissions-v1'
@@ -43,6 +48,45 @@ export function upsertTantouSubmission(submission) {
 
 export function updateTantouSubmission(id, patch) {
   const list = listTantouSubmissions().map(s => (s.id === id ? { ...s, ...patch } : s))
+  writeJson(TANTOU_SUBMISSIONS_KEY, list)
+}
+
+// FIX #2: đồng bộ status các submission "forwarded_eb" của 1 series khi EB ra quyết định.
+// Gọi hàm này từ UI (vd. useEffect lắng nghe mk-eb-approved-update / mk-eb-rejected-update)
+// để submission không bị kẹt mãi ở trạng thái "Đã chuyển EB".
+export function syncTantouStatusFromEbDecision(seriesTitle) {
+  if (!seriesTitle) return
+  const approved = readEbDebutApproved()
+  const rejected = readEbDebutRejected()
+  const isApproved = !!approved[seriesTitle]
+  const isRejected = !!rejected[seriesTitle]
+  if (!isApproved && !isRejected) return
+
+  const list = listTantouSubmissions().map(s => {
+    if (s.seriesTitle !== seriesTitle || s.status !== 'forwarded_eb') return s
+    if (isApproved) {
+      return { ...s, status: 'eb_approved', ebDecidedAt: new Date().toISOString() }
+    }
+    return { ...s, status: 'eb_rejected', ebDecidedAt: new Date().toISOString() }
+  })
+  writeJson(TANTOU_SUBMISSIONS_KEY, list)
+}
+
+// FIX #2 (bổ sung): chạy đồng bộ cho TẤT CẢ series đang "forwarded_eb" — tiện gọi 1 lần
+// mỗi khi nhận event mk-eb-approved-update / mk-eb-rejected-update mà không cần biết title nào.
+export function syncAllTantouStatusFromEbDecisions() {
+  const approved = readEbDebutApproved()
+  const rejected = readEbDebutRejected()
+  const list = listTantouSubmissions().map(s => {
+    if (s.status !== 'forwarded_eb') return s
+    if (approved[s.seriesTitle]) {
+      return { ...s, status: 'eb_approved', ebDecidedAt: new Date().toISOString() }
+    }
+    if (rejected[s.seriesTitle]) {
+      return { ...s, status: 'eb_rejected', ebDecidedAt: new Date().toISOString() }
+    }
+    return s
+  })
   writeJson(TANTOU_SUBMISSIONS_KEY, list)
 }
 
@@ -122,7 +166,8 @@ export function forwardSubmissionToEb(submissionId) {
   }
   const pending = readEbDebutPending()
   const next = [summary, ...pending.filter(p => p.title !== sub.seriesTitle)]
-  localStorage.setItem('mk-eb-debut-pending', JSON.stringify(next))
+  // FIX #1: dùng đúng hằng số key thay vì chuỗi cứng, tránh lệch nếu đổi tên key sau này
+  localStorage.setItem(EB_DEBUT_PENDING_KEY, JSON.stringify(next))
   window.dispatchEvent(new Event('mk-eb-pending-update'))
 
   updateTantouSubmission(submissionId, {
@@ -134,6 +179,10 @@ export function forwardSubmissionToEb(submissionId) {
 
 /** Tantou: chưa đạt — gửi nhận xét về Mangaka. */
 export function rejectSubmissionToMangaka(submissionId, { editorialComment, reviewNotes }) {
+  // FIX #4: validate ở tầng storage, không chỉ ở UI — không cho lưu nhận xét rỗng
+  if (!editorialComment || !editorialComment.trim()) {
+    throw new Error('Phải nhập nhận xét trước khi gửi Mangaka chỉnh.')
+  }
   updateTantouSubmission(submissionId, {
     status: 'revision',
     editorialComment,

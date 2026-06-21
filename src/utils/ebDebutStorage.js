@@ -2,6 +2,8 @@
 
 export const EB_DEBUT_APPROVED_KEY = 'mk-eb-debut-approved'
 export const EB_DEBUT_PENDING_KEY = 'mk-eb-debut-pending'
+export const EB_DEBUT_REJECTED_KEY = 'mk-eb-debut-rejected'
+
 
 export function notifyEbApprovedListeners() {
   window.dispatchEvent(new Event('mk-eb-approved-update'))
@@ -60,4 +62,39 @@ export function syncEbDebutPendingFromSeries(summaries) {
   } catch {
     /* quota / private mode */
   }
+}
+
+export function notifyEbRejectedListeners() {
+  window.dispatchEvent(new Event('mk-eb-rejected-update'))
+}
+
+export function readEbDebutRejected() {
+  try {
+    const raw = localStorage.getItem(EB_DEBUT_REJECTED_KEY)
+    const o = raw ? JSON.parse(raw) : {}
+    return o && typeof o === 'object' ? o : {}
+  } catch {
+    return {}
+  }
+}
+
+/** Editor Board gọi — đánh dấu series bị từ chối vòng đầu (demo). */
+export function rejectEbDebutSeries(title) {
+  const key = String(title).trim()
+  if (!key) return
+  const map = readEbDebutRejected()
+  map[key] = true
+  localStorage.setItem(EB_DEBUT_REJECTED_KEY, JSON.stringify(map))
+  notifyEbRejectedListeners()
+}
+
+/** Mangaka sửa lại và nộp lại — gỡ cờ rejected. */
+export function removeEbDebutRejection(title) {
+  const key = String(title).trim()
+  if (!key) return
+  const map = readEbDebutRejected()
+  if (!map[key]) return
+  delete map[key]
+  localStorage.setItem(EB_DEBUT_REJECTED_KEY, JSON.stringify(map))
+  notifyEbRejectedListeners()
 }
