@@ -316,11 +316,47 @@ export function useGenres() {
   })
 }
 
+export function useGenreById(id) {
+  return useQuery({
+    queryKey: ['genres', id],
+    queryFn: () => genresService.getById(id).then(res => res.data),
+    enabled: !!id,
+  })
+}
+
+export function useCreateGenre() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data) => genresService.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['genres'] })
+    },
+  })
+}
+
 export function useTags() {
   return useQuery({
     queryKey: ['tags'],
     queryFn: () => tagsService.getAll().then(res => res.data ?? []),
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useTagById(id) {
+  return useQuery({
+    queryKey: ['tags', id],
+    queryFn: () => tagsService.getById(id).then(res => res.data),
+    enabled: !!id,
+  })
+}
+
+export function useCreateTag() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data) => tagsService.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+    },
   })
 }
 

@@ -30,10 +30,15 @@ export const SERIES_LANGUAGES = [
   { value: 'zh', label: '中文' },
 ]
 
+/**
+ * Phan loai noi dung — map sang gia tri backend (CHECK constraint tren DB).
+ * Backend: CONSTRAINT [chk_series_agerating] CHECK ([agerating] IN ('G','PG-13','R-16','R-18'))
+ */
 export const SERIES_CONTENT_RATINGS = [
-  { value: 'all', label: 'Mọi lứa tuổi' },
-  { value: 'teen', label: '13+' },
-  { value: 'mature', label: '16+ / có cảnh báo' },
+  { value: 'G',     label: 'G — Mọi lứa tuổi',         description: 'Phù hợp mọi độ tuổi, không hạn chế nội dung.' },
+  { value: 'PG-13', label: 'PG-13 — 13 tuổi trở lên',  description: 'Có thể có cảnh bạo lực nhẹ, kinh dị hoặc nhạy cảm.' },
+  { value: 'R-16',  label: 'R-16 — 16 tuổi trở lên',   description: 'Chứa nội dung bạo lực, phiêu lưu mạo hiểm hoặc khiêu khích hơn.' },
+  { value: 'R-18',  label: 'R-18 — Chỉ người lớn',      description: 'Chỉ dành cho người từ 18 tuổi trở lên. Có nội dung nhạy cảm rõ ràng.' },
 ]
 
 export const SERIES_PUBLICATION_STATUSES = [
@@ -85,7 +90,7 @@ export function createEmptySeriesForm(authorName = '') {
     demographic: 'shonen',
     format: 'manga',
     language: 'vi',
-    contentRating: 'all',
+    contentRating: 'G',
     publicationStatus: 'preparing',
     publishType: 'debut',
     color: SERIES_PALETTE[0],
@@ -99,7 +104,26 @@ export function normalizeSeries(raw, index = 0) {
   const s = raw && typeof raw === 'object' ? raw : {}
   const title = String(s.title ?? '').trim() || `Series ${s.id ?? index + 1}`
   const slug = String(s.slug ?? '').trim() || slugifySeriesTitle(title)
-  const genres = Array.isArray(s.genres) ? s.genres.filter(Boolean) : []
+  // Extract string names from genres/tags (co the la object {GenreId, GenreName} hoac string)
+  const extractNames = (arr) => {
+    if (!Array.isArray(arr)) return []
+    return arr.map(item => {
+      if (!item) return null
+      if (typeof item === 'string') return item
+      if (typeof item === 'object') {
+        const name = item.genreName ?? item.GenreName ?? item.tagName ?? item.TagName ?? null
+        if (typeof name === 'string') return name
+        // Nested object: { en: "Action", vi: "Han dong" }
+        if (typeof name === 'object' && name !== null) {
+          return Object.values(name).find(v => typeof v === 'string' && v) ?? null
+        }
+        return null
+      }
+      return null
+    }).filter(Boolean)
+  }
+  const genres = extractNames(s.genres)
+  const tags = extractNames(s.tags)
   const publishType = s.publishType ?? (s.needsFullDebutPipeline ? 'debut' : 'continuing')
   const needsFullDebutPipeline = s.needsFullDebutPipeline ?? publishType === 'debut'
 
@@ -120,7 +144,7 @@ export function normalizeSeries(raw, index = 0) {
     authorName: String(s.authorName ?? '').trim() || 'Mangaka',
     authorId: s.authorId ?? null,
     createdAt: s.createdAt ?? new Date().toISOString(),
-    tags: Array.isArray(s.tags) ? s.tags : [],
+    tags,
     color: s.color ?? SERIES_PALETTE[(s.id ?? index) % SERIES_PALETTE.length],
     coverImage: s.coverImage ?? null,
     chapters: s.chapters ?? 0,
@@ -350,48 +374,61 @@ export function buildSeriesFromUploadTitle(title, { id, authorName, colorIndex =
 
 /**
  * Map 1 record Series từ backend (DTOs/SeriesDto) sang shape local.
- * Backend fields: Seriesid, Title, Synopsis, Coverimageurl, Agerating, Mangakaid,
- *   Tantoueditorid, Publishformat, Status, Proposalfileurl, Createdat, Approvedat, Isdeleted,
- *   Genres[{GenreId, GenreName}], Tags[{TagId, TagName}]
+ * Axios response đã được normalize về snake_case:
+ *   series_id, title, synopsis, cover_image_url, proposal_file_url,
+ *   age_rating, publish_format, mangaka_id, tantou_editor_id,
+ *   genres[{genre_id, genre_name}], tags[{tag_id, tag_name}]
  */
 export function mapApiSeriesToLocal(raw, index = 0) {
   if (!raw) return null
-  const id = raw.seriesid ?? raw.Seriesid ?? raw.id ?? index + 1
-  const title = String(raw.title ?? raw.Title ?? '').trim() || `Series ${id}`
-  const status = String(raw.status ?? raw.Status ?? 'draft').toLowerCase()
-  // Backend trả PascalCase: Agerating, Publishformat, Proposalfileurl, Coverimageurl
-  // Axios mặc định giữ nguyên key như BE trả — thêm fallback để đề phòng
-  const agerating = String(raw.agerating ?? raw.Agerating ?? raw.ageRating ?? 'all')
-  const pubFormat = String(raw.publishformat ?? raw.Publishformat ?? raw.publishFormat ?? 'continuing')
+  const id = raw.series_id ?? raw.id ?? index + 1
+  const title = String(raw.title ?? '').trim() || `Series ${id}`
+  const status = String(raw.status ?? 'draft').toLowerCase()
+  const agerating = String(raw.age_rating ?? 'G').toUpperCase()
+  const validRatings = ['G', 'PG-13', 'R-16', 'R-18']
+  const safeRating = validRatings.includes(agerating) ? agerating : 'G'
+  const pubFormat = String(raw.publish_format ?? 'continuing')
   return normalizeSeries({
     id,
     seriesid: id,
     title,
     altTitle: title,
-    synopsis: String(raw.synopsis ?? raw.Synopsis ?? '').trim(),
-    coverImage: raw.coverimageurl ?? raw.Coverimageurl ?? null,
-    proposalFileUrl: raw.proposalfileurl ?? raw.Proposalfileurl ?? null,
+    synopsis: String(raw.synopsis ?? '').trim(),
+    coverImage: raw.cover_image_url ?? null,
+    proposalFileUrl: raw.proposal_file_url ?? null,
     genres: Array.isArray(raw.genres)
-      ? raw.genres.map(g => g.genreName ?? g.GenreName).filter(Boolean)
+      ? raw.genres.map(g => {
+          const v = g.genre_name ?? g.genreName ?? null
+          if (typeof v === 'object' && v !== null) {
+            return Object.values(v).find(val => typeof val === 'string' && val) ?? null
+          }
+          return typeof v === 'string' ? v : null
+        }).filter(Boolean)
       : [],
     tags: Array.isArray(raw.tags)
-      ? raw.tags.map(t => t.tagName ?? t.TagName).filter(Boolean)
+      ? raw.tags.map(t => {
+          const v = t.tag_name ?? t.tagName ?? null
+          if (typeof v === 'object' && v !== null) {
+            return Object.values(v).find(val => typeof val === 'string' && val) ?? null
+          }
+          return typeof v === 'string' ? v : null
+        }).filter(Boolean)
       : [],
-    contentRating: agerating,
+    contentRating: safeRating,
     publicationStatus: status,
     publishType: pubFormat,
     needsFullDebutPipeline: pubFormat.toLowerCase() === 'debut',
     authorName: 'Mangaka',
-    mangakaid: raw.mangakaid ?? raw.Mangakaid,
-    tantoueditorid: raw.tantoueditorid ?? raw.Tantoueditorid,
+    mangakaid: raw.mangaka_id ?? raw.mangakaid,
+    tantoueditorid: raw.tantou_editor_id ?? raw.tantoueditorid,
     chapters: 0,
     marks: 0,
     status: status === 'approved' ? 'done' : status === 'pending' ? 'review' : 'draft',
     updated: 'Cập nhật từ server',
     progress: 0,
-    metadataComplete: Boolean(String(raw.synopsis ?? raw.Synopsis ?? '').trim()),
-    createdat: raw.createdat ?? raw.Createdat,
-    approvedat: raw.approvedat ?? raw.Approvedat,
+    metadataComplete: Boolean(String(raw.synopsis ?? '').trim()),
+    createdat: raw.created_at ?? raw.createdat,
+    approvedat: raw.approved_at ?? raw.approvedat,
   })
 }
 

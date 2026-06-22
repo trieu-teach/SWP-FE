@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Calendar, CheckCircle2, FileText, Sparkles } from 'lucide-react'
+import { Calendar, FileText, Sparkles } from 'lucide-react'
 import Header from '@/components/User/Header/Header.jsx'
 import Footer from '@/components/User/Footer/Footer.jsx'
 import { WorkspaceHero } from '@/components/layout/WorkspaceHero.jsx'
@@ -27,6 +27,7 @@ import {
   rejectSubmissionToMangaka,
   seedTantouDemoIfEmpty,
   suggestPublishCadence,
+  syncAllTantouStatusFromEbDecisions,
   updateTantouSubmission,
 } from '@/utils/tantouWorkspaceStorage.js'
 import TantouPageReview from './TantouPageReview.jsx'
@@ -40,6 +41,8 @@ const NAV_LINKS = [
 function statusVariant(status) {
   if (status === 'pending') return 'secondary'
   if (status === 'forwarded_eb') return 'default'
+  if (status === 'eb_approved') return 'default'
+  if (status === 'eb_rejected') return 'destructive'
   if (status === 'revision') return 'destructive'
   return 'outline'
 }
@@ -49,6 +52,8 @@ function statusLabel(status) {
     pending: 'Chờ duyệt',
     revision: 'Đã gửi chỉnh',
     forwarded_eb: `Đã chuyển ${LABEL_EDITOR_BOARD}`,
+    eb_approved: `${LABEL_EDITOR_BOARD} đã chấp nhận`,
+    eb_rejected: `${LABEL_EDITOR_BOARD} đã từ chối`,
     approved_publish: 'Đã duyệt phát hành',
   }
   return map[status] ?? status
@@ -106,12 +111,20 @@ export default function TantouEditor() {
   }, [refresh])
 
   useEffect(() => {
+    // FIX #2: mỗi khi EB duyệt/từ chối, đồng bộ lại status các submission
+    // đang "forwarded_eb" để không bị kẹt trạng thái cũ.
+    const onEbSync = () => {
+      syncAllTantouStatusFromEbDecisions()
+      refresh()
+    }
     const onSync = () => refresh()
     window.addEventListener('mk-tantou-storage', onSync)
-    window.addEventListener('mk-eb-approved-update', onSync)
+    window.addEventListener('mk-eb-approved-update', onEbSync)
+    window.addEventListener('mk-eb-rejected-update', onEbSync)
     return () => {
       window.removeEventListener('mk-tantou-storage', onSync)
-      window.removeEventListener('mk-eb-approved-update', onSync)
+      window.removeEventListener('mk-eb-approved-update', onEbSync)
+      window.removeEventListener('mk-eb-rejected-update', onEbSync)
     }
   }, [refresh])
 
@@ -140,7 +153,7 @@ export default function TantouEditor() {
   const scheduleSeries = useMemo(() => {
     const titles = new Set([
       ...Object.keys(ebApproved).filter(t => ebApproved[t]),
-      ...submissions.filter(s => s.status === 'forwarded_eb').map(s => s.seriesTitle),
+      ...submissions.filter(s => s.status === 'forwarded_eb' || s.status === 'eb_approved').map(s => s.seriesTitle),
     ])
     return [...titles].map(title => {
       const sub = submissions.find(s => s.seriesTitle === title)
@@ -172,7 +185,7 @@ export default function TantouEditor() {
   function closeReview() {
     setReviewOpen(false)
     if (selectedId) {
-      updateTantouSubmission(selectedId, { editorialComment, reviewNotes: {} })
+      updateTantouSubmission(selectedId, { editorialComment })
     }
     refresh()
   }
@@ -187,19 +200,21 @@ export default function TantouEditor() {
 
   function handleReject() {
     if (!selectedId) return
-    if (!editorialComment.trim()) {
-      toast.error('Nhập nhận xét trước khi gửi Mangaka chỉnh.')
+    try {
+      rejectSubmissionToMangaka(selectedId, { editorialComment, reviewNotes: {} })
+    } catch (err) {
+      toast.error(err.message || 'Nhập nhận xét trước khi gửi Mangaka chỉnh.')
       return
     }
-    rejectSubmissionToMangaka(selectedId, { editorialComment, reviewNotes: {} })
     toast.success('Đã gửi nhận xét — Mangaka chỉnh và gửi lại.')
     setReviewOpen(false)
     refresh()
   }
 
   function handleApproveRecurring(id) {
-    approveRecurringSubmission(id)
+    approveRecurringSubmission(id ?? selectedId)
     toast.success('Chapter đã duyệt — sẵn sàng phát hành.')
+    if (!id) setReviewOpen(false)
     refresh()
   }
 
@@ -209,6 +224,7 @@ export default function TantouEditor() {
     refresh()
   }
 
+  // ── Review mode — không có Footer để sticky bar không bị che ──
   if (reviewOpen && selected) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
@@ -219,29 +235,12 @@ export default function TantouEditor() {
             editorialComment={editorialComment}
             onEditorialCommentChange={setEditorialComment}
             onBack={closeReview}
+            onForwardEb={handleForwardEb}
+            onReject={handleReject}
+            onApproveRecurring={() => handleApproveRecurring()}
           />
-          <Card className="mt-6">
-            <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-muted-foreground">
-                Gửi Mangaka: cần có <strong className="text-foreground">Nhận xét</strong> ở cột phải.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {selected.pipeline === 'debut' && selected.status === 'pending' ? (
-                  <>
-                    <Button variant="outline" onClick={handleReject}>Chưa đạt — gửi Mangaka</Button>
-                    <Button onClick={handleForwardEb}>Đạt — chuyển {LABEL_EDITOR_BOARD}</Button>
-                  </>
-                ) : selected.pipeline === 'recurring' || isSeriesEbApproved(selected.seriesTitle) ? (
-                  <Button onClick={() => { approveRecurringSubmission(selected.id); toast.success('Đã duyệt phát hành.'); setReviewOpen(false); refresh() }}>
-                    <CheckCircle2 className="size-4" />
-                    Duyệt phát hành
-                  </Button>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
         </main>
-        <Footer />
+        {/* Footer bị bỏ ở đây để sticky bar hiện đúng */}
       </div>
     )
   }
@@ -284,10 +283,19 @@ export default function TantouEditor() {
                   </p>
                 </div>
                 {debutQueue.length === 0 ? (
-                  <Card><CardContent className="py-12 text-center text-muted-foreground">Không có hàng chờ.</CardContent></Card>
+                  <Card>
+                    <CardContent className="py-12 text-center text-muted-foreground">
+                      Không có hàng chờ.
+                    </CardContent>
+                  </Card>
                 ) : (
                   debutQueue.map(sub => (
-                    <SubmissionCard key={sub.id} sub={sub} onReview={openReview} onQuickApprove={handleApproveRecurring} />
+                    <SubmissionCard
+                      key={sub.id}
+                      sub={sub}
+                      onReview={openReview}
+                      onQuickApprove={handleApproveRecurring}
+                    />
                   ))
                 )}
               </div>
@@ -301,10 +309,20 @@ export default function TantouEditor() {
               <p className="text-sm text-muted-foreground">Series đã qua EB — chỉ cần Tantou duyệt.</p>
             </div>
             {recurringQueue.length === 0 ? (
-              <Card><CardContent className="py-12 text-center text-muted-foreground">Không có hàng chờ.</CardContent></Card>
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">
+                  Không có hàng chờ.
+                </CardContent>
+              </Card>
             ) : (
               recurringQueue.map(sub => (
-                <SubmissionCard key={sub.id} sub={sub} onReview={openReview} onQuickApprove={handleApproveRecurring} showQuickApprove />
+                <SubmissionCard
+                  key={sub.id}
+                  sub={sub}
+                  onReview={openReview}
+                  onQuickApprove={handleApproveRecurring}
+                  showQuickApprove
+                />
               ))
             )}
           </TabsContent>
@@ -312,10 +330,16 @@ export default function TantouEditor() {
           <TabsContent value="schedule" className="space-y-4">
             <div>
               <h2 className="text-xl font-semibold">Lịch phát hành</h2>
-              <p className="text-sm text-muted-foreground">Series đã được {LABEL_EDITOR_BOARD} chấp nhận.</p>
+              <p className="text-sm text-muted-foreground">
+                Series đã được {LABEL_EDITOR_BOARD} chấp nhận.
+              </p>
             </div>
             {scheduleSeries.length === 0 ? (
-              <Card><CardContent className="py-12 text-center text-muted-foreground">Chưa có series qua {LABEL_EDITOR_BOARD}.</CardContent></Card>
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">
+                  Chưa có series qua {LABEL_EDITOR_BOARD}.
+                </CardContent>
+              </Card>
             ) : (
               scheduleSeries.map(row => (
                 <Card key={row.title}>
@@ -329,10 +353,18 @@ export default function TantouEditor() {
                     </CardDescription>
                   </CardHeader>
                   <CardFooter className="gap-2">
-                    <Button variant={row.cadence === 'weekly' ? 'default' : 'outline'} size="sm" onClick={() => handleSetSchedule(row.title, row.qualityScore, row.popularityScore, 'weekly')}>
+                    <Button
+                      variant={row.cadence === 'weekly' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleSetSchedule(row.title, row.qualityScore, row.popularityScore, 'weekly')}
+                    >
                       Theo tuần
                     </Button>
-                    <Button variant={row.cadence === 'monthly' ? 'default' : 'outline'} size="sm" onClick={() => handleSetSchedule(row.title, row.qualityScore, row.popularityScore, 'monthly')}>
+                    <Button
+                      variant={row.cadence === 'monthly' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleSetSchedule(row.title, row.qualityScore, row.popularityScore, 'monthly')}
+                    >
                       Theo tháng
                     </Button>
                   </CardFooter>
@@ -366,6 +398,18 @@ function SidebarFlow() {
         </div>
         <Button variant="link" className="h-auto p-0" asChild>
           <Link to={PATH_EDITOR_BOARD}>Mở {LABEL_EDITOR_BOARD} →</Link>
+        </Button>
+        <Separator />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-auto p-0 text-xs text-destructive hover:text-destructive"
+          onClick={() => {
+            localStorage.clear()
+            window.location.reload()
+          }}
+        >
+          Reset demo (xóa localStorage)
         </Button>
       </CardContent>
     </Card>

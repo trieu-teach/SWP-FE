@@ -1,2 +1,2 @@
 export { QueryProvider } from './QueryProvider'
-export { AuthProvider, useAuth } from './AuthProvider'
+export { AuthProvider, useAuth, isLoggingIn } from './AuthProvider'

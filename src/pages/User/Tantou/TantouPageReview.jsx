@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Send, XCircle } from 'lucide-react'
 import { noteTaskLabel } from '@/constants/workspaceTasks.js'
+import { LABEL_EDITOR_BOARD } from '@/constants/roleTerminology.js'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
@@ -14,6 +15,9 @@ export default function TantouPageReview({
   editorialComment,
   onEditorialCommentChange,
   onBack,
+  onForwardEb,
+  onReject,
+  onApproveRecurring,
 }) {
   const [selectedMangakaId, setSelectedMangakaId] = useState(null)
   const mangakaNotes = submission?.mangakaNotes ?? []
@@ -25,8 +29,14 @@ export default function TantouPageReview({
 
   if (!submission) return null
 
+  // Lần đầu (pipeline === 'debut') → cần chuyển EB.
+  // Đã qua EB (recurring / EB-approved) → chỉ cần Tantou duyệt nhanh.
+  const isDebut = submission.pipeline === 'debut'
+  const hasComment = editorialComment.trim().length > 0
+
   return (
-    <div className="space-y-4">
+    // pb-24 chừa chỗ cho thanh nút sticky ở cuối trang, tránh che nội dung
+    <div className="space-y-4 pb-24">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeft className="size-4" />
@@ -147,6 +157,34 @@ export default function TantouPageReview({
               ) : null}
             </CardContent>
           </Card>
+        </div>
+      </div>
+
+      {/* Thanh hành động sticky — khớp với handleForwardEb / handleReject / handleApproveRecurring ở TantouEditor.jsx */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="page-container flex flex-wrap items-center justify-end gap-2 py-3">
+          <Button
+            variant="destructive"
+            onClick={onReject}
+            disabled={!hasComment}
+            title={!hasComment ? 'Nhập nhận xét trước khi gửi Mangaka chỉnh' : undefined}
+            className="gap-2"
+          >
+            <XCircle className="size-4" />
+            Từ chối — gửi Mangaka chỉnh
+          </Button>
+
+          {isDebut ? (
+            <Button onClick={onForwardEb} className="gap-2">
+              <Send className="size-4" />
+              Chuyển sang {LABEL_EDITOR_BOARD}
+            </Button>
+          ) : (
+            <Button onClick={onApproveRecurring} className="gap-2">
+              <CheckCircle2 className="size-4" />
+              Duyệt nhanh
+            </Button>
+          )}
         </div>
       </div>
     </div>

@@ -77,13 +77,18 @@ export const pageIssuesService = {
   delete: (id) => axios.delete(`/PageIssues/${id}`),
 }
 
-// ── GENRES & TAGS ───────────────────────────────────────────────────────────────
+// ── GENRES ─────────────────────────────────────────────────────────────────────
 export const genresService = {
   getAll: () => axios.get('/Genres'),
+  getById: (id) => axios.get(`/Genres/${id}`),
+  create: (data) => axios.post('/Genres', data),
 }
 
+// ── TAGS ────────────────────────────────────────────────────────────────────────
 export const tagsService = {
   getAll: () => axios.get('/Tags'),
+  getById: (id) => axios.get(`/Tags/${id}`),
+  create: (data) => axios.post('/Tags', data),
 }
 
 // ── USERS ─────────────────────────────────────────────────────────────────────

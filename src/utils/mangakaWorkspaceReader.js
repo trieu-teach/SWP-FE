@@ -79,3 +79,26 @@ export function updateSeriesInWorkspace(seriesId, form) {
     return next
   })
 }
+
+/**
+ * Lưu kết quả chấm điểm EB vào series tương ứng trong workspace.
+ * @param {string} seriesTitle
+ * @param {object} assessment - dữ liệu từ Eb.jsx (councilAverage, classification, ...)
+ */
+export function updateSeriesEbAssessmentInWorkspace(seriesTitle, assessment) {
+  return saveMangakaWorkspace((ws) => {
+    const idx = ws.seriesList.findIndex((s) => s.title === seriesTitle)
+    if (idx < 0) return ws
+
+    const updatedSeries = {
+      ...ws.seriesList[idx],
+      ebAssessment: assessment,
+      ebAssessedAt: assessment.assessedAt ?? new Date().toISOString(),
+    }
+
+    return {
+      ...ws,
+      seriesList: ws.seriesList.map((s, i) => (i === idx ? updatedSeries : s)),
+    }
+  })
+}

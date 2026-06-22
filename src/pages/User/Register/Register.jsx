@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff } from 'lucide-react'
+import { toast } from 'sonner'
 import Header from '@/components/User/Header/Header.jsx'
 import Footer from '@/components/User/Footer/Footer.jsx'
 import { AuthShell, RoleCard } from '@/components/layout/AuthShell.jsx'
@@ -9,12 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  ROLES,
-  ROLE_OPTIONS,
-  register,
-  getRolePath,
-} from '@/lib/auth.js'
+import { useAuth } from '@/lib/providers'
+import { ROLES, ROLE_OPTIONS, getRolePath } from '@/lib/auth.js'
 
 const NAV_LINKS = [{ to: '/', label: 'Trang chủ' }]
 
@@ -30,6 +27,7 @@ const ROLE_DESCS = {
 
 export default function Register() {
   const navigate = useNavigate()
+  const { register: authRegister } = useAuth()
   const [form, setForm] = useState({
     username: '',
     fullName: '',
@@ -74,14 +72,15 @@ export default function Register() {
     setError('')
 
     try {
-      const user = await register({
+      const user = await authRegister({
         username: form.username.trim(),
         fullName: form.fullName.trim(),
         email: form.email.trim(),
         password: form.password,
         role: form.role,
       })
-      navigate(getRolePath(user.role) || '/')
+      toast.success(`Dang ky thanh cong! Chao ${user.name || user.username}.`)
+      navigate(getRolePath(user.role) || '/', { replace: true })
     } catch (err) {
       const status = err?.response?.status
       const body = err?.response?.data
