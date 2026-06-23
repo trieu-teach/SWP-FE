@@ -22,10 +22,12 @@ export function useCollaborationRequests() {
     try {
       const res = await contractsService.getAll({ assistantId })
       const all = Array.isArray(res?.data) ? res.data : []
+      console.log('[useCollaborationRequests] All contracts:', all)
       const pending = all.filter(c => {
-        const s = c.status ?? c.Status ?? ''
-        return s.toLowerCase() === 'pending'
+        const s = (c.status ?? c.Status ?? '').toLowerCase()
+        return s === 'pending' || s === 'cho nhan'
       })
+      console.log('[useCollaborationRequests] Pending contracts:', pending)
       setPendingRequests(pending)
     } catch {
       setPendingRequests([])
