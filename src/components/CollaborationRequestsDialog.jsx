@@ -37,7 +37,7 @@ export default function CollaborationRequestsDialog({ open, onOpenChange }) {
   } = useCollaborationRequests()
 
   async function handleAccept(contract) {
-    const id = contract.contractId ?? contract.ContractId ?? contract.id
+    const id = contract.contract_id ?? contract.contractId ?? contract.ContractId ?? contract.id
     console.log('[CollabDialog] Accept contract:', id, contract)
     if (!id) {
       toast.error('Không tìm thấy ID hợp đồng')
@@ -53,7 +53,7 @@ export default function CollaborationRequestsDialog({ open, onOpenChange }) {
   }
 
   async function handleReject(contract) {
-    const id = contract.contractId ?? contract.ContractId ?? contract.id
+    const id = contract.contract_id ?? contract.contractId ?? contract.ContractId ?? contract.id
     console.log('[CollabDialog] Reject contract:', id, contract)
     if (!id) {
       toast.error('Không tìm thấy ID hợp đồng')
@@ -108,8 +108,8 @@ export default function CollaborationRequestsDialog({ open, onOpenChange }) {
                           {req.mangakaName ?? req.mangakaname ?? req.MangakaName ?? 'Mangaka'}
                         </p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          Gửi lúc: {req.createdat ?? req.Createdat
-                            ? new Date(req.createdat ?? req.Createdat).toLocaleDateString('vi-VN')
+                          Gửi lúc: {req.createdAt ?? req.createdat ?? req.Createdat
+                            ? new Date(req.createdAt ?? req.createdat ?? req.Createdat).toLocaleDateString('vi-VN')
                             : '—'}
                         </p>
                         {req.contractTerms || req.contractterms || req.ContractTerms ? (
@@ -119,8 +119,8 @@ export default function CollaborationRequestsDialog({ open, onOpenChange }) {
                         ) : null}
                         <div className="mt-2 flex items-center gap-2">
                           <SalaryBadge
-                            salaryAmount={req.salaryAmount ?? req.Salaryamount}
-                            salaryType={req.salaryType ?? req.Salarytype}
+                            salaryAmount={req.salaryAmount ?? req.Salaryamount ?? req.salary_amount}
+                            salaryType={req.salaryType ?? req.Salarytype ?? req.salary_type}
                           />
                         </div>
                       </div>

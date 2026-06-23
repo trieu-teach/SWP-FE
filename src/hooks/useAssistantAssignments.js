@@ -5,6 +5,7 @@ import { contractsService } from '@/api'
 import { chaptersService } from '@/api'
 import { seriesService } from '@/api'
 import { pagesService } from '@/api'
+import { listAssistantSubmissions } from '@/utils/assistantWorkspaceStorage.js'
 
 async function enrichChapterWithSeries(chapter) {
   const cid = chapter.chapterid ?? chapter.Chapterid ?? chapter.id ?? null
@@ -125,11 +126,17 @@ export function useAssistantAssignments() {
       const contractList = Array.isArray(contractsRes?.data) ? contractsRes.data : []
       const contractAssignments = await Promise.all(contractList.map(enrichContract))
 
-      // Merge: chapter assignments + contract assignments chua co chapter
+      // Lay submissions tu localStorage, loc theo assistantId
+      const rawSubs = listAssistantSubmissions()
+      const mySubs = rawSubs.filter(
+        s => s.assistantId != null && String(s.assistantId) === String(assistantId),
+      )
+
+      // Merge: chapter assignments + contract assignments + submissions
       const seriesIds = new Set(chapterAssignments.map(a => a.seriesId).filter(Boolean))
       const extraContracts = contractAssignments.filter(a => !a.seriesId || !seriesIds.has(a.seriesId))
 
-      setAssignments([...chapterAssignments, ...extraContracts])
+      setAssignments([...chapterAssignments, ...extraContracts, ...mySubs])
     } catch (err) {
       const msg = err?.response?.data?.message ?? err?.message ?? 'Khong tai duoc danh sach viec.'
       setError(msg)
@@ -143,6 +150,13 @@ export function useAssistantAssignments() {
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // Poll localStorage inbox for new submissions from Mangaka (every 3s)
+  useEffect(() => {
+    if (!assistantId) return
+    const interval = setInterval(() => { void refresh() }, 3000)
+    return () => clearInterval(interval)
+  }, [assistantId, refresh])
 
   return { assignments, loading, error, refresh }
 }

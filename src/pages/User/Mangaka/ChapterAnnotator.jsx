@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
+import { toast } from 'sonner'
 import {
   Eraser,
   Image as ImageIcon,
@@ -104,6 +105,7 @@ export default function ChapterAnnotator({
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [uploadUi, setUploadUi] = useState(null)
   const [uploadRejectMessage, setUploadRejectMessage] = useState(null)
+  const [selectedAssistantId, setSelectedAssistantId] = useState(null)
 
   const activeChapter = chapters.find(c => c.id === activeChapterId)
   const pages = activeChapter?.pages ?? []
@@ -882,6 +884,10 @@ export default function ChapterAnnotator({
   function SendActionsBar({ compact = false }) {
     const handleAssistant = () => {
       if (!activeChapter || !onSendToAssistant) return
+      if (!selectedAssistantId) {
+        toast.error('Vui lòng chọn Assistant trước khi gửi.')
+        return
+      }
       const page = pages[pageIndex]
       onSendToAssistant({
         chapter: activeChapter,
@@ -889,6 +895,7 @@ export default function ChapterAnnotator({
         pageUrl: page?.url ?? null,
         pageName: page?.name,
         notes: pageNotes,
+        assistantId: selectedAssistantId,
       })
     }
     const handleTantou = () => {
@@ -934,13 +941,39 @@ export default function ChapterAnnotator({
                 Gửi {LABEL_TANTOU_EDITOR}
               </Button>
             ) : null}
+            <Select
+              value={selectedAssistantId ?? ''}
+              onValueChange={v => setSelectedAssistantId(v || null)}
+            >
+              <SelectTrigger className={cn('w-48', compact && 'border-white/20 bg-white/10 text-white')}>
+                <SelectValue placeholder="-- Chọn Assistant --" />
+              </SelectTrigger>
+              <SelectContent>
+                {hiredAssistants.length === 0 ? (
+                  <SelectItem value="__none__" disabled>
+                    Chưa có Assistant nào
+                  </SelectItem>
+                ) : (
+                  hiredAssistants.map(a => (
+                    <SelectItem key={a.assistantId} value={String(a.assistantId)}>
+                      {a.label}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
             <Button
               size="sm"
-              disabled={!activeChapter || pages.length === 0 || pageNotes.length === 0}
+              disabled={
+                !activeChapter
+                || pages.length === 0
+                || pageNotes.length === 0
+                || !selectedAssistantId
+              }
               onClick={handleAssistant}
             >
               <Send className="size-3.5" />
-              Gửi Assistant ({totalNotes} ô)
+              Gửi ({totalNotes} ô)
             </Button>
           </div>
         </CardContent>

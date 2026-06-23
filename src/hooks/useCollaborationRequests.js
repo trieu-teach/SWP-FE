@@ -29,6 +29,7 @@ export function useCollaborationRequests() {
       })
       console.log('[useCollaborationRequests] Pending contracts:', pending)
       setPendingRequests(pending)
+      setPendingRequests(pending)
     } catch {
       setPendingRequests([])
     } finally {
@@ -45,10 +46,10 @@ export function useCollaborationRequests() {
     if (!contractId) return false
     setAcceptingId(contractId)
     try {
-      const res = await contractsService.updateStatus(contractId, { status: 'Active' })
+      const res = await contractsService.updateStatus(contractId, 'Active')
       console.log('[useCollaborationRequests] acceptRequest success:', res)
       setPendingRequests(prev => prev.filter(c =>
-        (c.contractId ?? c.ContractId ?? c.id) !== contractId
+        (c.contractId ?? c.ContractId ?? c.id ?? c.contract_id) !== contractId
       ))
       return true
     } catch (err) {
@@ -64,10 +65,10 @@ export function useCollaborationRequests() {
     if (!contractId) return false
     setRejectingId(contractId)
     try {
-      const res = await contractsService.updateStatus(contractId, { status: 'Terminated' })
+      const res = await contractsService.updateStatus(contractId, 'Terminated')
       console.log('[useCollaborationRequests] rejectRequest success:', res)
       setPendingRequests(prev => prev.filter(c =>
-        (c.contractId ?? c.ContractId ?? c.id) !== contractId
+        (c.contractId ?? c.ContractId ?? c.id ?? c.contract_id) !== contractId
       ))
       return true
     } catch (err) {

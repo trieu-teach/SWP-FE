@@ -347,6 +347,7 @@ export function buildSubmissionFromMangakaPage({
   mangakaImageUrl,
   notes,
   mangakaName = 'Mangaka',
+  assistantId,
 }) {
   const imageUrl = mangakaImageUrl || placeholderPageDataUrl(`${seriesTitle} · Trang ${pageIndex + 1}`)
   return {
@@ -359,6 +360,7 @@ export function buildSubmissionFromMangakaPage({
     mangakaImageUrl: imageUrl,
     notes: (notes || []).map(n => ({ ...n })),
     mangakaName,
+    assistantId: assistantId ?? null,
     status: 'pending_assistant',
     sentAt: new Date().toISOString(),
   }

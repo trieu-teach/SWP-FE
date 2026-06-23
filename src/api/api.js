@@ -2,113 +2,255 @@ import axios from './axiosClient'
 
 // ── AUTH ────────────────────────────────────────────────────────────────────────
 export const authService = {
-  login: (data) => axios.post('/auth/login', data),
-  register: (data) => axios.post('/auth/register', data),
-  refreshToken: (data) => axios.post('/auth/refresh-token', data),
-  logout: (data) => axios.post('/auth/logout', data),
-  createStaff: (data) => axios.post('/auth/create-staff', data),
-  profile: () => axios.get('/users/profile'),
+  login: (data) => {
+    console.log('[API] POST /auth/login', data)
+    return axios.post('/auth/login', data)
+  },
+  register: (data) => {
+    console.log('[API] POST /auth/register', data)
+    return axios.post('/auth/register', data)
+  },
+  refreshToken: (data) => {
+    console.log('[API] POST /auth/refresh-token', data)
+    return axios.post('/auth/refresh-token', data)
+  },
+  logout: (data) => {
+    console.log('[API] POST /auth/logout', data)
+    return axios.post('/auth/logout', data)
+  },
+  createStaff: (data) => {
+    console.log('[API] POST /auth/create-staff', data)
+    return axios.post('/auth/create-staff', data)
+  },
+  profile: () => {
+    console.log('[API] GET /users/profile')
+    return axios.get('/users/profile')
+  },
 }
 
 // ── SERIES ──────────────────────────────────────────────────────────────────────
 export const seriesService = {
-  getAll: () => axios.get('/Series'),
-  getById: (id) => axios.get(`/Series/${id}`),
-  // Backend: /api/Series/mangakaid/{mangakaId}  ← path segment, khong query param
-  getByMangaka: (mangakaId) => axios.get(`/Series/mangakaid/${mangakaId}`),
-  create: (formData) => axios.post('/Series', formData),
-  update: (id, formData) => axios.put(`/Series/${id}`, formData),
-  softDelete: (id) => axios.delete(`/Series/softdelete/${id}`),
-  delete: (id) => axios.delete(`/Series/${id}`),
-  updateStatus: (id, status) => axios.patch(`/Series/${id}/status`, { status }),
-  updatePublishFormat: (id, publishFormat) =>
-    axios.patch(`/Series/${id}/publish-format`, { publishformat: publishFormat }),
-  updateTantouEditor: (id, tantouEditorId) =>
-    axios.patch(`/Series/${id}/tantou-editor`, { tantoueditorid: tantouEditorId }),
+  getAll: () => {
+    console.log('[API] GET /Series')
+    return axios.get('/Series')
+  },
+  getById: (id) => {
+    console.log('[API] GET /Series/:id', id)
+    return axios.get(`/Series/${id}`)
+  },
+  getByMangaka: (mangakaId) => {
+    console.log('[API] GET /Series/mangakaid/:mangakaId', mangakaId)
+    return axios.get(`/Series/mangakaid/${mangakaId}`)
+  },
+  create: (formData) => {
+    console.log('[API] POST /Series', Object.fromEntries(formData))
+    return axios.post('/Series', formData)
+  },
+  update: (id, formData) => {
+    console.log('[API] PUT /Series/:id', id, Object.fromEntries(formData))
+    return axios.put(`/Series/${id}`, formData)
+  },
+  softDelete: (id) => {
+    console.log('[API] DELETE /Series/softdelete/:id', id)
+    return axios.delete(`/Series/softdelete/${id}`)
+  },
+  delete: (id) => {
+    console.log('[API] DELETE /Series/:id', id)
+    return axios.delete(`/Series/${id}`)
+  },
+  updateStatus: (id, status) => {
+    console.log('[API] PATCH /Series/:id/status', id, status)
+    return axios.patch(`/Series/${id}/status`, { status })
+  },
+  updatePublishFormat: (id, publishFormat) => {
+    console.log('[API] PATCH /Series/:id/publish-format', id, publishFormat)
+    return axios.patch(`/Series/${id}/publish-format`, { publishformat: publishFormat })
+  },
+  updateTantouEditor: (id, tantouEditorId) => {
+    console.log('[API] PATCH /Series/:id/tantou-editor', id, tantouEditorId)
+    return axios.patch(`/Series/${id}/tantou-editor`, { tantoueditorid: tantouEditorId })
+  },
 }
 
 // ── CHAPTERS ────────────────────────────────────────────────────────────────────
 export const chaptersService = {
-  // Backend nhan param key: "seriesId"
-  getAll: (seriesId) =>
-    axios.get('/Chapters', { params: seriesId != null ? { seriesId } : undefined }),
-  getById: (id) => axios.get(`/Chapters/${id}`),
-  create: (data) => axios.post('/Chapters', data),
-  update: (id, data) => axios.put(`/Chapters/${id}`, data),
-  delete: (id) => axios.delete(`/Chapters/${id}`),
-  // GET /api/Chapters/assistant/{assistantId} — lay danh sach chapter cua 1 assistant
-  getByAssistant: (assistantId) => axios.get(`/Chapters/assistant/${assistantId}`),
-  // PATCH /api/Chapters/{id}/status — nhan body la chuoi thuan (plain string)
-  updateStatus: (id, status) => axios.patch(`/Chapters/${id}/status`, status, {
-    headers: { 'Content-Type': 'text/plain' },
-  }),
+  getAll: (seriesId) => {
+    console.log('[API] GET /Chapters', { seriesId })
+    return axios.get('/Chapters', { params: seriesId != null ? { seriesId } : undefined })
+  },
+  getById: (id) => {
+    console.log('[API] GET /Chapters/:id', id)
+    return axios.get(`/Chapters/${id}`)
+  },
+  create: (data) => {
+    console.log('[API] POST /Chapters', data)
+    return axios.post('/Chapters', data)
+  },
+  update: (id, data) => {
+    console.log('[API] PUT /Chapters/:id', id, data)
+    return axios.put(`/Chapters/${id}`, data)
+  },
+  delete: (id) => {
+    console.log('[API] DELETE /Chapters/:id', id)
+    return axios.delete(`/Chapters/${id}`)
+  },
+  getByAssistant: (assistantId) => {
+    console.log('[API] GET /Chapters/assistant/:assistantId', assistantId)
+    return axios.get(`/Chapters/assistant/${assistantId}`)
+  },
+  updateStatus: (id, status) => {
+    console.log('[API] PATCH /Chapters/:id/status', id, status)
+    return axios.patch(`/Chapters/${id}/status`, status, {
+      headers: { 'Content-Type': 'text/plain' },
+    })
+  },
 }
 
 // ── PAGES ─────────────────────────────────────────────────────────────────────
 export const pagesService = {
-  // Backend nhan param key: "chapterId"
-  getAll: (chapterId) =>
-    axios.get('/Pages', { params: chapterId != null ? { chapterId } : undefined }),
-  getById: (id) => axios.get(`/Pages/${id}`),
-  create: (formData) => axios.post('/Pages', formData),
-  update: (id, formData) => axios.put(`/Pages/${id}`, formData),
-  composite: (pageId) => axios.post(`/Pages/${pageId}/composite`),
-  updateStatus: (id, status) => axios.patch(`/Pages/${id}/status`, { status }),
-  softDelete: (id) => axios.delete(`/Pages/${id}/soft`),
-  hardDelete: (id) => axios.delete(`/Pages/${id}`),
+  getAll: (chapterId) => {
+    console.log('[API] GET /Pages', { chapterId })
+    return axios.get('/Pages', { params: chapterId != null ? { chapterId } : undefined })
+  },
+  getById: (id) => {
+    console.log('[API] GET /Pages/:id', id)
+    return axios.get(`/Pages/${id}`)
+  },
+  create: (formData) => {
+    const entries = {}
+    for (const [k, v] of formData) { entries[k] = v }
+    console.log('[API] POST /Pages', entries)
+    return axios.post('/Pages', formData)
+  },
+  update: (id, formData) => {
+    const entries = {}
+    for (const [k, v] of formData) { entries[k] = v }
+    console.log('[API] PUT /Pages/:id', id, entries)
+    return axios.put(`/Pages/${id}`, formData)
+  },
+  composite: (pageId) => {
+    console.log('[API] POST /Pages/:id/composite', pageId)
+    return axios.post(`/Pages/${pageId}/composite`)
+  },
+  updateStatus: (id, status) => {
+    console.log('[API] PATCH /Pages/:id/status', id, status)
+    return axios.patch(`/Pages/${id}/status`, { status })
+  },
+  softDelete: (id) => {
+    console.log('[API] DELETE /Pages/:id/soft', id)
+    return axios.delete(`/Pages/${id}/soft`)
+  },
+  hardDelete: (id) => {
+    console.log('[API] DELETE /Pages/:id', id)
+    return axios.delete(`/Pages/${id}`)
+  },
 }
 
 // ── PAGE LAYERS ────────────────────────────────────────────────────────────────
 export const pageLayersService = {
-  // Backend nhan param key: "pageId"
-  getAll: (pageId) =>
-    axios.get('/PageLayers', { params: pageId != null ? { pageId } : undefined }),
-  getById: (id) => axios.get(`/PageLayers/${id}`),
-  create: (formData) => axios.post('/PageLayers', formData),
-  update: (id, formData) => axios.put(`/PageLayers/${id}`, formData),
-  toggleVisibility: (id) => axios.patch(`/PageLayers/${id}/visibility`),
-  softDelete: (id) => axios.delete(`/PageLayers/${id}/soft`),
-  hardDelete: (id) => axios.delete(`/PageLayers/${id}`),
+  getAll: (pageId) => {
+    console.log('[API] GET /PageLayers', { pageId })
+    return axios.get('/PageLayers', { params: pageId != null ? { pageId } : undefined })
+  },
+  getById: (id) => {
+    console.log('[API] GET /PageLayers/:id', id)
+    return axios.get(`/PageLayers/${id}`)
+  },
+  create: (formData) => {
+    const entries = {}
+    for (const [k, v] of formData) { entries[k] = v }
+    console.log('[API] POST /PageLayers', entries)
+    return axios.post('/PageLayers', formData)
+  },
+  update: (id, formData) => {
+    const entries = {}
+    for (const [k, v] of formData) { entries[k] = v }
+    console.log('[API] PUT /PageLayers/:id', id, entries)
+    return axios.put(`/PageLayers/${id}`, formData)
+  },
+  toggleVisibility: (id) => {
+    console.log('[API] PATCH /PageLayers/:id/visibility', id)
+    return axios.patch(`/PageLayers/${id}/visibility`)
+  },
+  softDelete: (id) => {
+    console.log('[API] DELETE /PageLayers/:id/soft', id)
+    return axios.delete(`/PageLayers/${id}/soft`)
+  },
+  hardDelete: (id) => {
+    console.log('[API] DELETE /PageLayers/:id', id)
+    return axios.delete(`/PageLayers/${id}`)
+  },
 }
 
 // ── PAGE ISSUES ────────────────────────────────────────────────────────────────
-// Backend hien tai chi nhan param "chapterId" (khong co pageId).
-// Tuong lai nen fix: (1) them ChapterId vao PageIssue entity,
-// (2) doi interface GetAllAsync -> GetAllAsync(int? pageId),
-// (3) doi controller nhan ?pageId= thay vi ?chapterId=
 export const pageIssuesService = {
-  getAll: (chapterId) =>
-    axios.get('/PageIssues', { params: chapterId != null ? { chapterId } : undefined }),
-  getById: (id) => axios.get(`/PageIssues/${id}`),
-  create: (data) => axios.post('/PageIssues', data),
-  update: (id, data) => axios.put(`/PageIssues/${id}`, data),
-  delete: (id) => axios.delete(`/PageIssues/${id}`),
+  getAll: (chapterId) => {
+    console.log('[API] GET /PageIssues', { chapterId })
+    return axios.get('/PageIssues', { params: chapterId != null ? { chapterId } : undefined })
+  },
+  getById: (id) => {
+    console.log('[API] GET /PageIssues/:id', id)
+    return axios.get(`/PageIssues/${id}`)
+  },
+  create: (data) => {
+    console.log('[API] POST /PageIssues', data)
+    return axios.post('/PageIssues', data)
+  },
+  update: (id, data) => {
+    console.log('[API] PUT /PageIssues/:id', id, data)
+    return axios.put(`/PageIssues/${id}`, data)
+  },
+  delete: (id) => {
+    console.log('[API] DELETE /PageIssues/:id', id)
+    return axios.delete(`/PageIssues/${id}`)
+  },
 }
 
 // ── GENRES ─────────────────────────────────────────────────────────────────────
 export const genresService = {
-  getAll: () => axios.get('/Genres'),
-  getById: (id) => axios.get(`/Genres/${id}`),
-  create: (data) => axios.post('/Genres', data),
+  getAll: () => {
+    console.log('[API] GET /Genres')
+    return axios.get('/Genres')
+  },
+  getById: (id) => {
+    console.log('[API] GET /Genres/:id', id)
+    return axios.get(`/Genres/${id}`)
+  },
+  create: (data) => {
+    console.log('[API] POST /Genres', data)
+    return axios.post('/Genres', data)
+  },
 }
 
 // ── TAGS ────────────────────────────────────────────────────────────────────────
 export const tagsService = {
-  getAll: () => axios.get('/Tags'),
-  getById: (id) => axios.get(`/Tags/${id}`),
-  create: (data) => axios.post('/Tags', data),
+  getAll: () => {
+    console.log('[API] GET /Tags')
+    return axios.get('/Tags')
+  },
+  getById: (id) => {
+    console.log('[API] GET /Tags/:id', id)
+    return axios.get(`/Tags/${id}`)
+  },
+  create: (data) => {
+    console.log('[API] POST /Tags', data)
+    return axios.post('/Tags', data)
+  },
 }
 
 // ── USERS ─────────────────────────────────────────────────────────────────────
 export const usersService = {
-  getProfile: () => axios.get('/users/profile'),
+  getProfile: () => {
+    console.log('[API] GET /users/profile')
+    return axios.get('/users/profile')
+  },
   updateProfile(data, roleKey) {
+    console.log('[API] PUT /users/profile (roleKey:', roleKey, ')', data)
     const endpoint = roleKey === 'MANGAKA'
       ? '/users/profile/mangaka'
       : roleKey === 'ASSISTANT'
         ? '/users/profile/assistant'
         : '/users/profile/mangaka'
-
     const fd = new FormData()
     if (roleKey === 'MANGAKA') {
       if (data.fullName) fd.append('fullname', data.fullName)
@@ -133,19 +275,95 @@ export const usersService = {
     }
     return axios.put(endpoint, fd)
   },
-  getAvailableAssistants: () => axios.get('/users/available-assistants'),
+  getAvailableAssistants: () => {
+    console.log('[API] GET /users/available-assistants')
+    return axios.get('/users/available-assistants')
+  },
 }
 
 // ── ASSISTANT PROFILE ─────────────────────────────────────────────────────────
 export const assistantProfileService = {
-  getAvailable: () => axios.get('/users/available-assistants'),
-  getById: (id) => axios.get(`/users/${id}`),
+  getAvailable: () => {
+    console.log('[API] GET /users/available-assistants')
+    return axios.get('/users/available-assistants')
+  },
+  getById: (id) => {
+    console.log('[API] GET /users/:id', id)
+    return axios.get(`/users/${id}`)
+  },
 }
 
 // ── TANTOU EDITORS ─────────────────────────────────────────────────────────
 export const tantouService = {
-  getAvailable: () => axios.get('/users/tantou-editors'),
-  getById: (id) => axios.get(`/users/${id}`),
+  getAvailable: () => {
+    console.log('[API] GET /users/tantou-editors')
+    return axios.get('/users/tantou-editors')
+  },
+  getById: (id) => {
+    console.log('[API] GET /users/:id', id)
+    return axios.get(`/users/${id}`)
+  },
+}
+
+// ── CONTRACTS (MangakaAssistant) ──────────────────────────────────────────────
+export const contractsService = {
+  getAll({ mangakaId, assistantId } = {}) {
+    console.log('[API] GET /MangakaAssistant', { mangakaId, assistantId })
+    return axios.get('/MangakaAssistant', {
+      params: {
+        ...(mangakaId != null && { mangakaId }),
+        ...(assistantId != null && { assistantId }),
+      },
+    })
+  },
+  getById: (id) => {
+    console.log('[API] GET /MangakaAssistant/:id', id)
+    return axios.get(`/MangakaAssistant/${id}`)
+  },
+  create: (data) => {
+    console.log('[API] POST /MangakaAssistant', data)
+    return axios.post('/MangakaAssistant', data)
+  },
+  update: (id, data) => {
+    console.log('[API] PUT /MangakaAssistant/:id', id, data)
+    return axios.put(`/MangakaAssistant/${id}`, data)
+  },
+  updateStatus: (id, status) => {
+    console.log('[API] PATCH /MangakaAssistant/:id/status', id, status)
+    return axios.patch(`/MangakaAssistant/${id}/status`, { status })
+  },
+}
+
+// ── PAGE ISSUES (duplicated service) ──────────────────────────────────────────
+export const pageIssuesApi = {
+  getAll: (chapterId) => {
+    console.log('[API] GET /PageIssues', { chapterId })
+    return axios.get('/PageIssues', { params: chapterId != null ? { chapterId } : undefined })
+  },
+  getById: (id) => {
+    console.log('[API] GET /PageIssues/:id', id)
+    return axios.get(`/PageIssues/${id}`)
+  },
+  create: (data) => {
+    console.log('[API] POST /PageIssues', data)
+    return axios.post('/PageIssues', data)
+  },
+  update: (id, data) => {
+    console.log('[API] PUT /PageIssues/:id', id, data)
+    return axios.put(`/PageIssues/${id}`, data)
+  },
+  updateStatus: (id, status) => {
+    console.log('[API] PATCH /PageIssues/:id/status', id, status)
+    return axios.patch(`/PageIssues/${id}/status`, { status })
+  },
+  softDelete: (id) => {
+    console.log('[API] DELETE /PageIssues/:id/soft', id)
+    return axios.delete(`/PageIssues/${id}/soft`)
+  },
+  hardDelete: (id) => {
+    console.log('[API] DELETE /PageIssues/:id', id)
+    return axios.delete(`/PageIssues/${id}`)
+  },
 }
 
 // ── ERROR HELPER ──────────────────────────────────────────────────────────────
@@ -163,35 +381,4 @@ export function getApiErrorMessage(err, fallback) {
     fallback ??
     JSON.stringify(data)
   )
-}
-
-// ── CONTRACTS (MangakaAssistant) ──────────────────────────────────────────────
-export const contractsService = {
-  getAll({ mangakaId, assistantId } = {}) {
-    return axios.get('/MangakaAssistant', {
-      params: {
-        ...(mangakaId != null && { mangakaId }),
-        ...(assistantId != null && { assistantId }),
-      },
-    })
-  },
-  getById: (id) => axios.get(`/MangakaAssistant/${id}`),
-  create: (data) => axios.post('/MangakaAssistant', data),
-  update: (id, data) => axios.put(`/MangakaAssistant/${id}`, data),
-  updateStatus: (id, status) => axios.patch(`/MangakaAssistant/${id}/status`, { status }),
-}
-
-// ── PAGE ISSUES ───────────────────────────────────────────────────────────────
-export const pageIssuesApi = {
-  getAll({ chapterId } = {}) {
-    return axios.get('/PageIssues', {
-      params: chapterId != null ? { chapterId } : undefined,
-    })
-  },
-  getById: (id) => axios.get(`/PageIssues/${id}`),
-  create: (data) => axios.post('/PageIssues', data),
-  update: (id, data) => axios.put(`/PageIssues/${id}`, data),
-  updateStatus: (id, status) => axios.patch(`/PageIssues/${id}/status`, { status }),
-  softDelete: (id) => axios.delete(`/PageIssues/${id}/soft`),
-  hardDelete: (id) => axios.delete(`/PageIssues/${id}`),
 }

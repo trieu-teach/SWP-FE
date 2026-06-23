@@ -466,8 +466,9 @@ export default function Mangaka() {
 
   const ebApprovedMap = useMemo(() => readEbDebutApproved(), [ebApprovedTick, seriesList])
 
-  function handleSendToAssistant({ chapter, pageIndex, pageUrl, pageName, notes }) {
+  function handleSendToAssistant({ chapter, pageIndex, pageUrl, pageName, notes, assistantId }) {
     if (!notes?.length) return
+    const assistant = hiredAssistants.find(a => String(a.assistantId) === String(assistantId))
     const submission = buildSubmissionFromMangakaPage({
       seriesTitle: chapter.series,
       chapterId: chapter.id,
@@ -477,6 +478,7 @@ export default function Mangaka() {
       mangakaImageUrl: pageUrl,
       notes,
       mangakaName: user?.name ?? 'Mangaka',
+      assistantId,
     })
     void pushAssistantSubmission(submission)
 
@@ -525,7 +527,7 @@ export default function Mangaka() {
       )
     }
 
-    toast.success(`Đã gửi ${submission.pageLabel} (${notes.length} ô ghi chú) cho Assistant.`)
+    toast.success(`Đã gửi ${submission.pageLabel} (${notes.length} ô) cho ${assistant?.label ?? 'Assistant'}.`)
   }
 
   function sendChapterToTantou({ series, chapter, pageIndex = 0, pageName, notes = [], imageOverride }) {
