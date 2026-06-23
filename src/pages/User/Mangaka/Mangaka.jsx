@@ -772,7 +772,10 @@ export default function Mangaka() {
 
     // Lay mangakaId tu session de goi API
     const mangakaId = user?.id ?? null
-    const serverSeriesId = apiSeries.find(s => s.title === title)?.id
+    // Tim trong seriesList (api + local merged) de bat ca local-only series vua tao
+    const foundSeries = seriesList.find(s => s.title === title)
+    // Chi tao chapter tren server neu series da co real server ID
+    const serverSeriesId = (foundSeries?.id > 1000) ? foundSeries.id : null
 
     const nextChapterRows = (() => {
       const idx = chapterRows.findIndex(r => r.id === rowId)
@@ -814,6 +817,10 @@ export default function Mangaka() {
     })
 
     // Khi la chapter moi: tao chapter tren server, lay real ID, roi upload tung trang
+    console.log('[DEBUG] handleUploadComplete →', {
+      title, isNewChapter, mangakaId, serverSeriesId,
+      foundSeriesId: foundSeries?.id, seriesListIds: seriesList.map(s => ({ id: s.id, title: s.title })),
+    })
     if (isNewChapter && mangakaId && serverSeriesId) {
       const chData = {
         seriesid: serverSeriesId,

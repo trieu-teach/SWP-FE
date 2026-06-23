@@ -194,13 +194,20 @@ export default function MangakaAssistants({ mangakaId, mangakaName }) {
 
   // API: fetch contracts for this mangaka (roster = accepted contracts)
   const { data: contractsRaw = [] } = useContracts({ mangakaId })
+  console.log('[MangakaAssistants] mangakaId:', mangakaId, '| contractsRaw:', contractsRaw)
 
   // API: create contract (hire request)
   const createContract = useCreateContract()
 
   // Compute roster (accepted) from API contracts
   const rosterFromApi = useMemo(() => {
-    return contractsRaw
+    const accepted = contractsRaw
+      .filter(c => {
+        const status = (c.status ?? '').toLowerCase()
+        return status === 'accepted' || status === 'active'
+      })
+    console.log('[MangakaAssistants] rosterFromApi:', accepted)
+    return accepted
       .filter(c => {
         const status = (c.status ?? '').toLowerCase()
         return status === 'accepted' || status === 'active'

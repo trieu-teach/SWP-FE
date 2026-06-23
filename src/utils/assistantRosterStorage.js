@@ -108,11 +108,15 @@ export function getMangakaRoster(mangakaId) {
   if (!mangakaId) return []
   const map = readRosterMap()
   const list = map[String(mangakaId)] ?? []
-  return list.filter(entry => entry.status === 'active')
+  const active = list.filter(entry => entry.status === 'active')
+  console.log('[Roster] getMangakaRoster', { mangakaId, map, list, active })
+  return active
 }
 
 export function getActiveAssigneesForMangaka(mangakaId) {
-  return getMangakaRoster(mangakaId).map(r => ({
+  const roster = getMangakaRoster(mangakaId)
+  console.log('[Roster] getActiveAssigneesForMangaka', { mangakaId, roster })
+  return roster.map(r => ({
     value: r.name,
     label: r.name,
     assistantId: r.assistantId,

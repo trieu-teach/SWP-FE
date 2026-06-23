@@ -38,6 +38,9 @@ const instance = axios.create({
   ],
 })
 
+// Global API log (access via window.__apiLog in browser console)
+window.__apiLog = []
+
 // ── Request interceptor ─────────────────────────────────────────────────────────
 instance.interceptors.request.use(config => {
   const token = localStorage.getItem('token')
@@ -45,6 +48,9 @@ instance.interceptors.request.use(config => {
   if (config.data instanceof FormData) {
     delete config.headers['Content-Type']
   }
+
+  const entry = { phase: 'request', ts: Date.now(), method: config.method?.toUpperCase(), url: config.url, params: config.params, data: config.data instanceof FormData ? '[FormData]' : config.data }
+  window.__apiLog.push(entry)
 
   console.group(`\u27A4  ${config.method?.toUpperCase()} ${config.url}`)
   console.log('params:', config.params)
@@ -60,6 +66,8 @@ instance.interceptors.response.use(
   res => {
     const ms = Date.now() - (res.config.startTime || 0)
     const { method, url, params } = res.config
+
+    window.__apiLog.push({ phase: 'response', ts: Date.now(), ms, method: method?.toUpperCase(), url, status: res.status, data: res.data })
 
     console.group(`\u2714  ${method?.toUpperCase()} ${url}  (${ms}ms)  ${res.status}`)
     console.log('params:', params)
@@ -90,6 +98,8 @@ instance.interceptors.response.use(
     console.log('response:', errorData)
     console.log('full error:', err)
     console.groupEnd()
+
+    window.__apiLog.push({ phase: 'error', ts: Date.now(), ms, method, url, status, error: errorMsg, response: errorData })
 
     if (status === 401) {
       clearSession()

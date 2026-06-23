@@ -15,7 +15,9 @@ import {
 import { LABEL_EDITOR_BOARD, LABEL_TANTOU_EDITOR } from '@/constants/roleTerminology.js'
 import { NOTE_TASK_TYPES, noteTaskLabel } from '@/constants/workspaceTasks.js'
 import { fileToStorableDataUrl } from '@/utils/mangakaWorkspaceStorage.js'
-import { usePages, usePageIssues } from '@/api/hooks'
+import { getActiveAssigneesForMangaka } from '@/utils/assistantRosterStorage.js'
+import { getSession } from '@/lib/auth.js'
+import { usePages, usePageIssues, useContracts } from '@/api/hooks'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -106,6 +108,55 @@ export default function ChapterAnnotator({
   const [uploadUi, setUploadUi] = useState(null)
   const [uploadRejectMessage, setUploadRejectMessage] = useState(null)
   const [selectedAssistantId, setSelectedAssistantId] = useState(null)
+  const [localRosterTick, setLocalRosterTick] = useState(0)
+
+  // Subscribe trực tiếp vào roster update event — không phụ thuộc parent re-render
+  useEffect(() => {
+    const onRoster = () => setLocalRosterTick(t => t + 1)
+    window.addEventListener('mk-assistant-roster-update', onRoster)
+    window.addEventListener('storage', onRoster)
+    return () => {
+      window.removeEventListener('mk-assistant-roster-update', onRoster)
+      window.removeEventListener('storage', onRoster)
+    }
+  }, [])
+
+  // Tính lại hiredAssistants mỗi khi localRosterTick thay đổi
+  const localHiredAssistants = useMemo(() => {
+    void localRosterTick
+    const user = getSession()
+    const mkId = user?.id ?? user?.userid ?? null
+    return getActiveAssigneesForMangaka(mkId)
+  }, [localRosterTick])
+
+  const localMangakaId = useMemo(() => {
+    const u = getSession()
+    return u?.id ?? u?.userid ?? null
+  }, [localRosterTick])
+
+  const { data: contractsRaw = [] } = useContracts({ mangakaId: localMangakaId })
+  console.log('[ChapterAnnotator] contractsRaw:', contractsRaw)
+
+  // Map accepted contracts -> assistant options (cung format voi MangakaAssistants)
+  const contractsAssistants = useMemo(() => {
+    const accepted = contractsRaw.filter(c => {
+      const status = (c.status ?? '').toLowerCase()
+      return status === 'accepted' || status === 'active'
+    })
+    console.log('[ChapterAnnotator] contractsAssistants:', accepted)
+    return accepted.map(c => ({
+      value: c.assistant_name ?? c.assistantname ?? 'Assistant',
+      label: c.assistant_name ?? c.assistantname ?? 'Assistant',
+      assistantId: c.assistant_id ?? c.assistantid ?? c.user_id ?? c.userId,
+    }))
+  }, [contractsRaw])
+
+  // Override hiredAssistants: uu tien API contracts, fallback localStorage, fallback props
+  const effectiveHiredAssistants = (() => {
+    if (contractsAssistants.length > 0) return contractsAssistants
+    if (localHiredAssistants.length > 0) return localHiredAssistants
+    return hiredAssistants ?? []
+  })()
 
   const activeChapter = chapters.find(c => c.id === activeChapterId)
   const pages = activeChapter?.pages ?? []
@@ -823,7 +874,7 @@ export default function ChapterAnnotator({
           </div>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
-          {hiredAssistants.length === 0 ? (
+          {effectiveHiredAssistants.length === 0 ? (
             <Alert className="border-violet-200 bg-violet-50/50 dark:border-violet-500/30 dark:bg-violet-500/5">
               <AlertDescription className="text-xs">
                 Chưa có Assistant trong đội —{' '}
@@ -866,7 +917,7 @@ export default function ChapterAnnotator({
                     note={n}
                     index={idx}
                     selectedNoteId={selectedNoteId}
-                    hiredAssistants={hiredAssistants}
+                    hiredAssistants={effectiveHiredAssistants}
                     onDelete={deleteNote}
                     onSelect={setSelectedNoteId}
                     onUpdate={updateNoteField}
@@ -949,12 +1000,12 @@ export default function ChapterAnnotator({
                 <SelectValue placeholder="-- Chọn Assistant --" />
               </SelectTrigger>
               <SelectContent>
-                {hiredAssistants.length === 0 ? (
+                {effectiveHiredAssistants.length === 0 ? (
                   <SelectItem value="__none__" disabled>
                     Chưa có Assistant nào
                   </SelectItem>
                 ) : (
-                  hiredAssistants.map(a => (
+                  effectiveHiredAssistants.map(a => (
                     <SelectItem key={a.assistantId} value={String(a.assistantId)}>
                       {a.label}
                     </SelectItem>
