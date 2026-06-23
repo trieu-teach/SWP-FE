@@ -145,6 +145,7 @@ export default function ChapterAnnotator({
     })
     console.log('[ChapterAnnotator] contractsAssistants raw:', accepted)
     console.log('[ChapterAnnotator] first contract keys:', accepted[0] ? Object.keys(accepted[0]) : [])
+    console.log('[ChapterAnnotator] first contract FULL:', JSON.stringify(accepted[0], null, 2))
     return accepted.map(c => {
       const name = c.assistant_name ?? c.assistantName ?? c.assistantname ?? c.fullName ?? c.fullname ?? c.name ?? c.username ?? 'Assistant'
       const id = c.assistant_id ?? c.assistantId ?? c.assistantid ?? c.user_id ?? c.userId ?? c.id ?? ''
