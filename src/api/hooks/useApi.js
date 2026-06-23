@@ -153,9 +153,11 @@ export function useDeleteChapter() {
    PAGES HOOKS
    =========================== */
 export function usePages(chapterId) {
+  const numericChapterId = Number(chapterId)
   return useQuery({
-    queryKey: ['pages', chapterId ? { chapterId } : 'all'],
-    queryFn: () => pagesService.getAll(chapterId).then(res => res.data ?? []),
+    queryKey: ['pages', Number.isFinite(numericChapterId) ? { chapterId: numericChapterId } : 'all'],
+    queryFn: () => pagesService.getAll(numericChapterId).then(res => res.data ?? []),
+    enabled: Number.isFinite(numericChapterId),
   })
 }
 

@@ -342,8 +342,10 @@ export default function Mangaka() {
   const [tantouSendReady, setTantouSendReady] = useState(null)
   const [rosterTick, setRosterTick] = useState(0)
 
-  // Use API data merged with optimistic local changes
-  const seriesList = [...apiSeries, ...localSeriesList]
+  // Use API data merged with optimistic local changes; deduplicate by id to avoid React key collisions
+  const seriesList = Object.values(
+    [...apiSeries, ...localSeriesList].reduce((acc, s) => ({ ...acc, [s.id]: s }), {}),
+  )
   const chapterRows = [...apiChapters, ...localChapterRows]
 
   const hiredAssistants = useMemo(() => {
@@ -742,7 +744,32 @@ export default function Mangaka() {
           deadline: chapterDeadline ? new Date(chapterDeadline).toISOString() : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
         }
         createChapter.mutate(chData, {
-          onSuccess: () => toast.success(`Đã tạo Ch. ${displayNum} trên server!`),
+          onSuccess: (createdChapter) => {
+            toast.success(`Đã tạo Ch. ${displayNum} trên server!`)
+            // Lay real chapterId tu backend, cap nhat vao tat ca cac state
+            const realChapterId = createdChapter?.data?.chapterid
+              ?? createdChapter?.data?.Chapterid
+              ?? createdChapter?.data?.id
+              ?? createdChapter?.data
+            if (realChapterId) {
+              // Cap nhat chapterRows: thay localId bang realId
+              setLocalChapterRows(prev => prev.map(r =>
+                String(r.id) === String(rowId)
+                  ? { ...r, id: realChapterId, apiChapterId: realChapterId }
+                  : r
+              ))
+              // Cap nhat annotatorChapters: thay localId bang realId
+              setAnnotatorChapters(prev => prev.map(ch =>
+                String(ch.id) === String(rowId)
+                  ? { ...ch, id: realChapterId }
+                  : ch
+              ))
+              // Cap nhat activeChapterId neu dang tro toi local chapter vua tao
+              if (String(annotatorActiveChapterId) === String(rowId)) {
+                setAnnotatorActiveChapterId(realChapterId)
+              }
+            }
+          },
           onError: (err) => toast.error(err?.response?.data?.message ?? `Không tạo được Ch. ${displayNum} trên server.`),
         })
       }
