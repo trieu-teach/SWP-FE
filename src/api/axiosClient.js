@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { toast } from 'sonner'
+import { clearSession } from '@/lib/auth.js'
 
 const baseURL = import.meta.env.DEV
   ? '/api'
@@ -89,6 +90,17 @@ instance.interceptors.response.use(
     console.log('response:', errorData)
     console.log('full error:', err)
     console.groupEnd()
+
+    if (status === 401) {
+      clearSession()
+      window.dispatchEvent(new Event('auth-session-change'))
+      window.dispatchEvent(new CustomEvent('auth-401', { detail: { url } }))
+    }
+
+    if (status === 403) {
+      toast.error('Ban khong co quyen thuc hien thao tac nay.')
+      return Promise.reject(err)
+    }
 
     const userMsg = buildUserErrorMsg(status, errorMsg, method)
     toast.error(userMsg)

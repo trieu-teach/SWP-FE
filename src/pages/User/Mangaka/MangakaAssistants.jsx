@@ -50,11 +50,10 @@ import {
   styleLabel,
 } from '@/constants/assistantCatalog.js'
 import {
-  createHireRequest,
-  getMangakaRoster,
-  listCatalogForMangaka,
-  listRequestsForMangaka,
-} from '@/utils/assistantRosterStorage.js'
+  useAvailableAssistantProfiles,
+  useContracts,
+  useCreateContract,
+} from '@/api'
 
 const AVAILABILITY_FILTERS = [
   { value: 'all', label: 'Tất cả' },
@@ -107,7 +106,7 @@ function ActionButton({ profile }) {
 
 function AssistantProfileCard({ profile, onHire }) {
   const badge = AVAILABILITY_BADGE[profile.availability] ?? AVAILABILITY_BADGE.available
-  const canHire = profile.availability === 'available'
+  const canHire = profile.availability === 'available' && profile.isAvailable !== false
 
   return (
     <Card
@@ -121,7 +120,12 @@ function AssistantProfileCard({ profile, onHire }) {
           <AssistantAvatar profile={profile} size="lg" className="shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-semibold leading-tight">{profile.name}</p>
-            <Badge className={cn('mt-1.5 w-fit', badge.className)}>{badge.label}</Badge>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <Badge className={cn('w-fit', badge.className)}>{badge.label}</Badge>
+              {profile.isAvailable === false ? (
+                <Badge className="w-fit bg-zinc-100 text-zinc-500 dark:bg-zinc-500/15 dark:text-zinc-400">Tạm ngưng</Badge>
+              ) : null}
+            </div>
             <p className="mt-1 truncate text-sm text-muted-foreground">{profile.handle}</p>
             <div className="mt-2 flex h-5 items-center gap-1 text-xs text-amber-600">
               <Star className="size-3 shrink-0 fill-current" />
@@ -177,30 +181,92 @@ export default function MangakaAssistants({ mangakaId, mangakaName }) {
   const [specialtyFilter, setSpecialtyFilter] = useState('all')
   const [styleFilter, setStyleFilter] = useState('all')
   const [availabilityFilter, setAvailabilityFilter] = useState('all')
-  const [catalog, setCatalog] = useState([])
-  const [roster, setRoster] = useState([])
-  const [requests, setRequests] = useState([])
   const [hireTarget, setHireTarget] = useState(null)
-  const [hireNote, setHireNote] = useState('')
+  const [hireSalaryAmount, setHireSalaryAmount] = useState('')
+  const [hireSalaryType, setHireSalaryType] = useState('Monthly')
+  const [hireContractTerms, setHireContractTerms] = useState('')
+  const [hireStartDate, setHireStartDate] = useState('')
+  const [hireEndDate, setHireEndDate] = useState('')
   const [sending, setSending] = useState(false)
 
-  const reload = useCallback(() => {
-    if (!mangakaId) return
-    setCatalog(listCatalogForMangaka(mangakaId))
-    setRoster(getMangakaRoster(mangakaId).filter(r => r.status === 'active'))
-    setRequests(listRequestsForMangaka(mangakaId))
-  }, [mangakaId])
+  // API: fetch available assistants from backend
+  const { data: apiAssistantsRaw = [], isLoading: assistantsLoading } = useAvailableAssistantProfiles()
 
-  useEffect(() => {
-    reload()
-    const onSync = () => reload()
-    window.addEventListener('storage', onSync)
-    window.addEventListener('mk-assistant-roster-update', onSync)
-    return () => {
-      window.removeEventListener('storage', onSync)
-      window.removeEventListener('mk-assistant-roster-update', onSync)
-    }
-  }, [reload])
+  // API: fetch contracts for this mangaka (roster = accepted contracts)
+  const { data: contractsRaw = [] } = useContracts({ mangakaId })
+
+  // API: create contract (hire request)
+  const createContract = useCreateContract()
+
+  // Compute roster (accepted) from API contracts
+  const rosterFromApi = useMemo(() => {
+    return contractsRaw
+      .filter(c => {
+        const status = (c.status ?? '').toLowerCase()
+        return status === 'accepted' || status === 'active'
+      })
+      .map(c => ({
+        assistantId: c.assistant_id ?? c.assistantid ?? c.user_id ?? c.userId,
+        name: c.assistant_name ?? c.assistantname ?? 'Assistant',
+        handle: c.assistant_handle ?? `@asst_${c.assistant_id ?? c.assistantid ?? ''}`,
+        avatarColor: c.avatar_color ?? '#8b5cf6',
+        hiredAt: c.accepted_at ?? c.created_at ?? Date.now(),
+        status: 'active',
+      }))
+  }, [contractsRaw])
+
+  // Compute pending requests from API contracts
+  const pendingFromApi = useMemo(() => {
+    return contractsRaw.filter(c => {
+      const status = (c.status ?? '').toLowerCase()
+      return status === 'pending' || status === 'waiting'
+    })
+  }, [contractsRaw])
+
+  // Map API assistants to the same shape as demo catalog, merging with roster/pending status
+  const catalog = useMemo(() => {
+    const rosterIds = new Set(rosterFromApi.map(r => String(r.assistantId)))
+    const pendingIds = new Set(pendingFromApi.map(p => String(p.assistant_id ?? p.assistantid ?? '')))
+
+    return apiAssistantsRaw.map(a => {
+      const id = a.id ?? a.user_id ?? a.userid ?? a.assistant_id ?? a.assistantid ?? '?'
+      const userId = id
+      const name = a.fullname ?? a.fullName ?? a.name ?? a.username ?? 'Assistant'
+      const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || 'AS'
+
+      let availability = 'available'
+      if (rosterIds.has(String(id))) availability = 'mine'
+      else if (pendingIds.has(String(id))) availability = 'pending'
+
+      const skills = Array.isArray(a.skills)
+        ? a.skills
+        : (a.skills ? String(a.skills).split(/[,;]/).map(s => s.trim().toLowerCase()) : [])
+      const softwareUsed = Array.isArray(a.software_used)
+        ? a.software_used
+        : (a.software_used ? String(a.software_used).split(/[,;]/).map(s => s.trim().toLowerCase()) : [])
+
+      return {
+        id: String(id),
+        userId: String(userId),
+        name,
+        handle: a.handle ?? `@${a.username ?? 'asst_' + id}`,
+        avatarColor: a.avatar_color ?? a.avatarUrl ?? '#8b5cf6',
+        initials,
+        bio: a.bio ?? a.introduction ?? '',
+        specialties: skills,
+        preferredSoftware: softwareUsed,
+        style: a.style ?? a.preferredStyle ?? 'manga',
+        rating: Number(a.rating ?? a.averageRating ?? a.avgRating ?? 0),
+        completedPages: Number(a.completedPages ?? a.completed_pages ?? 0),
+        responseTime: a.responseTime ?? '< 24h',
+        languages: Array.isArray(a.languages) ? a.languages : (a.languages ? [a.languages] : ['VI']),
+        timezone: a.timezone ?? 'GMT+7',
+        availability,
+        isAvailable: a.is_available ?? a.isAvailable ?? a.isavailable ?? true,
+        portfolioUrl: a.portfolio_url ?? a.portfolioUrl ?? null,
+      }
+    })
+  }, [apiAssistantsRaw, rosterFromApi, pendingFromApi])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -208,6 +274,7 @@ export default function MangakaAssistants({ mangakaId, mangakaName }) {
       if (specialtyFilter !== 'all' && !a.specialties.includes(specialtyFilter)) return false
       if (styleFilter !== 'all' && a.style !== styleFilter) return false
       if (availabilityFilter !== 'all' && a.availability !== availabilityFilter) return false
+      if (availabilityFilter === 'available' && a.isAvailable === false) return false
       if (!q) return true
       const hay = `${a.name} ${a.handle} ${a.bio} ${styleLabel(a.style)}`.toLowerCase()
       return hay.includes(q)
@@ -216,37 +283,65 @@ export default function MangakaAssistants({ mangakaId, mangakaName }) {
 
   const stats = useMemo(() => ({
     total: catalog.length,
-    available: catalog.filter(a => a.availability === 'available').length,
-    team: roster.length,
+    available: catalog.filter(a => a.availability === 'available' && a.isAvailable !== false).length,
+    team: rosterFromApi.length,
     pending: catalog.filter(a => a.availability === 'pending').length,
-  }), [catalog, roster.length])
+  }), [catalog, rosterFromApi.length])
 
   const pendingRequests = useMemo(
-    () => requests.filter(r => r.status === 'pending'),
-    [requests],
+    () => pendingFromApi.map(p => ({
+      id: p.id ?? p.contract_id ?? p.mangakaassistantid ?? p.mangaka_assistant_id ?? String(Math.random()),
+      assistantName: p.assistant_name ?? p.assistantname ?? p.assistant?.fullname ?? 'Assistant',
+    })),
+    [pendingFromApi],
   )
 
   function openHireDialog(profile) {
     if (profile.availability !== 'available') return
     setHireTarget(profile)
-    setHireNote('')
+    const today = new Date()
+    const nextMonth = new Date(today)
+    nextMonth.setMonth(nextMonth.getMonth() + 1)
+    setHireSalaryAmount('')
+    setHireSalaryType('Monthly')
+    setHireContractTerms('')
+    setHireStartDate(today.toISOString().split('T')[0])
+    setHireEndDate(nextMonth.toISOString().split('T')[0])
   }
 
   async function submitHireRequest() {
     if (!hireTarget || !mangakaId) return
+
+    const salaryAmount = Number(hireSalaryAmount)
+    if (!hireSalaryAmount || isNaN(salaryAmount) || salaryAmount <= 0) {
+      toast.error('Vui long nhap so tien luong hop le.')
+      return
+    }
+    if (!hireContractTerms.trim()) {
+      toast.error('Vui long nhap noi dung hop dong.')
+      return
+    }
+    if (!hireStartDate || !hireEndDate) {
+      toast.error('Vui long chon ngay bat dau va ket thuc hop dong.')
+      return
+    }
+
     setSending(true)
     try {
-      createHireRequest({
+      await createContract.mutateAsync({
         mangakaId,
-        mangakaName,
-        assistantId: hireTarget.id,
-        note: hireNote,
+        assistantId: hireTarget.userId ?? hireTarget.id,
+        salaryAmount,
+        salaryType: hireSalaryType,
+        contractTerms: hireContractTerms,
+        startDate: hireStartDate,
+        endDate: hireEndDate,
       })
-      toast.success(`Đã gửi yêu cầu thuê ${hireTarget.name} — chờ Assistant chấp nhận.`)
+      toast.success(`Da gui yeu cau thue ${hireTarget.name} — cho Assistant chap nhan.`)
       setHireTarget(null)
-      reload()
     } catch (err) {
-      toast.error(err?.message ?? 'Không gửi được yêu cầu.')
+      const msg = err?.response?.data?.message ?? err?.response?.data?.error ?? err?.message ?? 'Khong gui duoc yeu cau.'
+      toast.error(msg)
     } finally {
       setSending(false)
     }
@@ -304,14 +399,14 @@ export default function MangakaAssistants({ mangakaId, mangakaName }) {
               <CardDescription>Đã chấp nhận yêu cầu thuê</CardDescription>
             </CardHeader>
             <CardContent className="min-h-[120px] flex-1">
-              {roster.length === 0 ? (
+              {rosterFromApi.length === 0 ? (
                 <p className="text-xs leading-relaxed text-muted-foreground">
                   Chưa có Assistant — gửi yêu cầu thuê và chờ họ chấp nhận.
                 </p>
               ) : (
                 <ScrollArea className="max-h-72 pr-2">
                   <ul className="space-y-2">
-                    {roster.map(r => (
+                    {rosterFromApi.map(r => (
                       <li
                         key={r.assistantId}
                         className="flex h-14 items-center gap-3 rounded-lg border px-3"
@@ -406,7 +501,13 @@ export default function MangakaAssistants({ mangakaId, mangakaName }) {
             </CardContent>
           </Card>
 
-          {filtered.length === 0 ? (
+          {assistantsLoading ? (
+            <Card>
+              <CardContent className="py-16 text-center text-muted-foreground">
+                Đang tải danh sách Assistant...
+              </CardContent>
+            </Card>
+          ) : filtered.length === 0 ? (
             <Card>
               <CardContent className="py-16 text-center text-muted-foreground">
                 Không có Assistant phù hợp bộ lọc — thử đổi từ khóa hoặc filter.
@@ -448,14 +549,64 @@ export default function MangakaAssistants({ mangakaId, mangakaName }) {
                   <p className="truncate text-xs text-muted-foreground">{hireTarget.handle}</p>
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Lời nhắn (tuỳ chọn)</Label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="salary-amount">So tien *</Label>
+                  <Input
+                    id="salary-amount"
+                    type="number"
+                    min="0"
+                    placeholder="VD: 5000000"
+                    value={hireSalaryAmount}
+                    onChange={e => setHireSalaryAmount(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="salary-type">Hinh thuc *</Label>
+                  <Select value={hireSalaryType} onValueChange={setHireSalaryType}>
+                    <SelectTrigger id="salary-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Monthly">Theo thang</SelectItem>
+                      <SelectItem value="Fixed">Co dinh</SelectItem>
+                      <SelectItem value="PerChapter">Theo chap</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="start-date">Ngay bat dau *</Label>
+                  <Input
+                    id="start-date"
+                    type="date"
+                    value={hireStartDate}
+                    onChange={e => setHireStartDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="end-date">Ngay ket thuc *</Label>
+                  <Input
+                    id="end-date"
+                    type="date"
+                    value={hireEndDate}
+                    onChange={e => setHireEndDate(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="contract-terms">Noi dung hop dong *</Label>
                 <Textarea
+                  id="contract-terms"
                   rows={3}
                   className="min-h-[88px] resize-none"
-                  placeholder="VD: Cần hỗ trợ vẽ nền fantasy, 2 chapter mỗi tuần..."
-                  value={hireNote}
-                  onChange={e => setHireNote(e.target.value)}
+                  placeholder="VD: Ho tro ve phong cách nền fantasy, 2 chapter/thang, ưu tiên hoan thanh dung han..."
+                  value={hireContractTerms}
+                  onChange={e => setHireContractTerms(e.target.value)}
                 />
               </div>
             </div>

@@ -164,6 +164,8 @@ export default function AddSeriesModal({
     const synopsis = String(form.synopsis ?? '').trim()
     if (synopsis.length < 1) errors.synopsis = 'Vui lòng nhập tóm tắt.'
     if (selectedGenreIds.length === 0) errors.genres = 'Chọn ít nhất một thể loại.'
+    if (!form.coverImage) errors.coverImage = 'Vui lòng chọn ảnh bìa.'
+    if (!form.proposalFile) errors.proposalFile = 'Vui lòng đính kèm file bản đề xuất.'
     return { ok: Object.keys(errors).length === 0, errors }
   }, [form, titlesForValidation, selectedGenreIds])
 
@@ -267,9 +269,21 @@ export default function AddSeriesModal({
     })
   }, [selectedTagIds, apiTags])
 
+  function handleOutsideInteraction(e) {
+    const el = e.target
+    if (el && (el.tagName === 'INPUT' || el.closest && el.closest('label'))) {
+      const input = el.tagName === 'INPUT' ? el : el.querySelector('input')
+      if (input && input.type === 'file') e.preventDefault()
+    }
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="asm-dialog max-h-[90vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
+      <DialogContent
+        className="asm-dialog max-h-[90vh] overflow-y-auto"
+        onInteractOutside={handleOutsideInteraction}
+        onEscapeKeyDown={(e) => { e.preventDefault(); handleClose() }}
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>{isEdit ? 'Chỉnh sửa series' : 'Tạo series mới'}</DialogTitle>
           <DialogDescription>Điền thông tin để tạo hoặc cập nhật series truyện.</DialogDescription>
@@ -457,6 +471,13 @@ export default function AddSeriesModal({
                   accept="image/*"
                   onChange={e => patch({ coverImage: e.target.files?.[0] ?? null })}
                 />
+                {form.coverImage && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Da chon: <span className="font-medium">{form.coverImage.name}</span>
+                    ({(form.coverImage.size / 1024).toFixed(1)} KB)
+                  </p>
+                )}
+                {(err('coverImage')) && <p className="asm-error">{err('coverImage')}</p>}
               </div>
               <div className="asm-field">
                 <Label className="asm-label" htmlFor="series-proposal">
@@ -469,6 +490,13 @@ export default function AddSeriesModal({
                   accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                   onChange={e => patch({ proposalFile: e.target.files?.[0] ?? null })}
                 />
+                {form.proposalFile && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Da chon: <span className="font-medium">{form.proposalFile.name}</span>
+                    ({(form.proposalFile.size / 1024).toFixed(1)} KB)
+                  </p>
+                )}
+                {(err('proposalFile')) && <p className="asm-error">{err('proposalFile')}</p>}
               </div>
             </div>
           </section>

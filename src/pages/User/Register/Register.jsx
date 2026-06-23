@@ -32,6 +32,7 @@ export default function Register() {
     username: '',
     fullName: '',
     email: '',
+    phoneNumber: '',
     password: '',
     confirmPassword: '',
     role: ROLES.MANGAKA,
@@ -53,6 +54,8 @@ export default function Register() {
     if (!form.fullName.trim()) return 'Vui lòng nhập họ tên.'
     if (!form.email.trim()) return 'Vui lòng nhập email.'
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return 'Email không hợp lệ.'
+    if (!form.phoneNumber.trim()) return 'Vui lòng nhập số điện thoại.'
+    if (!/^(0[0-9]{9,10})$/.test(form.phoneNumber.trim().replace(/\s+/g, ''))) return 'Số điện thoại không hợp lệ (09xxxxxxxx hoặc 0xxxxxxxxx).'
     if (!form.role) return 'Vui lòng chọn vai trò.'
     if (form.password.length < 6) return 'Mật khẩu phải có ít nhất 6 ký tự.'
     if (form.password !== form.confirmPassword) return 'Mật khẩu xác nhận không khớp.'
@@ -76,6 +79,7 @@ export default function Register() {
         username: form.username.trim(),
         fullName: form.fullName.trim(),
         email: form.email.trim(),
+        phoneNumber: form.phoneNumber.trim(),
         password: form.password,
         role: form.role,
       })
@@ -170,6 +174,18 @@ export default function Register() {
                   placeholder="ban@example.com"
                   value={form.email}
                   onChange={e => setField('email', e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="reg-phone">Số điện thoại</Label>
+                <Input
+                  id="reg-phone"
+                  type="tel"
+                  autoComplete="tel"
+                  placeholder="0912345678"
+                  value={form.phoneNumber}
+                  onChange={e => setField('phoneNumber', e.target.value)}
                 />
               </div>
 

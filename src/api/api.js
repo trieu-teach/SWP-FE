@@ -34,6 +34,8 @@ export const chaptersService = {
   create: (data) => axios.post('/Chapters', data),
   update: (id, data) => axios.put(`/Chapters/${id}`, data),
   delete: (id) => axios.delete(`/Chapters/${id}`),
+  // GET /api/Chapters/assistant/{assistantId} — lay danh sach chapter cua 1 assistant
+  getByAssistant: (assistantId) => axios.get(`/Chapters/assistant/${assistantId}`),
 }
 
 // ── PAGES ─────────────────────────────────────────────────────────────────────
@@ -94,14 +96,91 @@ export const tagsService = {
 // ── USERS ─────────────────────────────────────────────────────────────────────
 export const usersService = {
   getProfile: () => axios.get('/users/profile'),
-  // Backend có 2 endpoint riêng: PUT /users/profile/mangaka  và  PUT /users/profile/assistant
-  // Gọi endpoint phù hợp dựa trên roleKey
-  updateProfile: (data, roleKey) => {
+  updateProfile(data, roleKey) {
     const endpoint = roleKey === 'MANGAKA'
       ? '/users/profile/mangaka'
       : roleKey === 'ASSISTANT'
         ? '/users/profile/assistant'
         : '/users/profile/mangaka'
-    return axios.put(endpoint, data)
+
+    const fd = new FormData()
+    if (roleKey === 'MANGAKA') {
+      if (data.fullName) fd.append('fullname', data.fullName)
+      if (data.penName) fd.append('penname', data.penName)
+      if (data.bio !== undefined) fd.append('bio', data.bio)
+      if (data.phoneNumber !== undefined) fd.append('phonenumber', data.phoneNumber)
+      if (data.bankName !== undefined) fd.append('bankname', data.bankName)
+      if (data.bankAccountNumber !== undefined) fd.append('bankaccountnumber', data.bankAccountNumber)
+      if (data.bankAccountName !== undefined) fd.append('bankaccountname', data.bankAccountName)
+    } else if (roleKey === 'ASSISTANT') {
+      if (data.fullName) fd.append('fullname', data.fullName)
+      if (data.phoneNumber !== undefined) fd.append('phonenumber', data.phoneNumber)
+      if (data.portfolioUrl !== undefined) fd.append('portfolioUrl', data.portfolioUrl)
+      if (data.isAvailable !== undefined) fd.append('isAvailable', String(data.isAvailable))
+      if (data.skills !== undefined) fd.append('skills', data.skills)
+      if (data.softwareUsed !== undefined) fd.append('softwareused', data.softwareUsed)
+      if (data.bankName !== undefined) fd.append('bankname', data.bankName)
+      if (data.bankAccountNumber !== undefined) fd.append('bankaccountnumber', data.bankAccountNumber)
+      if (data.bankAccountName !== undefined) fd.append('bankaccountname', data.bankAccountName)
+    } else {
+      if (data.fullName) fd.append('fullname', data.fullName)
+    }
+    return axios.put(endpoint, fd)
   },
+  getAvailableAssistants: () => axios.get('/users/available-assistants'),
+}
+
+// ── ASSISTANT PROFILE ─────────────────────────────────────────────────────────
+export const assistantProfileService = {
+  getAvailable: () => axios.get('/users/available-assistants'),
+  getById: (id) => axios.get(`/users/${id}`),
+}
+
+// ── ERROR HELPER ──────────────────────────────────────────────────────────────
+export function getApiErrorMessage(err, fallback) {
+  const data = err?.response?.data
+  if (!data) return fallback ?? err?.message ?? 'Da xay ra loi.'
+  if (typeof data === 'string') return data
+  return (
+    data.message ??
+    data.msg ??
+    data.error ??
+    data.Message ??
+    data.errorMessage ??
+    data.title ??
+    fallback ??
+    JSON.stringify(data)
+  )
+}
+
+// ── ASSISTANT PROFILE ────────────────────────────────────────────────────────────
+// ── CONTRACTS (MangakaAssistant) ──────────────────────────────────────────────
+export const contractsService = {
+  getAll({ mangakaId, assistantId } = {}) {
+    return axios.get('/MangakaAssistant', {
+      params: {
+        ...(mangakaId != null && { mangakaId }),
+        ...(assistantId != null && { assistantId }),
+      },
+    })
+  },
+  getById: (id) => axios.get(`/MangakaAssistant/${id}`),
+  create: (data) => axios.post('/MangakaAssistant', data),
+  update: (id, data) => axios.put(`/MangakaAssistant/${id}`, data),
+  updateStatus: (id, status) => axios.patch(`/MangakaAssistant/${id}/status`, { status }),
+}
+
+// ── PAGE ISSUES ───────────────────────────────────────────────────────────────
+export const pageIssuesApi = {
+  getAll({ chapterId } = {}) {
+    return axios.get('/PageIssues', {
+      params: chapterId != null ? { chapterId } : undefined,
+    })
+  },
+  getById: (id) => axios.get(`/PageIssues/${id}`),
+  create: (data) => axios.post('/PageIssues', data),
+  update: (id, data) => axios.put(`/PageIssues/${id}`, data),
+  updateStatus: (id, status) => axios.patch(`/PageIssues/${id}/status`, { status }),
+  softDelete: (id) => axios.delete(`/PageIssues/${id}/soft`),
+  hardDelete: (id) => axios.delete(`/PageIssues/${id}`),
 }

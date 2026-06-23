@@ -18,6 +18,19 @@ export const ROLE_KEY_TO_ID = {
   ADMIN: 1,
 }
 
+// Valid role string values returned by backend JWT
+const VALID_ROLE_KEYS = new Set(['ADMIN', 'EDITOR_BOARD', 'TANTOU', 'MANGAKA', 'ASSISTANT'])
+
+function decodeJwtPayload(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '=='.slice((base64.length + 4) % 4)
+    return JSON.parse(atob(padded))
+  } catch {
+    return {}
+  }
+}
+
 export function getSession() {
   try {
     const raw = sessionStorage.getItem(SESSION_KEY)
@@ -41,20 +54,40 @@ export function clearSession() {
 
 function buildSessionFromAuthResponse(data) {
   if (!data) return null
-  const roleKey =
-    ROLE_ID_TO_KEY[data.roleid] ??
-    ROLE_ID_TO_KEY[data.Roleid] ??
-    ROLE_ID_TO_KEY[data.roleId] ??
-    ROLE_ID_TO_KEY[data.RoleId] ??
-    null
+
+  // Resolve role: check string role first (from JWT claim), then numeric roleId
+  const rawRole = data.role ?? data.Role ?? null
+  const jwtPayload = data.token ? decodeJwtPayload(data.token) : {}
+
+  let roleKey =
+    (typeof rawRole === 'string' && VALID_ROLE_KEYS.has(rawRole.toUpperCase()))
+      ? rawRole.toUpperCase()
+      : jwtPayload.role && VALID_ROLE_KEYS.has(String(jwtPayload.role).toUpperCase())
+        ? String(jwtPayload.role).toUpperCase()
+        : typeof data.role === 'number'
+          ? ROLE_ID_TO_KEY[data.role]
+          : ROLE_ID_TO_KEY[jwtPayload.roleid] ??
+            ROLE_ID_TO_KEY[jwtPayload.roleId] ??
+            ROLE_ID_TO_KEY[data.role_id] ??
+            ROLE_ID_TO_KEY[data.roleid] ??
+            ROLE_ID_TO_KEY[data.Roleid] ??
+            ROLE_ID_TO_KEY[data.roleId] ??
+            ROLE_ID_TO_KEY[data.RoleId] ??
+            null
+
   return {
-    id: data.userid ?? data.Userid ?? data.userId ?? data.UserId,
-    userid: data.userid ?? data.Userid ?? data.userId ?? data.UserId,
+    id: data.userid ?? data.Userid ?? data.userId ?? data.UserId ??
+      jwtPayload.userid ?? jwtPayload.Userid ?? jwtPayload.userId ?? jwtPayload.UserId ??
+      jwtPayload.sub ?? jwtPayload.id ?? jwtPayload.Id ?? null,
+    userid: data.userid ?? data.Userid ?? data.userId ?? data.UserId ??
+      jwtPayload.userid ?? jwtPayload.Userid ?? jwtPayload.userId ?? jwtPayload.UserId ??
+      jwtPayload.sub ?? jwtPayload.id ?? jwtPayload.Id ?? null,
     username: data.username ?? data.Username,
     name: data.fullname ?? data.Fullname ?? data.fullName ?? data.Username,
     fullname: data.fullname ?? data.Fullname ?? data.fullName,
     email: data.email ?? data.Email,
-    roleid: data.roleid ?? data.Roleid ?? data.roleId ?? data.RoleId,
+    roleid: data.roleid ?? data.Roleid ?? data.roleId ?? data.RoleId ??
+      jwtPayload.roleid ?? jwtPayload.roleId ?? null,
     role: roleKey,
     token: data.token,
     refreshToken: data.refreshToken,
@@ -90,6 +123,7 @@ export async function register(data) {
     password: data.password,
     fullName: data.fullName ?? data.fullname ?? data.name,
     email: data.email,
+    phoneNumber: data.phoneNumber ?? data.phonenumber ?? data.phone,
     roleId: data.roleId ?? data.roleid ?? ROLE_KEY_TO_ID[data.role] ?? 4,
   }
   const res = await authService.register(payload)

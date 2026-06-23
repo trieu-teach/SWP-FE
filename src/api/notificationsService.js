@@ -6,18 +6,18 @@ function unwrap(res) {
 
 export const notificationsService = {
   list(params = {}) {
-    return axios.get('/notifications', { params }).then(unwrap).catch(() => [])
+    return axios.get('/Notifications', { params }).then(unwrap).catch(() => [])
   },
 
   markRead(id) {
-    return axios.patch(`/notifications/${id}/read`).then(unwrap)
+    return axios.patch(`/Notifications/${id}/read`).then(unwrap)
   },
 
   markAllRead() {
-    return axios.patch('/notifications/read-all').then(unwrap)
+    return axios.patch('/Notifications/read-all').then(unwrap)
   },
 
   delete(id) {
-    return axios.delete(`/notifications/${id}`).then(unwrap)
+    return axios.delete(`/Notifications/${id}`).then(unwrap)
   },
 }

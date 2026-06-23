@@ -1,14 +1,28 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { getSession } from '@/lib/auth'
 import {
   seriesService,
   chaptersService,
   pagesService,
   pageLayersService,
-  pageIssuesService,
+  pageIssuesApi,
   usersService,
+  assistantProfileService,
   genresService,
   tagsService,
+  contractsService,
 } from '@/api'
+import { notificationsService } from '@/api/notificationsService'
+
+/* ===========================
+   AVAILABLE ASSISTANTS
+   =========================== */
+export function useAvailableAssistants() {
+  return useQuery({
+    queryKey: ['available-assistants'],
+    queryFn: () => usersService.getAvailableAssistants().then(res => res?.data ?? []),
+  })
+}
 
 /* ===========================
    SERIES HOOKS
@@ -37,54 +51,48 @@ export function useSeriesById(id) {
 }
 
 export function useCreateSeries() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (formData) => seriesService.create(formData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['series'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['series'] }) },
   })
 }
 
 export function useUpdateSeries() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, data }) => seriesService.update(id, data),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['series'] })
-      queryClient.invalidateQueries({ queryKey: ['series', id] })
+      qc.invalidateQueries({ queryKey: ['series'] })
+      qc.invalidateQueries({ queryKey: ['series', id] })
     },
   })
 }
 
 export function useUpdateSeriesStatus() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, status }) => seriesService.updateStatus(id, status),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['series'] })
-      queryClient.invalidateQueries({ queryKey: ['series', id] })
+      qc.invalidateQueries({ queryKey: ['series'] })
+      qc.invalidateQueries({ queryKey: ['series', id] })
     },
   })
 }
 
 export function useDeleteSeries() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (id) => seriesService.softDelete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['series'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['series'] }) },
   })
 }
 
 export function useHardDeleteSeries() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (id) => seriesService.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['series'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['series'] }) },
   })
 }
 
@@ -106,34 +114,38 @@ export function useChapterById(id) {
   })
 }
 
+export function useChaptersByAssistant(assistantId) {
+  return useQuery({
+    queryKey: ['chapters', 'assistant', assistantId],
+    queryFn: () => chaptersService.getByAssistant(assistantId).then(res => res?.data ?? []),
+    enabled: !!assistantId,
+  })
+}
+
 export function useCreateChapter() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (data) => chaptersService.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['chapters'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['chapters'] }) },
   })
 }
 
 export function useUpdateChapter() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, data }) => chaptersService.update(id, data),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['chapters'] })
-      queryClient.invalidateQueries({ queryKey: ['chapters', id] })
+      qc.invalidateQueries({ queryKey: ['chapters'] })
+      qc.invalidateQueries({ queryKey: ['chapters', id] })
     },
   })
 }
 
 export function useDeleteChapter() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (id) => chaptersService.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['chapters'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['chapters'] }) },
   })
 }
 
@@ -156,43 +168,39 @@ export function usePageById(id) {
 }
 
 export function useCreatePage() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (formData) => pagesService.create(formData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pages'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pages'] }) },
   })
 }
 
 export function useUpdatePage() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, data }) => pagesService.update(id, data),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['pages'] })
-      queryClient.invalidateQueries({ queryKey: ['pages', id] })
+      qc.invalidateQueries({ queryKey: ['pages'] })
+      qc.invalidateQueries({ queryKey: ['pages', id] })
     },
   })
 }
 
 export function useDeletePage() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (id) => pagesService.softDelete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pages'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pages'] }) },
   })
 }
 
 export function usePageComposite() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (pageId) => pagesService.composite(pageId),
     onSuccess: (_, pageId) => {
-      queryClient.invalidateQueries({ queryKey: ['pages'] })
-      queryClient.invalidateQueries({ queryKey: ['pages', pageId] })
+      qc.invalidateQueries({ queryKey: ['pages'] })
+      qc.invalidateQueries({ queryKey: ['pages', pageId] })
     },
   })
 }
@@ -216,43 +224,37 @@ export function usePageLayerById(id) {
 }
 
 export function useCreatePageLayer() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (formData) => pageLayersService.create(formData),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pageLayers'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pageLayers'] }) },
   })
 }
 
 export function useUpdatePageLayer() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, data }) => pageLayersService.update(id, data),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['pageLayers'] })
-      queryClient.invalidateQueries({ queryKey: ['pageLayers', id] })
+      qc.invalidateQueries({ queryKey: ['pageLayers'] })
+      qc.invalidateQueries({ queryKey: ['pageLayers', id] })
     },
   })
 }
 
 export function useDeletePageLayer() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (id) => pageLayersService.softDelete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pageLayers'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pageLayers'] }) },
   })
 }
 
 export function useTogglePageLayerVisibility() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (id) => pageLayersService.toggleVisibility(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pageLayers'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pageLayers'] }) },
   })
 }
 
@@ -262,45 +264,100 @@ export function useTogglePageLayerVisibility() {
 export function usePageIssues(chapterId) {
   return useQuery({
     queryKey: ['pageIssues', chapterId ? { chapterId } : 'all'],
-    queryFn: () => pageIssuesService.getAll(chapterId).then(res => res.data ?? []),
+    queryFn: () => pageIssuesApi.getAll({ chapterId }).then(res => res?.data ?? []),
   })
 }
 
 export function usePageIssueById(id) {
   return useQuery({
     queryKey: ['pageIssues', id],
-    queryFn: () => pageIssuesService.getById(id).then(res => res.data),
+    queryFn: () => pageIssuesApi.getById(id).then(res => res?.data),
     enabled: !!id,
   })
 }
 
 export function useCreatePageIssue() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data) => pageIssuesService.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pageIssues'] })
-    },
+    mutationFn: (data) => pageIssuesApi.create(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pageIssues'] }) },
   })
 }
 
 export function useUpdatePageIssue() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, data }) => pageIssuesService.update(id, data),
+    mutationFn: ({ id, data }) => pageIssuesApi.update(id, data),
     onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: ['pageIssues'] })
-      queryClient.invalidateQueries({ queryKey: ['pageIssues', id] })
+      qc.invalidateQueries({ queryKey: ['pageIssues'] })
+      qc.invalidateQueries({ queryKey: ['pageIssues', id] })
+    },
+  })
+}
+
+export function useUpdatePageIssueStatus() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, status }) => pageIssuesApi.updateStatus(id, status),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['pageIssues'] })
+      qc.invalidateQueries({ queryKey: ['pageIssues', id] })
     },
   })
 }
 
 export function useDeletePageIssue() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id) => pageIssuesService.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['pageIssues'] })
+    mutationFn: (id) => pageIssuesApi.softDelete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pageIssues'] }) },
+  })
+}
+
+/* ===========================
+   CONTRACTS (MangakaAssistant)
+   =========================== */
+export function useContracts({ mangakaId, assistantId } = {}) {
+  return useQuery({
+    queryKey: ['contracts', { mangakaId, assistantId }],
+    queryFn: () => contractsService.getAll({ mangakaId, assistantId }).then(res => res?.data ?? []),
+  })
+}
+
+export function useContractById(id) {
+  return useQuery({
+    queryKey: ['contracts', 'detail', id],
+    queryFn: () => contractsService.getById(id).then(res => res?.data),
+    enabled: !!id,
+  })
+}
+
+export function useCreateContract() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data) => contractsService.create(data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['contracts'] }) },
+  })
+}
+
+export function useUpdateContract() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }) => contractsService.update(id, data),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['contracts'] })
+      qc.invalidateQueries({ queryKey: ['contracts', 'detail', id] })
+    },
+  })
+}
+
+export function useUpdateContractStatus() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, status }) => contractsService.updateStatus(id, status),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['contracts'] })
+      qc.invalidateQueries({ queryKey: ['contracts', 'detail', id] })
     },
   })
 }
@@ -325,12 +382,10 @@ export function useGenreById(id) {
 }
 
 export function useCreateGenre() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (data) => genresService.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['genres'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['genres'] }) },
   })
 }
 
@@ -351,12 +406,28 @@ export function useTagById(id) {
 }
 
 export function useCreateTag() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: (data) => tagsService.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tags'] })
-    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tags'] }) },
+  })
+}
+
+/* ===========================
+   ASSISTANT PROFILE HOOKS
+   =========================== */
+export function useAvailableAssistantProfiles() {
+  return useQuery({
+    queryKey: ['assistant-profiles', 'available'],
+    queryFn: () => assistantProfileService.getAvailable().then(res => res?.data ?? []),
+  })
+}
+
+export function useAssistantProfile(assistantId) {
+  return useQuery({
+    queryKey: ['assistant-profiles', assistantId],
+    queryFn: () => assistantProfileService.getById(assistantId).then(res => res?.data),
+    enabled: !!assistantId,
   })
 }
 
@@ -371,11 +442,49 @@ export function useProfile() {
 }
 
 export function useUpdateProfile(roleKey) {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data) => usersService.updateProfile(data, roleKey),
+    mutationFn: (data) => usersService.updateProfile(data, roleKey ?? 'MANGAKA'),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] })
+      qc.invalidateQueries({ queryKey: ['profile'] })
+      if (roleKey === 'ASSISTANT') {
+        qc.invalidateQueries({ queryKey: ['assistant-profiles', 'available'] })
+      }
     },
+  })
+}
+
+/* ===========================
+   NOTIFICATIONS HOOKS
+   =========================== */
+export function useNotifications() {
+  return useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => notificationsService.list(),
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useMarkNotificationRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id) => notificationsService.markRead(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['notifications'] }) },
+  })
+}
+
+export function useMarkAllNotificationsRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => notificationsService.markAllRead(),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['notifications'] }) },
+  })
+}
+
+export function useDeleteNotification() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id) => notificationsService.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['notifications'] }) },
   })
 }

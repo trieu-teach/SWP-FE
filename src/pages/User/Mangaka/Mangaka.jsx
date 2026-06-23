@@ -17,7 +17,6 @@ import {
   Send,
   Sparkles,
   Trash2,
-  TrendingUp,
   Upload,
   UserPlus,
   Workflow,
@@ -48,11 +47,6 @@ import {
   PATH_EDITOR_BOARD,
   PATH_TANTOU_EDITOR,
 } from '@/constants/roleTerminology.js'
-import {
-  readEbDebutApproved,
-  removeEbDebutApproval,
-  syncEbDebutPendingFromSeries,
-} from '@/utils/ebDebutStorage.js'
 import {
   loadMangakaWorkspaceState,
   persistMangakaWorkspaceState,
@@ -86,6 +80,7 @@ import {
   seriesToExternalSummary,
   slugifySeriesTitle,
 } from '@/utils/seriesModel.js'
+import { readEbDebutApproved } from '@/utils/ebDebutStorage.js'
 import {
   useSeries,
   useSeriesByMangaka,
@@ -117,97 +112,6 @@ const STATUS_BADGE = {
   done: { label: 'Hoàn tất', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400' },
 }
 
-const INITIAL_SERIES = normalizeSeriesList([
-  {
-    id: 1,
-    title: 'One Thorn',
-    altTitle: 'One Thorn',
-    synopsis: 'Hành trình của nhóm thám hiểm trong thế giới hậu tận thế, tìm manh mối về cây gai đen huyền thoại.',
-    genres: ['Phiêu lưu', 'Huyền ảo'],
-    demographic: 'shonen',
-    format: 'manga',
-    language: 'vi',
-    contentRating: 'teen',
-    publicationStatus: 'ongoing',
-    publishType: 'continuing',
-    chapters: 5,
-    marks: 2,
-    status: 'assistant',
-    updated: '2 giờ trước',
-    color: '#e63946',
-    progress: 72,
-    authorName: 'Demo Mangaka',
-  },
-  {
-    id: 2,
-    title: 'Ma Đạo',
-    synopsis: 'Tu tiên giả trẻ dấn thân vào ma đạo để cứu làng quê — ranh giới thiện ác bị xóa nhòa.',
-    genres: ['Võ thuật', 'Drama'],
-    demographic: 'seinen',
-    format: 'manhua',
-    language: 'vi',
-    contentRating: 'mature',
-    publicationStatus: 'ongoing',
-    publishType: 'continuing',
-    chapters: 3,
-    marks: 4,
-    status: 'draft',
-    updated: '1 ngày trước',
-    color: '#9b5de5',
-    progress: 35,
-  },
-  {
-    id: 3,
-    title: 'Vô Lượng',
-    synopsis: 'Đạo sĩ mù và đệ tử lang thang giải oan nghiệt — từng arc một bí ẩn lớn hơn.',
-    genres: ['Kinh dị', 'Đời thường'],
-    demographic: 'seinen',
-    format: 'manga',
-    language: 'vi',
-    publicationStatus: 'ongoing',
-    publishType: 'continuing',
-    chapters: 2,
-    marks: 0,
-    status: 'review',
-    updated: '3 giờ trước',
-    color: '#f4a261',
-    progress: 90,
-  },
-])
-
-const INITIAL_CHAPTERS = [
-  { id: 1, series: 'One Thorn', num: 12, type: 'PNG', pages: 24, status: 'assistant', date: '14/05/2026' },
-  { id: 2, series: 'One Thorn', num: 11, type: 'PNG', pages: 18, status: 'done', date: '10/05/2026' },
-  { id: 3, series: 'Ma Đạo', num: 3, type: 'JPG', pages: 15, status: 'draft', date: '12/05/2026' },
-]
-
-const DEMO_ANNOTATOR_PAGES = [
-  { id: 'demo-1', name: 'Trang 1 (mẫu)', url: null },
-  { id: 'demo-2', name: 'Trang 2 (mẫu)', url: null },
-]
-
-const INITIAL_ANNOTATOR_CHAPTERS = [
-  {
-    id: 'ch-demo',
-    series: 'One Thorn',
-    num: '12',
-    pages: DEMO_ANNOTATOR_PAGES,
-    createdAt: '14/05/2026',
-  },
-]
-
-const INITIAL_ANNOTATOR_NOTES = {
-  'ch-demo-0': [
-    { id: 'n1', x: 12, y: 18, w: 28, h: 22, text: 'Vẽ nền trời, hoàng hôn', taskType: 'background', assignee: 'Assistant A' },
-    { id: 'n2', x: 55, y: 45, w: 35, h: 30, text: 'Thêm cây cối hai bên đường', taskType: 'fx', assignee: 'Assistant B' },
-  ],
-}
-
-const DEMO_SERIES_RANKINGS = [
-  { title: 'One Thorn', rank: 4, delta: '↑2', reads: '12.4K', atRisk: true, riskReason: 'Lượt đọc giảm 18% trong 2 tuần' },
-  { title: 'Ma Đạo', rank: 11, delta: '↓1', reads: '3.1K', atRisk: false },
-]
-
 const PIPELINE_DEBUT_STEPS = [
   { step: 1, title: 'Mangaka → Assistant', desc: 'Gửi bản thảo & ô ghi chú' },
   { step: 2, title: 'Assistant → Mangaka', desc: 'Nhận bản vẽ, bạn duyệt / yêu cầu sửa' },
@@ -233,17 +137,13 @@ const TAB_ITEMS = [
 function createMangakaWorkspaceDefaults() {
   return {
     tab: 'series',
-    annotateSeries: 'One Thorn',
-    seriesList: INITIAL_SERIES,
-    chapterRows: INITIAL_CHAPTERS.map(c => ({ ...c })),
-    annotatorChapters: INITIAL_ANNOTATOR_CHAPTERS.map(c => ({
-      ...c,
-      pages: c.pages.map(p => ({ ...p })),
-    })),
-    annotatorNotes: JSON.parse(JSON.stringify(INITIAL_ANNOTATOR_NOTES)),
-    annotatorActiveChapterId: 'ch-demo',
+    annotateSeries: '',
+    chapterRows: [],
+    annotatorChapters: [],
+    annotatorNotes: {},
+    annotatorActiveChapterId: null,
     annotatorPageIndex: 0,
-    annotatorChapterNum: '12',
+    annotatorChapterNum: '1',
     annotatorPagesPerChapter: '',
     annotatorUploadPageBudget: '',
   }
@@ -422,10 +322,10 @@ export default function Mangaka() {
 
   const [tab, setTab] = useState(() => hydrated.tab)
   const [annotateSeries, setAnnotateSeries] = useState(() => hydrated.annotateSeries)
-  const [localSeriesList, setLocalSeriesList] = useState(INITIAL_SERIES)
+  const [localSeriesList, setLocalSeriesList] = useState([])
   const [addSeriesOpen, setAddSeriesOpen] = useState(false)
   const [editingSeries, setEditingSeries] = useState(null)
-  const [localChapterRows, setLocalChapterRows] = useState(INITIAL_CHAPTERS)
+  const [localChapterRows, setLocalChapterRows] = useState([])
   const [uploadPctBySeries, setUploadPctBySeries] = useState({})
   const [annotatorChapters, setAnnotatorChapters] = useState(() => hydrated.annotatorChapters)
   const [annotatorNotes, setAnnotatorNotes] = useState(() => hydrated.annotatorNotes)
@@ -442,9 +342,9 @@ export default function Mangaka() {
   const [tantouSendReady, setTantouSendReady] = useState(null)
   const [rosterTick, setRosterTick] = useState(0)
 
-  // Use API data if available, otherwise fallback to local
-  const seriesList = apiSeries.length > 0 ? apiSeries : localSeriesList
-  const chapterRows = localChapterRows
+  // Use API data merged with optimistic local changes
+  const seriesList = [...apiSeries, ...localSeriesList]
+  const chapterRows = [...apiChapters, ...localChapterRows]
 
   const hiredAssistants = useMemo(() => {
     void rosterTick
@@ -530,12 +430,7 @@ export default function Mangaka() {
     return chapterRows.find(r => r.status === 'assistant' || r.status === 'review')
   }, [chapterRows, pendingDeliverable, pendingDeliverableSlim])
 
-  const seriesRankings = useMemo(() => {
-    const titles = new Set(seriesList.map(s => s.title))
-    return DEMO_SERIES_RANKINGS.filter(r => titles.has(r.title))
-  }, [seriesList])
-
-  const atRiskSeries = useMemo(() => seriesRankings.filter(r => r.atRisk), [seriesRankings])
+  // Rankings section removed — no demo data fallback
 
   const ebApprovedMap = useMemo(() => readEbDebutApproved(), [ebApprovedTick, seriesList])
 
@@ -585,7 +480,6 @@ export default function Mangaka() {
     if (!chapter?.series) return
     const ebOk = !!ebApprovedMap[series?.title ?? chapter.series]
     const pipeline = series?.needsFullDebutPipeline && !ebOk ? 'debut' : 'recurring'
-    const rank = DEMO_SERIES_RANKINGS.find(r => r.title === chapter.series)
     const sub = pushTantouSubmissionFromMangaka({
       seriesTitle: chapter.series,
       seriesMeta: {
@@ -700,13 +594,6 @@ export default function Mangaka() {
     if (!pipelineSeries) return PIPELINE_DEBUT_STEPS
     return pipelineSeries.needsFullDebutPipeline ? PIPELINE_DEBUT_STEPS : PIPELINE_RECURRING_STEPS
   }, [pipelineSeries])
-
-  useEffect(() => {
-    const pending = seriesList
-      .filter(s => s.needsFullDebutPipeline)
-      .map(seriesToExternalSummary)
-    syncEbDebutPendingFromSeries(pending)
-  }, [seriesList])
 
   useEffect(() => {
     function bumpEbApproved() { setEbApprovedTick(t => t + 1) }
@@ -1448,47 +1335,6 @@ export default function Mangaka() {
                       </Link>
                     </div>
                   ))}
-                </CardContent>
-              </Card>
-            ) : null}
-
-            {tab !== 'annotate' && seriesRankings.length > 0 ? (
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <TrendingUp className="size-4 text-emerald-600" />
-                    Bảng xếp hạng
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {seriesRankings.map(r => (
-                    <div
-                      key={r.title}
-                      className={cn(
-                        'flex items-center gap-3 rounded-md border p-2.5',
-                        r.atRisk && 'border-amber-200 bg-amber-50/40 dark:border-amber-500/30 dark:bg-amber-500/5',
-                      )}
-                    >
-                      <span className="flex size-7 items-center justify-center rounded-md bg-muted text-xs font-bold">#{r.rank}</span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{r.title}</p>
-                        <p className="text-xs text-muted-foreground">{r.reads} đọc · {r.delta}</p>
-                      </div>
-                    </div>
-                  ))}
-                  {atRiskSeries.length > 0 ? (
-                    <div className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs dark:border-amber-500/30 dark:bg-amber-500/10">
-                      <p className="flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-400">
-                        <AlertTriangle className="size-3" />
-                        Cảnh báo huỷ series
-                      </p>
-                      {atRiskSeries.map(r => (
-                        <p key={r.title} className="mt-1 text-amber-700 dark:text-amber-400">
-                          {r.title}: {r.riskReason}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
                 </CardContent>
               </Card>
             ) : null}

@@ -28,7 +28,8 @@ import UserProfile from '@/pages/User/Profile/Profile.jsx'
 
 // Redirects logged-in user to their workspace, else shows Home
 function HomeOrWorkspace() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
+  if (loading) return null // avoid blank flash while auth hydrates from sessionStorage
   if (user) {
     return <Navigate to={getRolePath(user.role)} replace />
   }

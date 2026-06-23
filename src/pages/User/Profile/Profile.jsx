@@ -5,6 +5,8 @@ import {
   Camera,
   Check,
   Edit2,
+  FileText,
+  Globe,
   LogOut,
   Mail,
   MapPin,
@@ -28,7 +30,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useProfile, useUpdateProfile } from '@/api'
-import { ROLE_KEY_TO_ID, clearSession } from '@/lib/auth'
+import { ROLE_KEY_TO_ID, clearSession, getSession } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
 const NAV_LINKS = [{ to: '/', label: 'Trang chủ' }]
@@ -50,10 +52,10 @@ const STATS = [
 export default function Profile() {
   const navigate = useNavigate()
   const { data: profile, isLoading } = useProfile()
-  const updateProfile = useUpdateProfile(roleKey)
 
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({
+    username: '',
     fullName: '',
     penName: '',
     bio: '',
@@ -67,24 +69,28 @@ export default function Profile() {
     softwareUsed: '',
   })
 
-  const roleKey = profile?.role ?? (profile?.roleid ? Object.keys(ROLE_KEY_TO_ID).find(k => ROLE_KEY_TO_ID[k] === profile.roleid) : null)
+  const session = getSession()
+  const roleKey = session?.role
+    ?? (profile?.roleid ? Object.keys(ROLE_KEY_TO_ID).find(k => ROLE_KEY_TO_ID[k] === profile.roleid) : null)
+  const updateProfileMutation = useUpdateProfile(roleKey)
   const roleConfig = ROLE_CONFIG[roleKey] ?? ROLE_CONFIG.MANGAKA
   const RoleIcon = roleConfig.icon
 
   useEffect(() => {
     if (!profile) return
     setForm({
+      username: profile.username ?? '',
       fullName: profile.fullname ?? profile.fullName ?? '',
-      penName: profile.penName ?? profile.penname ?? '',
-      bio: profile.bio ?? '',
-      phoneNumber: profile.phoneNumber ?? profile.phoneNumber ?? '',
-      bankName: profile.bankName ?? '',
-      bankAccountNumber: profile.bankAccountNumber ?? '',
-      bankAccountName: profile.bankAccountName ?? '',
-      portfolioUrl: profile.portfolioUrl ?? '',
-      isAvailable: profile.isAvailable ?? profile.isavailable ?? true,
-      skills: profile.skills ?? '',
-      softwareUsed: profile.softwareUsed ?? profile.softwareused ?? '',
+      penName: profile.penName ?? profile.penname ?? profile.pen_name ?? '',
+      bio: profile.bio ?? profile.Bio ?? '',
+      phoneNumber: profile.phoneNumber ?? profile.phonenumber ?? profile.phone_number ?? '',
+      bankName: profile.bankName ?? profile.bankname ?? '',
+      bankAccountNumber: profile.bankAccountNumber ?? profile.bankaccountnumber ?? '',
+      bankAccountName: profile.bankAccountName ?? profile.bankaccountname ?? '',
+      portfolioUrl: profile.portfolioUrl ?? profile.portfolio_url ?? '',
+      isAvailable: profile.isAvailable ?? profile.isavailable ?? profile.is_available ?? false,
+      skills: profile.skills ?? profile.Skills ?? '',
+      softwareUsed: profile.softwareUsed ?? profile.softwareused ?? profile.software_used ?? '',
     })
   }, [profile])
 
@@ -104,29 +110,30 @@ export default function Profile() {
       toast.error('Họ tên không được để trống.')
       return
     }
-    const payload = { fullName: form.fullName.trim() }
+    const payload = {
+      fullName: form.fullName.trim(),
+      phoneNumber: form.phoneNumber,
+      skills: form.skills,
+      softwareUsed: form.softwareUsed,
+      bio: form.bio,
+    }
     if (roleKey === 'MANGAKA') {
       if (!form.penName?.trim()) {
         toast.error('Bút danh (PenName) không được để trống với Mangaka.')
         return
       }
       payload.penName = form.penName.trim()
-      payload.bio = form.bio
-      payload.phoneNumber = form.phoneNumber
       payload.bankName = form.bankName
       payload.bankAccountNumber = form.bankAccountNumber
       payload.bankAccountName = form.bankAccountName
     } else if (roleKey === 'ASSISTANT') {
       payload.portfolioUrl = form.portfolioUrl
-      payload.phoneNumber = form.phoneNumber
       payload.isAvailable = form.isAvailable
-      payload.skills = form.skills
-      payload.softwareUsed = form.softwareUsed
       payload.bankName = form.bankName
       payload.bankAccountNumber = form.bankAccountNumber
       payload.bankAccountName = form.bankAccountName
     }
-    updateProfile.mutate(payload, {
+    updateProfileMutation.mutate(payload, {
       onSuccess: () => {
         toast.success('Cập nhật hồ sơ thành công!')
         setEditing(false)
@@ -177,7 +184,7 @@ export default function Profile() {
               {/* Avatar */}
               <div className="relative">
                 <Avatar className="size-32 border-4 border-background shadow-2xl md:size-40">
-                  <AvatarImage src={profile?.avatar || profile?.picture} alt={profile?.fullname} />
+                  <AvatarImage src={profile?.avatar || profile?.avatar_url || profile?.picture} alt={profile?.fullname} />
                   <AvatarFallback className="bg-gradient-to-br from-primary to-rose-500 text-3xl font-bold text-white">
                     {initials}
                   </AvatarFallback>
@@ -257,28 +264,36 @@ export default function Profile() {
                 </CardHeader>
                 <CardContent className="space-y-6">
                   {editing ? (
-                    <div className="space-y-4">
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="fullName">Họ và tên *</Label>
-                          <Input
-                            id="fullName"
-                            value={form.fullName}
-                            onChange={e => handleChange('fullName', e.target.value)}
-                            placeholder="Nhập họ và tên"
-                          />
+                      <div className="space-y-4">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="fullName">Họ và tên *</Label>
+                            <Input
+                              id="fullName"
+                              value={form.fullName}
+                              onChange={e => handleChange('fullName', e.target.value)}
+                              placeholder="Nhập họ và tên"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="email">Email</Label>
+                            <Input id="email" value={profile?.email ?? ''} disabled />
+                          </div>
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="email">Email</Label>
-                          <Input id="email" value={profile?.email ?? ''} disabled />
-                        </div>
-                      </div>
 
-                      {roleKey === 'MANGAKA' ? (
-                        <>
-                          <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="phoneNumber">Số điện thoại</Label>
+                            <Input
+                              id="phoneNumber"
+                              value={form.phoneNumber}
+                              onChange={e => handleChange('phoneNumber', e.target.value)}
+                              placeholder="0xxx..."
+                            />
+                          </div>
+                          {roleKey === 'MANGAKA' && (
                             <div className="space-y-2">
-                              <Label htmlFor="penName">Bút danh (PenName) *</Label>
+                              <Label htmlFor="penName">Bút danh *</Label>
                               <Input
                                 id="penName"
                                 value={form.penName}
@@ -286,82 +301,96 @@ export default function Profile() {
                                 placeholder="Bút danh"
                               />
                             </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="phoneNumber">Số điện thoại</Label>
-                              <Input
-                                id="phoneNumber"
-                                value={form.phoneNumber}
-                                onChange={e => handleChange('phoneNumber', e.target.value)}
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="bio">Giới thiệu bản thân</Label>
-                            <Textarea
-                              id="bio"
-                              value={form.bio}
-                              onChange={e => handleChange('bio', e.target.value)}
-                              placeholder="Viết vài dòng giới thiệu về bạn..."
-                              rows={4}
-                            />
-                          </div>
-                          <div className="grid gap-4 sm:grid-cols-3">
-                            <div className="space-y-2">
-                              <Label htmlFor="bankName">Ngân hàng</Label>
-                              <Input id="bankName" value={form.bankName} onChange={e => handleChange('bankName', e.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="bankAccountNumber">Số tài khoản</Label>
-                              <Input id="bankAccountNumber" value={form.bankAccountNumber} onChange={e => handleChange('bankAccountNumber', e.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="bankAccountName">Chủ tài khoản</Label>
-                              <Input id="bankAccountName" value={form.bankAccountName} onChange={e => handleChange('bankAccountName', e.target.value)} />
-                            </div>
-                          </div>
-                        </>
-                      ) : roleKey === 'ASSISTANT' ? (
-                        <>
-                          <div className="grid gap-4 sm:grid-cols-2">
-                            <div className="space-y-2">
-                              <Label htmlFor="phoneNumber">Số điện thoại</Label>
-                              <Input id="phoneNumber" value={form.phoneNumber} onChange={e => handleChange('phoneNumber', e.target.value)} />
-                            </div>
+                          )}
+                          {roleKey === 'ASSISTANT' && (
                             <div className="space-y-2">
                               <Label htmlFor="portfolioUrl">Portfolio URL</Label>
-                              <Input id="portfolioUrl" value={form.portfolioUrl} onChange={e => handleChange('portfolioUrl', e.target.value)} />
+                              <Input
+                                id="portfolioUrl"
+                                value={form.portfolioUrl}
+                                onChange={e => handleChange('portfolioUrl', e.target.value)}
+                                placeholder="https://..."
+                              />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label htmlFor="skills">Kỹ năng</Label>
+                            <Input
+                              id="skills"
+                              value={form.skills}
+                              onChange={e => handleChange('skills', e.target.value)}
+                              placeholder="Sketching, Inking..."
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="softwareUsed">Phần mềm</Label>
+                            <Input
+                              id="softwareUsed"
+                              value={form.softwareUsed}
+                              onChange={e => handleChange('softwareUsed', e.target.value)}
+                              placeholder="Photoshop, Krita..."
+                            />
+                          </div>
+                        </div>
+
+                        {roleKey === 'ASSISTANT' && (
+                          <div className="flex items-center gap-3 rounded-lg border p-4">
+                            <div className="flex size-10 items-center justify-center rounded-lg bg-emerald-500/10">
+                              <Star className="size-5 text-emerald-600" />
+                            </div>
+                            <div className="flex-1">
+                              <Label>Sẵn sàng nhận việc</Label>
+                              <p className="text-xs text-muted-foreground mt-0.5">Bật để các mangaka có thể liên hệ thuê bạn</p>
+                            </div>
+                            <div
+                              onClick={() => handleChange('isAvailable', !form.isAvailable)}
+                              className={cn(
+                                'flex h-7 w-12 cursor-pointer items-center rounded-full px-1 transition-colors',
+                                form.isAvailable ? 'bg-emerald-500 justify-end' : 'bg-muted justify-start',
+                              )}
+                            >
+                              <div className="size-5 rounded-full bg-white shadow" />
                             </div>
                           </div>
-                          <div className="grid gap-4 sm:grid-cols-2">
-                            <div className="space-y-2">
-                              <Label htmlFor="skills">Kỹ năng</Label>
-                              <Input id="skills" value={form.skills} onChange={e => handleChange('skills', e.target.value)} placeholder="Sketching, Inking..." />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="softwareUsed">Phần mềm</Label>
-                              <Input id="softwareUsed" value={form.softwareUsed} onChange={e => handleChange('softwareUsed', e.target.value)} placeholder="Photoshop, Krita..." />
+                        )}
+
+                        <div className="space-y-2">
+                          <Label htmlFor="bio">Giới thiệu bản thân</Label>
+                          <Textarea
+                            id="bio"
+                            value={form.bio}
+                            onChange={e => handleChange('bio', e.target.value)}
+                            placeholder="Viết vài dòng giới thiệu về bạn..."
+                            rows={3}
+                          />
+                        </div>
+
+                        {(roleKey === 'MANGAKA' || roleKey === 'ASSISTANT') && (
+                          <div className="space-y-3">
+                            <Label className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Thông tin thanh toán</Label>
+                            <div className="grid gap-4 sm:grid-cols-3">
+                              <div className="space-y-2">
+                                <Label htmlFor="bankName">Ngân hàng</Label>
+                                <Input id="bankName" value={form.bankName} onChange={e => handleChange('bankName', e.target.value)} placeholder="Vietcombank..." />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="bankAccountNumber">Số tài khoản</Label>
+                                <Input id="bankAccountNumber" value={form.bankAccountNumber} onChange={e => handleChange('bankAccountNumber', e.target.value)} placeholder="123456..." />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="bankAccountName">Chủ tài khoản</Label>
+                                <Input id="bankAccountName" value={form.bankAccountName} onChange={e => handleChange('bankAccountName', e.target.value)} placeholder="NGUYEN VAN A" />
+                              </div>
                             </div>
                           </div>
-                          <div className="grid gap-4 sm:grid-cols-3">
-                            <div className="space-y-2">
-                              <Label htmlFor="bankName">Ngân hàng</Label>
-                              <Input id="bankName" value={form.bankName} onChange={e => handleChange('bankName', e.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="bankAccountNumber">Số tài khoản</Label>
-                              <Input id="bankAccountNumber" value={form.bankAccountNumber} onChange={e => handleChange('bankAccountNumber', e.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="bankAccountName">Chủ tài khoản</Label>
-                              <Input id="bankAccountName" value={form.bankAccountName} onChange={e => handleChange('bankAccountName', e.target.value)} />
-                            </div>
-                          </div>
-                        </>
-                      ) : null}
+                        )}
 
                       <div className="flex gap-2">
-                        <Button onClick={handleSave} disabled={updateProfile.isPending} className="gap-2">
-                          {updateProfile.isPending ? (
+                        <Button onClick={handleSave} disabled={updateProfileMutation.isPending} className="gap-2">
+                          {updateProfileMutation.isPending ? (
                             <>Đang lưu...</>
                           ) : (
                             <>
@@ -376,87 +405,169 @@ export default function Profile() {
                       </div>
                     </div>
                   ) : (
-                    <div className="grid gap-6 md:grid-cols-2">
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-3 rounded-lg border p-4">
-                          <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-                            <User className="size-5 text-primary" />
-                          </div>
-                          <div>
-                            <p className="text-sm text-muted-foreground">Họ và tên</p>
-                            <p className="font-medium">{profile?.fullname || 'Chưa cập nhật'}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3 rounded-lg border p-4">
-                          <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-                            <Mail className="size-5 text-primary" />
-                          </div>
-                          <div>
-                            <p className="text-sm text-muted-foreground">Email</p>
-                            <p className="font-medium">{profile?.email || 'Chưa cập nhật'}</p>
-                          </div>
-                        </div>
-
-                        {roleKey === 'MANGAKA' ? (
+                    <>
+                      <div className="grid gap-6 md:grid-cols-2">
+                        <div className="space-y-4">
                           <div className="flex items-center gap-3 rounded-lg border p-4">
                             <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
                               <User className="size-5 text-primary" />
                             </div>
                             <div>
-                              <p className="text-sm text-muted-foreground">Bút danh</p>
-                              <p className="font-medium">{profile?.penName || 'Chưa cập nhật'}</p>
+                              <p className="text-sm text-muted-foreground">Họ và tên</p>
+                              <p className="font-medium">{profile?.fullname || 'Chưa cập nhật'}</p>
                             </div>
                           </div>
-                        ) : null}
-                      </div>
 
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-3 rounded-lg border p-4">
-                          <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-                            <Phone className="size-5 text-primary" />
+                          <div className="flex items-center gap-3 rounded-lg border p-4">
+                            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+                              <Mail className="size-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Email</p>
+                              <p className="font-medium">{profile?.email || 'Chưa cập nhật'}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm text-muted-foreground">Số điện thoại</p>
-                            <p className="font-medium">{profile?.phoneNumber || 'Chưa cập nhật'}</p>
+
+                          <div className="flex items-center gap-3 rounded-lg border p-4">
+                            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+                              {roleKey === 'MANGAKA' ? (
+                                <User className="size-5 text-primary" />
+                              ) : (
+                                <Globe className="size-5 text-primary" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">
+                                {roleKey === 'MANGAKA' ? 'Bút danh' : 'Portfolio'}
+                              </p>
+                              <p className="font-medium">
+                                {roleKey === 'MANGAKA'
+                                  ? (profile?.penName || profile?.penname || profile?.pen_name || 'Chưa cập nhật')
+                                  : (profile?.portfolioUrl || profile?.portfolio_url || 'Chưa cập nhật')}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 rounded-lg border p-4">
+                            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+                              <FileText className="size-5 text-primary" />
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Giới thiệu</p>
+                              <p className="font-medium">{profile?.bio || profile?.Bio || 'Chưa cập nhật'}</p>
+                            </div>
                           </div>
                         </div>
 
-                        {roleKey === 'ASSISTANT' ? (
+                        <div className="space-y-4">
                           <div className="flex items-center gap-3 rounded-lg border p-4">
                             <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-                              <Star className="size-5 text-primary" />
+                              <Phone className="size-5 text-primary" />
                             </div>
                             <div>
-                              <p className="text-sm text-muted-foreground">Sẵn sàng nhận việc</p>
-                              <p className="font-medium">{profile?.isAvailable ? 'Có' : 'Không'}</p>
+                              <p className="text-sm text-muted-foreground">Số điện thoại</p>
+                              <p className="font-medium">{profile?.phoneNumber || profile?.phonenumber || profile?.phone_number || 'Chưa cập nhật'}</p>
                             </div>
                           </div>
-                        ) : (
+
                           <div className="flex items-center gap-3 rounded-lg border p-4">
-                            <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
-                              <MapPin className="size-5 text-primary" />
+                            <div className="flex size-10 items-center justify-center rounded-lg bg-violet-500/10">
+                              <Layers className="size-5 text-violet-600" />
                             </div>
                             <div>
-                              <p className="text-sm text-muted-foreground">Kỹ năng / Mô tả</p>
-                              <p className="font-medium">{profile?.skills || profile?.bio || 'Chưa cập nhật'}</p>
+                              <p className="text-sm text-muted-foreground">Kỹ năng</p>
+                              <p className="font-medium">{profile?.skills || profile?.Skills || 'Chưa cập nhật'}</p>
                             </div>
                           </div>
-                        )}
+
+                          {roleKey === 'ASSISTANT' && (
+                            <div className="flex items-center gap-3 rounded-lg border p-4">
+                              <div className="flex size-10 items-center justify-center rounded-lg bg-emerald-500/10">
+                                <Star className="size-5 text-emerald-600" />
+                              </div>
+                              <div>
+                                <p className="text-sm text-muted-foreground">Sẵn sàng nhận việc</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <div
+                                    className={cn(
+                                      'flex h-6 w-11 items-center rounded-full px-0.5 transition-colors cursor-pointer',
+                                      form.isAvailable
+                                        ? 'bg-emerald-500 justify-end'
+                                        : 'bg-muted justify-start',
+                                    )}
+                                  >
+                                    <div className="size-5 rounded-full bg-white shadow transition-all" />
+                                  </div>
+                                  <span className={cn(
+                                    'text-sm font-medium',
+                                    form.isAvailable ? 'text-emerald-600' : 'text-muted-foreground',
+                                  )}>
+                                    {form.isAvailable ? '● Đang bật' : '○ Đang tắt'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-3 rounded-lg border p-4">
+                            <div className="flex size-10 items-center justify-center rounded-lg bg-rose-500/10">
+                              <BookOpen className="size-5 text-rose-600" />
+                            </div>
+                            <div>
+                              <p className="text-sm text-muted-foreground">Phần mềm</p>
+                              <p className="font-medium">{profile?.softwareUsed || profile?.softwareused || profile?.software_used || 'Chưa cập nhật'}</p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+
+                      {(roleKey === 'MANGAKA' || roleKey === 'ASSISTANT') && (
+                        <div className="space-y-3">
+                          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Thông tin thanh toán</h3>
+                          <div className="grid gap-3 sm:grid-cols-3">
+                            <div className="flex items-center gap-3 rounded-lg border p-4">
+                              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+                                <span className="text-sm font-bold text-amber-600">BANK</span>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Ngân hàng</p>
+                                <p className="font-medium">{profile?.bankName || profile?.bankname || '—'}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 rounded-lg border p-4">
+                              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+                                <span className="text-sm font-bold text-amber-600">STK</span>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Số tài khoản</p>
+                                <p className="font-medium">{profile?.bankAccountNumber || profile?.bankaccountnumber || '—'}</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 rounded-lg border p-4">
+                              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10">
+                                <span className="text-sm font-bold text-amber-600">NAME</span>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Chủ tài khoản</p>
+                                <p className="font-medium">{profile?.bankAccountName || profile?.bankaccountname || '—'}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </CardContent>
               </Card>
 
               {/* Bio */}
-              {profile?.bio ? (
+              {profile?.bio || profile?.Bio ? (
                 <Card>
                   <CardHeader>
                     <CardTitle>Giới thiệu</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-muted-foreground">{profile.bio}</p>
+                    <p className="text-muted-foreground">{profile.bio || profile.Bio}</p>
                   </CardContent>
                 </Card>
               ) : null}
