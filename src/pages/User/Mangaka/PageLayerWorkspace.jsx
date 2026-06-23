@@ -453,9 +453,10 @@ export default function PageLayerWorkspace() {
     // Nếu page đã có server ID → upload lên server ngay
     if (serverPageId && file) {
       const fd = new FormData()
-      fd.append('pageid', serverPageId)
-      fd.append('layername', name)
-      fd.append('layertype', layerType)
+      fd.append('pageId', serverPageId)
+      fd.append('uploaderId', user?.id ?? 0)
+      fd.append('layerName', name)
+      fd.append('opacity', '1.0')
       fd.append('layerFile', file)
       createLayer.mutate(fd, {
         onSuccess: () => {

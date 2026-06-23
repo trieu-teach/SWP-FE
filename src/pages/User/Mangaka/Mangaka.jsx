@@ -91,7 +91,11 @@ import {
   useCreateChapter,
   useUpdateChapter,
   useDeleteChapter,
-} from '@/api'
+  useCreatePage,
+  useUpdateChapterStatus,
+  useAvailableTantouEditors,
+  useAssignTantouEditor,
+} from '@/api/hooks'
 import '@/styles/mangaPage.css'
 import './Mangaka.css'
 
@@ -110,6 +114,20 @@ const STATUS_BADGE = {
   review: { label: 'Chờ duyệt', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400' },
   tantou: { label: `Chờ ${LABEL_TANTOU_EDITOR}`, className: 'bg-sky-100 text-sky-700 hover:bg-sky-100 dark:bg-sky-500/15 dark:text-sky-400' },
   done: { label: 'Hoàn tất', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400' },
+}
+
+/** Convert a data URL (blob: or data:) back to a File object for upload. */
+export function dataUrlToFile(dataUrl, fallbackName = 'page.png') {
+  const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!matches) return null
+  const mimeType = matches[1]
+  const base64 = matches[2]
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const ext = mimeType.split('/')[1] ?? 'png'
+  const name = fallbackName.replace(/\.[^.]+$/, '') + '.' + ext
+  return new File([bytes], name, { type: mimeType })
 }
 
 const PIPELINE_DEBUT_STEPS = [
@@ -311,6 +329,10 @@ export default function Mangaka() {
   const createChapter = useCreateChapter()
   const updateChapter = useUpdateChapter()
   const deleteChapter = useDeleteChapter()
+  const createPage = useCreatePage()
+  const updateChapterStatus = useUpdateChapterStatus()
+  const availableTantouEditors = useAvailableTantouEditors()
+  const assignTantouEditor = useAssignTantouEditor()
 
   const apiSeries = useMemo(
     () => (Array.isArray(apiSeriesRaw) ? apiSeriesRaw.map((s, i) => mapApiSeriesToLocal(s, i)).filter(Boolean) : []),
@@ -347,6 +369,14 @@ export default function Mangaka() {
     [...apiSeries, ...localSeriesList].reduce((acc, s) => ({ ...acc, [s.id]: s }), {}),
   )
   const chapterRows = [...apiChapters, ...localChapterRows]
+
+  // Real chapter ID on backend for the currently active annotator chapter
+  const annotatorServerChapterId = useMemo(() => {
+    if (!annotatorActiveChapterId) return null
+    const numericId = Number(annotatorActiveChapterId)
+    if (!Number.isFinite(numericId)) return null  // local-only ID → not on server
+    return numericId
+  }, [annotatorActiveChapterId])
 
   const hiredAssistants = useMemo(() => {
     void rosterTick
@@ -450,20 +480,27 @@ export default function Mangaka() {
     })
     void pushAssistantSubmission(submission)
 
-    // Save notes to API (mapping sang field backend: Pageid, CreatedById, IssueType, WorkCategory, BoxX/Y/W/H, Description)
-    if (user?.id && chapter?.apiPageId) {
+    const activePage = chapter?.pages?.[pageIndex]
+    // Save notes to API (mapping sang field backend: PageId, CreatedById, IssueType, WorkCategory, BoxX/Y/W/H, Description)
+    if (user?.id && activePage?.apiPageId) {
       notes.forEach((note) => {
-        const issueType = note.taskType === 'background' ? 'background' : note.taskType === 'fx' ? 'effect' : 'other'
+        const issueType = note.taskType === 'revision' ? 'Revision' : note.taskType === 'production' ? 'Production' : 'Revision'
+        const workCategory = note.taskType === 'background' ? 'Background'
+          : note.taskType === 'dialog' ? 'Dialog'
+          : note.taskType === 'ink' ? 'Inking'
+          : note.taskType === 'fx' ? 'Effects'
+          : note.taskType === 'shading' ? 'Shading'
+          : 'Content'
         pageIssuesService.create({
-          pageid: chapter.apiPageId,
+          pageId: activePage.apiPageId,
           createdById: user.id,
           issueType,
-          workCategory: note.taskType ?? 'general',
-          boxX: note.x,
-          boxY: note.y,
-          boxWidth: note.w,
-          boxHeight: note.h,
-          description: note.text,
+          workCategory,
+          boxX: Math.round(note.x),
+          boxY: Math.round(note.y),
+          boxWidth: Math.round(note.w),
+          boxHeight: Math.round(note.h),
+          description: note.text ?? note.content ?? '',
         }).catch(console.error)
       })
     }
@@ -475,6 +512,19 @@ export default function Mangaka() {
           : r,
       ),
     )
+
+    // Cap nhat trang thai chapter tren server: Drafting -> StudioWorking
+    const serverChapterId = Number(chapter.id)
+    if (Number.isFinite(serverChapterId)) {
+      updateChapterStatus.mutate(
+        { id: serverChapterId, status: 'StudioWorking' },
+        {
+          onError: (err) =>
+            toast.error(`Cập nhật trạng thái chapter thất bại: ${err?.response?.data?.message ?? err.message}`),
+        },
+      )
+    }
+
     toast.success(`Đã gửi ${submission.pageLabel} (${notes.length} ô ghi chú) cho Assistant.`)
   }
 
@@ -508,6 +558,32 @@ export default function Mangaka() {
           : r,
       ),
     )
+
+    // Cap nhat trang thai chapter tren server: EditorReviewing -> ReadyForPrint
+    const serverChapterId = Number(chapter.id)
+    if (Number.isFinite(serverChapterId)) {
+      updateChapterStatus.mutate(
+        { id: serverChapterId, status: 'ReadyForPrint' },
+        {
+          onError: (err) =>
+            toast.error(`Cập nhật trạng thái chapter thất bại: ${err?.response?.data?.message ?? err.message}`),
+        },
+      )
+    }
+
+    // Gan Tantou Editor cho series tren server
+    const serverSeriesId = Number(series?.id)
+    const tantouId = series?.tantouEditorId ?? null
+    if (Number.isFinite(serverSeriesId) && Number.isFinite(tantouId)) {
+      assignTantouEditor.mutate(
+        { seriesId: serverSeriesId, tantouEditorId: tantouId },
+        {
+          onError: (err) =>
+            toast.error(`Gán Tantou Editor thất bại: ${err?.response?.data?.message ?? err.message}`),
+        },
+      )
+    }
+
     toast.success(`Đã gửi ${sub.pageLabel} sang ${LABEL_TANTOU_EDITOR}.`)
     setTantouSendReady(null)
   }
@@ -735,50 +811,99 @@ export default function Mangaka() {
       })
     })
 
-    // Goi API tao chapter khi isNewChapter (co the co hoac khong co pages)
+    // Khi la chapter moi: tao chapter tren server, lay real ID, roi upload tung trang
     if (isNewChapter && mangakaId && serverSeriesId) {
-        const chData = {
-          seriesid: serverSeriesId,
-          chapternumber: Number(displayNum),
-          title: String(chapterTitle ?? `Chapter ${displayNum}`).trim(),
-          deadline: chapterDeadline ? new Date(chapterDeadline).toISOString() : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-        }
-        createChapter.mutate(chData, {
-          onSuccess: (createdChapter) => {
-            toast.success(`Đã tạo Ch. ${displayNum} trên server!`)
-            // Lay real chapterId tu backend, cap nhat vao tat ca cac state
-            const realChapterId = createdChapter?.data?.chapterid
-              ?? createdChapter?.data?.Chapterid
-              ?? createdChapter?.data?.id
-              ?? createdChapter?.data
-            if (realChapterId) {
-              // Cap nhat chapterRows: thay localId bang realId
-              setLocalChapterRows(prev => prev.map(r =>
-                String(r.id) === String(rowId)
-                  ? { ...r, id: realChapterId, apiChapterId: realChapterId }
-                  : r
-              ))
-              // Cap nhat annotatorChapters: thay localId bang realId
-              setAnnotatorChapters(prev => prev.map(ch =>
-                String(ch.id) === String(rowId)
-                  ? { ...ch, id: realChapterId }
-                  : ch
-              ))
-              // Cap nhat activeChapterId neu dang tro toi local chapter vua tao
-              if (String(annotatorActiveChapterId) === String(rowId)) {
-                setAnnotatorActiveChapterId(realChapterId)
-              }
-            }
-          },
-          onError: (err) => toast.error(err?.response?.data?.message ?? `Không tạo được Ch. ${displayNum} trên server.`),
-        })
+      const chData = {
+        seriesid: serverSeriesId,
+        chapternumber: Number(displayNum),
+        title: String(chapterTitle ?? `Chapter ${displayNum}`).trim(),
+        deadline: chapterDeadline
+          ? new Date(chapterDeadline).toISOString()
+          : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
       }
+      createChapter.mutate(chData, {
+        onSuccess: (createdChapter) => {
+          toast.success(`Đã tạo Ch. ${displayNum} trên server!`)
 
-    void persistMangakaWorkspaceStateNow({
-      ...workspaceSnapshot,
-      chapterRows: nextChapterRows,
-      annotatorChapters: Array.isArray(nextAnnotatorChapters) ? nextAnnotatorChapters : annotatorChapters,
-    })
+          // Lay real chapterId tu backend
+          const realChapterId =
+            createdChapter?.data?.chapterid
+            ?? createdChapter?.data?.Chapterid
+            ?? createdChapter?.data?.id
+            ?? createdChapter?.data
+
+          // 1) Cap nhat chapterRows & annotatorChapters voi real ID
+          setLocalChapterRows(prev => prev.map(r =>
+            String(r.id) === String(rowId)
+              ? { ...r, id: realChapterId, apiChapterId: realChapterId }
+              : r
+          ))
+            setAnnotatorChapters(prev => {
+            const updated = prev.map(ch =>
+              String(ch.id) === String(rowId)
+                ? { ...ch, id: realChapterId }
+                : ch
+            )
+            // 2) Flush workspace NGAY sau khi state da co real ID
+            void persistMangakaWorkspaceStateNow({
+              ...workspaceSnapshot,
+              chapterRows: nextChapterRows,
+              annotatorChapters: updated,
+            })
+            return updated
+          })
+          if (String(annotatorActiveChapterId) === String(rowId)) {
+            setAnnotatorActiveChapterId(realChapterId)
+          }
+
+          // 3) Upload tung trang (pages) len server
+          if (realChapterId && Number.isFinite(realChapterId)) {
+            const srcChapter = Array.isArray(nextAnnotatorChapters)
+              ? nextAnnotatorChapters.find(c => String(c.id) === String(rowId))
+              : null
+            if (srcChapter?.pages?.length) {
+              srcChapter.pages.forEach((pg, idx) => {
+                if (!pg?.url) return
+                const file = dataUrlToFile(pg.url, pg.name ?? `page_${idx + 1}`)
+                if (!file) return
+                const fd = new FormData()
+                fd.append('Chapterid', String(realChapterId))
+                fd.append('Pagenumber', String(idx + 1))
+                fd.append('pageFile', file)
+                createPage.mutate(fd, {
+                  onSuccess: (res) => {
+                    const pageId = res?.data?.id ?? res?.data?.Pageid ?? null
+                    if (pageId) {
+                      toast.success(`Đã upload trang ${idx + 1} (ID: ${pageId})`)
+                      // Patch the page in annotatorChapters with its server ID
+                      setAnnotatorChapters(prev => prev.map(ch => {
+                        if (String(ch.id) !== String(realChapterId)) return ch
+                        return {
+                          ...ch,
+                          pages: ch.pages.map((p, pi) =>
+                            pi === idx ? { ...p, apiPageId: pageId } : p
+                          ),
+                        }
+                      }))
+                    }
+                  },
+                  onError: (err) =>
+                    toast.error(`Upload trang ${idx + 1} thất bại: ${err?.response?.data?.message ?? err.message}`),
+                })
+              })
+            }
+          }
+        },
+        onError: (err) => toast.error(err?.response?.data?.message ?? `Không tạo được Ch. ${displayNum} trên server.`),
+      })
+    } else {
+      // Chapter cu: chi persist workspace, khong goi API
+      void persistMangakaWorkspaceStateNow({
+        ...workspaceSnapshot,
+        chapterRows: nextChapterRows,
+        annotatorChapters: Array.isArray(nextAnnotatorChapters) ? nextAnnotatorChapters : annotatorChapters,
+      })
+    }
   }
 
   useEffect(() => {
@@ -1198,6 +1323,7 @@ export default function Mangaka() {
                   setPageIndex={setAnnotatorPageIndex}
                   notes={annotatorNotes}
                   setNotes={setAnnotatorNotes}
+                  serverChapterId={annotatorServerChapterId}
                   hiredAssistants={hiredAssistants}
                   onOpenAssistantsTab={() => setTab('assistants')}
                   onUploadProgress={handleUploadProgress}

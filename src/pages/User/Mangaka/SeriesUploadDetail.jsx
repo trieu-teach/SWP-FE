@@ -38,7 +38,7 @@ import {
   updateSeriesInWorkspace,
 } from '@/utils/mangakaWorkspaceReader.js'
 import { LABEL_EDITOR_BOARD } from '@/constants/roleTerminology.js'
-import { useChapters, usePages } from '@/api/hooks'
+import { useChapters, usePages, usePageIssues } from '@/api/hooks'
 import AddSeriesModal from './AddSeriesModal.jsx'
 import './ChapterReader.css'
 import '@/styles/mangaPage.css'
@@ -108,7 +108,7 @@ function Breadcrumb({ items }) {
   )
 }
 
-function ChapterReader({ series, activeRow, pages, staleOnly, progressPct, statusBadge, basePath, chapterId, onOpenAnnotate, onLogout, onOpenLayerWorkspace }) {
+function ChapterReader({ series, activeRow, pages, staleOnly, progressPct, statusBadge, basePath, chapterId, onOpenAnnotate, onLogout, onOpenLayerWorkspace, serverPageIssues = [] }) {
   const [pageIndex, setPageIndex] = useState(0)
   const total = pages.length
   const safeIndex = total > 0 ? Math.min(Math.max(pageIndex, 0), total - 1) : 0
@@ -333,6 +333,30 @@ function ChapterReader({ series, activeRow, pages, staleOnly, progressPct, statu
                 </div>
               </div>
 
+              {/* PageIssues panel (server-side notes from Assistant/Editor) */}
+              {serverPageIssues.length > 0 ? (
+                <details className="cr-page-issues rounded border bg-amber-50 dark:bg-amber-500/5">
+                  <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-100/50 dark:hover:bg-amber-500/10">
+                    {serverPageIssues.length} ghi chú từ Assistant/Editor
+                  </summary>
+                  <div className="space-y-2 border-t border-amber-200 px-3 py-2 dark:border-amber-500/20">
+                    {serverPageIssues.map((issue, idx) => (
+                      <div key={issue.issueid ?? issue.Issueid ?? `srv-issue-${idx}`} className="rounded bg-white p-2 text-xs shadow-sm dark:bg-zinc-800">
+                        <div className="flex items-center gap-2">
+                          <span className="rounded bg-amber-200 px-1.5 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-600 dark:text-amber-100">
+                            {issue.issueType ?? issue.Issuetype ?? '?'}
+                          </span>
+                          <span className="text-muted-foreground">{issue.workCategory ?? issue.Workcategory ?? ''}</span>
+                        </div>
+                        {(issue.description ?? '').trim() && (
+                          <p className="mt-1 text-zinc-700 dark:text-zinc-300">{issue.description}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+
               {total > 1 ? (
                 <div className="cr-thumbs" role="tablist" aria-label="Danh sách trang">
                   {pages.map((pg, i) => (
@@ -401,7 +425,9 @@ export default function SeriesUploadDetail() {
 
   const serverSeriesId = series?.seriesid ?? series?.id
   const { data: serverChapters = [] } = useChapters(serverSeriesId)
+  // Dùng chapterId (URL param) để fetch server pages — hook phải gọi trước activeRow useMemo
   const { data: rawServerPages = [] } = usePages(chapterId)
+  const { data: serverPageIssues = [] } = usePageIssues(chapterId)
 
   const seriesTitle = series?.title ?? ''
 
@@ -540,6 +566,7 @@ export default function SeriesUploadDetail() {
         onOpenAnnotate={openAnnotate}
         onLogout={handleLogout}
         onOpenLayerWorkspace={handleOpenLayerWorkspace}
+        serverPageIssues={serverPageIssues}
       />
     )
   }

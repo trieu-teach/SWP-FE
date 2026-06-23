@@ -14,6 +14,7 @@ import {
 import { LABEL_EDITOR_BOARD, LABEL_TANTOU_EDITOR } from '@/constants/roleTerminology.js'
 import { NOTE_TASK_TYPES, noteTaskLabel } from '@/constants/workspaceTasks.js'
 import { fileToStorableDataUrl } from '@/utils/mangakaWorkspaceStorage.js'
+import { usePages, usePageIssues } from '@/api/hooks'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -77,6 +78,7 @@ export default function ChapterAnnotator({
   setPageIndex,
   notes,
   setNotes,
+  serverChapterId,   // real chapter ID on backend (for API calls)
   hiredAssistants = [],
   onOpenAssistantsTab,
   onUploadProgress,
@@ -107,6 +109,10 @@ export default function ChapterAnnotator({
   const pages = activeChapter?.pages ?? []
   const pageKey = activeChapter ? `${activeChapterId}-${pageIndex}` : ''
   const pageNotes = notes[pageKey] ?? []
+
+  // Server-side data
+  const { data: serverPages = [] } = usePages(serverChapterId)
+  const { data: serverPageIssues = [] } = usePageIssues(serverChapterId)
 
   useEffect(() => {
     if (!isFullscreen) return undefined
@@ -705,6 +711,31 @@ export default function ChapterAnnotator({
             ) : null}
           </div>
         )})}
+
+        {/* Server-side PageIssue overlays from Assistant/Editor */}
+        {serverPageIssues.map((issue, idx) => {
+          const boxX = issue.boxX ?? issue.Boxx ?? issue.boxx ?? 0
+          const boxY = issue.boxY ?? issue.Boxy ?? issue.boxy ?? 0
+          const boxW = issue.boxWidth ?? issue.Boxwidth ?? 0
+          const boxH = issue.boxHeight ?? issue.Boxheight ?? 0
+          return (
+            <div
+              key={issue.issueid ?? issue.Issueid ?? `srv-issue-${idx}`}
+              className="mk-issue-overlay"
+              style={{
+                left: `${boxX}%`,
+                top: `${boxY}%`,
+                width: `${boxW}%`,
+                height: `${boxH}%`,
+              }}
+              title={`[${issue.issueType ?? issue.Issuetype ?? 'Issue'}] ${issue.description ?? ''}`}
+            >
+              <span className="mk-issue-overlay__type">
+                {issue.issueType ?? issue.Issuetype ?? '?'}
+              </span>
+            </div>
+          )
+        })}
 
         {draftRect ? (
           <div

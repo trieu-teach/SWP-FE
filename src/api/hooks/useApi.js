@@ -8,6 +8,7 @@ import {
   pageIssuesApi,
   usersService,
   assistantProfileService,
+  tantouService,
   genresService,
   tagsService,
   contractsService,
@@ -76,6 +77,18 @@ export function useUpdateSeriesStatus() {
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ['series'] })
       qc.invalidateQueries({ queryKey: ['series', id] })
+    },
+  })
+}
+
+export function useAssignTantouEditor() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ seriesId, tantouEditorId }) =>
+      seriesService.updateTantouEditor(seriesId, tantouEditorId),
+    onSuccess: (_, { seriesId }) => {
+      qc.invalidateQueries({ queryKey: ['series'] })
+      qc.invalidateQueries({ queryKey: ['series', seriesId] })
     },
   })
 }
@@ -149,15 +162,28 @@ export function useDeleteChapter() {
   })
 }
 
+export function useUpdateChapterStatus() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, status }) => chaptersService.updateStatus(id, status),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['chapters'] })
+      qc.invalidateQueries({ queryKey: ['chapters', id] })
+    },
+  })
+}
+
 /* ===========================
    PAGES HOOKS
    =========================== */
 export function usePages(chapterId) {
-  const numericChapterId = Number(chapterId)
+  // chapterId có thể là string (local ID như "u-xxx") hoặc number (server ID)
+  const numericId = Number(chapterId)
+  const isServerId = Number.isFinite(numericId)
   return useQuery({
-    queryKey: ['pages', Number.isFinite(numericChapterId) ? { chapterId: numericChapterId } : 'all'],
-    queryFn: () => pagesService.getAll(numericChapterId).then(res => res.data ?? []),
-    enabled: Number.isFinite(numericChapterId),
+    queryKey: ['pages', isServerId ? { chapterId: numericId } : 'local'],
+    queryFn: () => pagesService.getAll(isServerId ? numericId : null).then(res => res.data ?? []),
+    enabled: isServerId,
   })
 }
 
@@ -264,9 +290,12 @@ export function useTogglePageLayerVisibility() {
    PAGE ISSUES HOOKS
    =========================== */
 export function usePageIssues(chapterId) {
+  const numericId = Number(chapterId)
+  const isServerId = Number.isFinite(numericId)
   return useQuery({
-    queryKey: ['pageIssues', chapterId ? { chapterId } : 'all'],
-    queryFn: () => pageIssuesApi.getAll({ chapterId }).then(res => res?.data ?? []),
+    queryKey: ['pageIssues', isServerId ? { chapterId: numericId } : 'local'],
+    queryFn: () => pageIssuesApi.getAll({ chapterId: isServerId ? numericId : undefined }).then(res => res?.data ?? []),
+    enabled: isServerId,
   })
 }
 
@@ -430,6 +459,24 @@ export function useAssistantProfile(assistantId) {
     queryKey: ['assistant-profiles', assistantId],
     queryFn: () => assistantProfileService.getById(assistantId).then(res => res?.data),
     enabled: !!assistantId,
+  })
+}
+
+/* ===========================
+   TANTOU EDITOR HOOKS
+   =========================== */
+export function useAvailableTantouEditors() {
+  return useQuery({
+    queryKey: ['tantou-editors', 'available'],
+    queryFn: () => tantouService.getAvailable().then(res => res?.data ?? []),
+  })
+}
+
+export function useTantouEditor(editorId) {
+  return useQuery({
+    queryKey: ['tantou-editors', editorId],
+    queryFn: () => tantouService.getById(editorId).then(res => res?.data),
+    enabled: !!editorId,
   })
 }
 

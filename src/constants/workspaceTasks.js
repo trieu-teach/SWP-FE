@@ -2,9 +2,11 @@
 
 export const NOTE_TASK_TYPES = [
   { value: 'background', label: 'Vẽ nền' },
-  { value: 'shading', label: 'Tô bóng' },
-  { value: 'fx', label: 'Hiệu ứng' },
-  { value: 'other', label: 'Khác' },
+  { value: 'dialog',    label: 'Hội thoại' },
+  { value: 'ink',       label: 'Tô đường nét' },
+  { value: 'shading',   label: 'Tô bóng' },
+  { value: 'fx',        label: 'Hiệu ứng' },
+  { value: 'content',   label: 'Nội dung khác' },
 ]
 
 export function noteTaskLabel(value) {

@@ -23,6 +23,8 @@ export const seriesService = {
   updateStatus: (id, status) => axios.patch(`/Series/${id}/status`, { status }),
   updatePublishFormat: (id, publishFormat) =>
     axios.patch(`/Series/${id}/publish-format`, { publishformat: publishFormat }),
+  updateTantouEditor: (id, tantouEditorId) =>
+    axios.patch(`/Series/${id}/tantou-editor`, { tantoueditorid: tantouEditorId }),
 }
 
 // ── CHAPTERS ────────────────────────────────────────────────────────────────────
@@ -36,6 +38,10 @@ export const chaptersService = {
   delete: (id) => axios.delete(`/Chapters/${id}`),
   // GET /api/Chapters/assistant/{assistantId} — lay danh sach chapter cua 1 assistant
   getByAssistant: (assistantId) => axios.get(`/Chapters/assistant/${assistantId}`),
+  // PATCH /api/Chapters/{id}/status — nhan body la chuoi thuan (plain string)
+  updateStatus: (id, status) => axios.patch(`/Chapters/${id}/status`, status, {
+    headers: { 'Content-Type': 'text/plain' },
+  }),
 }
 
 // ── PAGES ─────────────────────────────────────────────────────────────────────
@@ -136,6 +142,12 @@ export const assistantProfileService = {
   getById: (id) => axios.get(`/users/${id}`),
 }
 
+// ── TANTOU EDITORS ─────────────────────────────────────────────────────────
+export const tantouService = {
+  getAvailable: () => axios.get('/users/tantou-editors'),
+  getById: (id) => axios.get(`/users/${id}`),
+}
+
 // ── ERROR HELPER ──────────────────────────────────────────────────────────────
 export function getApiErrorMessage(err, fallback) {
   const data = err?.response?.data
@@ -153,7 +165,6 @@ export function getApiErrorMessage(err, fallback) {
   )
 }
 
-// ── ASSISTANT PROFILE ────────────────────────────────────────────────────────────
 // ── CONTRACTS (MangakaAssistant) ──────────────────────────────────────────────
 export const contractsService = {
   getAll({ mangakaId, assistantId } = {}) {

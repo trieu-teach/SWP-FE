@@ -4804,3 +4804,27 @@
 
   .asm-hero__title { font-size: 18px; }
 }
+
+/* Server-side PageIssue overlays (read-only, from Assistant/Editor) */
+.mk-issue-overlay {
+  position: absolute;
+  border: 2px solid rgba(114, 9, 183, 0.7);
+  background: rgba(114, 9, 183, 0.08);
+  pointer-events: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  z-index: 5;
+}
+
+.mk-issue-overlay__type {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(114, 9, 183, 0.85);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin: 2px;
+  white-space: nowrap;
+}
