@@ -143,20 +143,22 @@ export default function ChapterAnnotator({
       const status = (c.status ?? '').toLowerCase()
       return status === 'accepted' || status === 'active'
     })
-    console.log('[ChapterAnnotator] contractsAssistants:', accepted)
-    return accepted.map(c => ({
-      value: c.assistant_name ?? c.assistantname ?? 'Assistant',
-      label: c.assistant_name ?? c.assistantname ?? 'Assistant',
-      assistantId: c.assistant_id ?? c.assistantid ?? c.user_id ?? c.userId,
-    }))
+    console.log('[ChapterAnnotator] contractsAssistants raw:', accepted)
+    console.log('[ChapterAnnotator] first contract keys:', accepted[0] ? Object.keys(accepted[0]) : [])
+    return accepted.map(c => {
+      const name = c.assistant_name ?? c.assistantName ?? c.assistantname ?? c.fullName ?? c.fullname ?? c.name ?? c.username ?? 'Assistant'
+      const id = c.assistant_id ?? c.assistantId ?? c.assistantid ?? c.user_id ?? c.userId ?? c.id ?? ''
+      console.log('[ChapterAnnotator] mapping contract:', { name, id, raw: c })
+      return { value: String(id), label: name, assistantId: id }
+    })
   }, [contractsRaw])
 
   // Override hiredAssistants: uu tien API contracts, fallback localStorage, fallback props
-  const effectiveHiredAssistants = (() => {
+  const effectiveHiredAssistants = useMemo(() => {
     if (contractsAssistants.length > 0) return contractsAssistants
     if (localHiredAssistants.length > 0) return localHiredAssistants
     return hiredAssistants ?? []
-  })()
+  }, [contractsAssistants, localHiredAssistants, hiredAssistants])
 
   const activeChapter = chapters.find(c => c.id === activeChapterId)
   const pages = activeChapter?.pages ?? []
