@@ -32,13 +32,13 @@ async function enrichChapterWithSeries(chapter) {
     seriesId: sid,
     chapterId: cid,
     seriesTitle: seriesTitle ?? 'Unknown Series',
-    chapterNum: chapter.chapternumber ?? chapter.ChapterNumber ?? null,
+    chapterNum: chapter.chapter_number ?? chapter.chapternumber ?? chapter.ChapterNumber ?? null,
     title: chapter.title ?? chapter.Title ?? null,
     status: chapter.status ?? 'pending',
     pages: pageList.map(p => ({
-      id: p.pageid ?? p.Pageid ?? p.id,
-      url: p.pageImageUrl ?? p.pageimageurl ?? p.Pageimageurl,
-      pageNum: p.pagenumber ?? p.PageNumber ?? p.pageNumber,
+      id: p.page_id ?? p.pageid ?? p.Pageid ?? p.id,
+      url: p.page_image_url ?? p.pageImageUrl ?? p.pageimageurl ?? p.Pageimageurl,
+      pageNum: p.page_number ?? p.pagenumber ?? p.PageNumber ?? p.pageNumber,
     })),
     pageCount: pageList.length,
   }

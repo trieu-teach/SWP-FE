@@ -876,8 +876,8 @@ export default function Mangaka() {
                 const file = dataUrlToFile(pg.url, pg.name ?? `page_${idx + 1}`)
                 if (!file) return
                 const fd = new FormData()
-                fd.append('Chapterid', String(realChapterId))
-                fd.append('Pagenumber', String(idx + 1))
+                fd.append('chapterid', String(realChapterId))
+                fd.append('pagenumber', String(idx + 1))
                 fd.append('pageFile', file)
                 createPage.mutate(fd, {
                   onSuccess: (res) => {
