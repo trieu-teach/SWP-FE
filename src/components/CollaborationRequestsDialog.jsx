@@ -38,7 +38,11 @@ export default function CollaborationRequestsDialog({ open, onOpenChange }) {
 
   async function handleAccept(contract) {
     const id = contract.contractId ?? contract.ContractId ?? contract.id
-    if (!id) return
+    console.log('[CollabDialog] Accept contract:', id, contract)
+    if (!id) {
+      toast.error('Không tìm thấy ID hợp đồng')
+      return
+    }
     try {
       await acceptRequest(id)
       toast.success('Đã chấp nhận lời mời hợp tác!')
@@ -50,7 +54,11 @@ export default function CollaborationRequestsDialog({ open, onOpenChange }) {
 
   async function handleReject(contract) {
     const id = contract.contractId ?? contract.ContractId ?? contract.id
-    if (!id) return
+    console.log('[CollabDialog] Reject contract:', id, contract)
+    if (!id) {
+      toast.error('Không tìm thấy ID hợp đồng')
+      return
+    }
     try {
       await rejectRequest(id)
       toast.success('Đã từ chối lời mời hợp tác.')

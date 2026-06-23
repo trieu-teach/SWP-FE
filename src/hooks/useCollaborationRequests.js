@@ -39,15 +39,18 @@ export function useCollaborationRequests() {
   }, [fetchPending])
 
   const acceptRequest = useCallback(async (contractId) => {
+    console.log('[useCollaborationRequests] acceptRequest called with:', contractId)
     if (!contractId) return false
     setAcceptingId(contractId)
     try {
-      await contractsService.updateStatus(contractId, { status: 'Active' })
+      const res = await contractsService.updateStatus(contractId, { status: 'Active' })
+      console.log('[useCollaborationRequests] acceptRequest success:', res)
       setPendingRequests(prev => prev.filter(c =>
         (c.contractId ?? c.ContractId ?? c.id) !== contractId
       ))
       return true
     } catch (err) {
+      console.error('[useCollaborationRequests] acceptRequest error:', err)
       throw err
     } finally {
       setAcceptingId(null)
@@ -55,15 +58,18 @@ export function useCollaborationRequests() {
   }, [])
 
   const rejectRequest = useCallback(async (contractId) => {
+    console.log('[useCollaborationRequests] rejectRequest called with:', contractId)
     if (!contractId) return false
     setRejectingId(contractId)
     try {
-      await contractsService.updateStatus(contractId, { status: 'Terminated' })
+      const res = await contractsService.updateStatus(contractId, { status: 'Terminated' })
+      console.log('[useCollaborationRequests] rejectRequest success:', res)
       setPendingRequests(prev => prev.filter(c =>
         (c.contractId ?? c.ContractId ?? c.id) !== contractId
       ))
       return true
     } catch (err) {
+      console.error('[useCollaborationRequests] rejectRequest error:', err)
       throw err
     } finally {
       setRejectingId(null)
