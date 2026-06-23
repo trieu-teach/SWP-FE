@@ -879,9 +879,11 @@ export default function Mangaka() {
                 fd.append('chapterid', String(realChapterId))
                 fd.append('pagenumber', String(idx + 1))
                 fd.append('pageFile', file)
+                console.log('[Mangaka] POST /Pages trang', idx + 1, 'chapterId:', realChapterId)
                 createPage.mutate(fd, {
                   onSuccess: (res) => {
-                    const pageId = res?.data?.id ?? res?.data?.Pageid ?? null
+                    console.log('[Mangaka] POST /Pages OK trang', idx + 1, '→ response:', JSON.stringify(res?.data))
+                    const pageId = res?.data?.id ?? res?.data?.Id ?? res?.data?.PAGEID ?? res?.data?.Pageid ?? null
                     if (pageId) {
                       toast.success(`Đã upload trang ${idx + 1} (ID: ${pageId})`)
                       // Patch the page in annotatorChapters with its server ID

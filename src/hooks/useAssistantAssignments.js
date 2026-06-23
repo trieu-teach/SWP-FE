@@ -106,6 +106,7 @@ export function useAssistantAssignments() {
 
   const refresh = useCallback(async () => {
     if (!assistantId) {
+      console.log('[useAssistantAssignments] no assistantId, skipping')
       setAssignments([])
       setLoading(false)
       return
@@ -116,10 +117,12 @@ export function useAssistantAssignments() {
     try {
       // Lay tat ca chapter duoc gan cho assistant nay
       const chaptersRes = await chaptersService.getByAssistant(assistantId)
+      console.log('[useAssistantAssignments] chaptersRes raw:', JSON.stringify(chaptersRes?.data))
       const chapterList = Array.isArray(chaptersRes?.data) ? chaptersRes.data : []
 
       // Enrich chapters thanh assignments
       const chapterAssignments = await Promise.all(chapterList.map(enrichChapterWithSeries))
+      console.log('[useAssistantAssignments] chapterAssignments:', chapterAssignments.map(a => ({ chapterId: a.chapterId, pageCount: a.pageCount, firstPageUrl: a.pages[0]?.url })))
 
       // Lay contracts (quan he mangaka-assistant)
       const contractsRes = await contractsService.getAll({ assistantId })
