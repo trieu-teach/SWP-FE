@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { BookOpen, LogOut, Menu } from 'lucide-react'
+import { BookOpen, LogOut, Menu, Bell } from 'lucide-react'
 import { getSession, getRolePath, ROLE_LABELS } from '@/lib/auth.js'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -12,9 +12,10 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 
-export default function Header({ links = [], onLogout, className }) {
+export default function Header({ links = [], onLogout, className, notificationCount = 0, onNotificationClick }) {
   const user = getSession()
   const workspacePath = user ? getRolePath(user.role) : null
+  const isAssistant = user?.role === 'ASSISTANT'
 
   function handleLogoutClick() {
     onLogout?.()
@@ -49,6 +50,21 @@ export default function Header({ links = [], onLogout, className }) {
         </nav>
 
         <div className="flex items-center gap-2">
+          {isAssistant && onNotificationClick ? (
+            <button
+              type="button"
+              onClick={onNotificationClick}
+              className="relative rounded-lg p-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label="Thông báo hợp tác"
+            >
+              <Bell className="size-5" />
+              {notificationCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow">
+                  {notificationCount > 9 ? '9+' : notificationCount}
+                </span>
+              )}
+            </button>
+          ) : null}
           {user && onLogout ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

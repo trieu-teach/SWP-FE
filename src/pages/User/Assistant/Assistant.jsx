@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils'
 import { getSession, logout } from '@/lib/auth.js'
 import { useAssistantAssignments } from '@/hooks/useAssistantAssignments.js'
 import { usePageLayers } from '@/hooks/usePageLayers.js'
+import { useCollaborationRequests } from '@/hooks/useCollaborationRequests.js'
 import { pageIssuesService } from '@/api/api.js'
 import { LAYER_ACCENT_COLORS } from '@/constants/assistantPaintPalette.js'
 import { NOTE_TASK_LABELS } from '@/constants/assistantWorkspaceTasks.js'
@@ -44,6 +45,7 @@ import '@/styles/mangaPage.css'
 import {
   pushAssistantDeliverable,
 } from '@/utils/assistantWorkspaceStorage.js'
+import CollaborationRequestsDialog from '@/components/CollaborationRequestsDialog.jsx'
 
 const NAV_LINKS = [{ to: '/', label: 'Trang chu' }]
 
@@ -206,6 +208,8 @@ export default function Assistant() {
   const user = session ?? {}
 
   const { assignments, loading: assignmentsLoading } = useAssistantAssignments()
+  const [collabOpen, setCollabOpen] = useState(false)
+  const { pendingCount } = useCollaborationRequests()
   const [selectedChapterId, setSelectedChapterId] = useState(null)
   const [baseVisible, setBaseVisible] = useState(true)
   const [notesVisible, setNotesVisible] = useState(true)
@@ -465,7 +469,12 @@ async function handleSubmitToMangaka() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <Header links={NAV_LINKS} onLogout={user ? handleLogout : undefined} />
+      <Header
+        links={NAV_LINKS}
+        onLogout={user ? handleLogout : undefined}
+        onNotificationClick={() => setCollabOpen(true)}
+        notificationCount={pendingCount}
+      />
 
       <WorkspaceHero
         className="from-violet-950 to-zinc-950"
@@ -849,6 +858,11 @@ async function handleSubmitToMangaka() {
       </main>
 
       <Footer />
+
+      <CollaborationRequestsDialog
+        open={collabOpen}
+        onOpenChange={setCollabOpen}
+      />
     </div>
   )
 }
