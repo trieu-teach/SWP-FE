@@ -17,7 +17,7 @@ import { NOTE_TASK_TYPES, noteTaskLabel } from '@/constants/workspaceTasks.js'
 import { fileToStorableDataUrl } from '@/utils/mangakaWorkspaceStorage.js'
 import { getActiveAssigneesForMangaka } from '@/utils/assistantRosterStorage.js'
 import { getSession } from '@/lib/auth.js'
-import { usePages, usePageIssues, useContracts } from '@/api/hooks'
+import { usePages, usePageIssues, useContracts, useAvailableAssistantProfiles } from '@/api/hooks'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -137,22 +137,34 @@ export default function ChapterAnnotator({
   const { data: contractsRaw = [] } = useContracts({ mangakaId: localMangakaId })
   console.log('[ChapterAnnotator] contractsRaw:', contractsRaw)
 
+  // API: fetch available assistants (for name lookup)
+  const { data: assistantProfilesRaw = [] } = useAvailableAssistantProfiles()
+
   // Map accepted contracts -> assistant options (cung format voi MangakaAssistants)
   const contractsAssistants = useMemo(() => {
     const accepted = contractsRaw.filter(c => {
       const status = (c.status ?? '').toLowerCase()
       return status === 'accepted' || status === 'active'
     })
+
+    // Build assistantId -> profile map from available profiles
+    const profileMap = {}
+    for (const p of assistantProfilesRaw) {
+      const pid = String(p.id ?? p.user_id ?? p.userid ?? p.assistant_id ?? p.assistantid ?? '')
+      const name = p.fullname ?? p.fullName ?? p.name ?? p.username ?? 'Assistant'
+      profileMap[pid] = name
+    }
+
     console.log('[ChapterAnnotator] contractsAssistants raw:', accepted)
-    console.log('[ChapterAnnotator] first contract keys:', accepted[0] ? Object.keys(accepted[0]) : [])
-    console.log('[ChapterAnnotator] first contract FULL:', JSON.stringify(accepted[0], null, 2))
+    console.log('[ChapterAnnotator] profileMap:', profileMap)
+
     return accepted.map(c => {
-      const name = c.assistant_name ?? c.assistantName ?? c.assistantname ?? c.fullName ?? c.fullname ?? c.name ?? c.username ?? 'Assistant'
-      const id = c.assistant_id ?? c.assistantId ?? c.assistantid ?? c.user_id ?? c.userId ?? c.id ?? ''
-      console.log('[ChapterAnnotator] mapping contract:', { name, id, raw: c })
-      return { value: String(id), label: name, assistantId: id }
+      const asstId = String(c.assistant_id ?? c.assistantid ?? '')
+      const name = profileMap[asstId] ?? c.assistant_name ?? c.assistantName ?? 'Assistant'
+      console.log('[ChapterAnnotator] mapping contract:', { asstId, name })
+      return { value: asstId, label: name, assistantId: asstId }
     })
-  }, [contractsRaw])
+  }, [contractsRaw, assistantProfilesRaw])
 
   // Override hiredAssistants: uu tien API contracts, fallback localStorage, fallback props
   const effectiveHiredAssistants = useMemo(() => {
