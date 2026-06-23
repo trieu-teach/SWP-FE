@@ -62,7 +62,7 @@ import {
   migrateAssistantStorage,
   updateDeliverableStatus,
 } from '@/utils/assistantWorkspaceStorage.js'
-import { pageIssuesService } from '@/api'
+import { pageIssuesService, seriesService } from '@/api'
 import {
   listTantouSubmissions,
   pushTantouSubmissionFromMangaka,
@@ -757,7 +757,7 @@ export default function Mangaka() {
     setUploadPctBySeries(prev => ({ ...prev, [key]: pct }))
   }
 
-  function handleUploadComplete(payload) {
+  async function handleUploadComplete(payload) {
     const {
       series: titleRaw, num, pages, createdAt, chapterLocalId, isNewChapter,
       title: chapterTitle, deadline: chapterDeadline,
@@ -772,10 +772,19 @@ export default function Mangaka() {
 
     // Lay mangakaId tu session de goi API
     const mangakaId = user?.id ?? null
-    // Tim trong seriesList (api + local merged) de bat ca local-only series vua tao
-    const foundSeries = seriesList.find(s => s.title === title)
-    // Chi tao chapter tren server neu series da co real server ID
-    const serverSeriesId = (foundSeries?.id > 1000) ? foundSeries.id : null
+    // Lookup real server series ID by title from the API (local IDs can collide with server IDs)
+    let serverSeriesId = null
+    if (mangakaId) {
+      try {
+        const sr = await seriesService.getByTitle(null, mangakaId)
+        const list = Array.isArray(sr?.data) ? sr.data : []
+        const found = list.find(s => s.title === title)
+        if (found?.series_id) serverSeriesId = found.series_id
+        console.log('[handleUploadComplete] series lookup →', { title, serverSeriesId, allTitles: list.map(s => ({ id: s.series_id, title: s.title })) })
+      } catch (e) {
+        console.warn('[handleUploadComplete] series lookup failed:', e)
+      }
+    }
 
     const nextChapterRows = (() => {
       const idx = chapterRows.findIndex(r => r.id === rowId)

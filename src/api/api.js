@@ -42,6 +42,11 @@ export const seriesService = {
     console.log('[API] GET /Series/mangakaid/:mangakaId', mangakaId)
     return axios.get(`/Series/mangakaid/${mangakaId}`)
   },
+  getByTitle: (title, mangakaId) => {
+    // No server-side title filter — fetch all by mangaka, then filter client-side
+    console.log('[API] GET /Series/mangakaid/', mangakaId, '→ filter by title:', title)
+    return axios.get(`/Series/mangakaid/${mangakaId}`)
+  },
   create: (formData) => {
     console.log('[API] POST /Series', Object.fromEntries(formData))
     return axios.post('/Series', formData)

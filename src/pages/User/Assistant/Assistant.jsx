@@ -115,7 +115,7 @@ function LayerStack({ baseUrl, notes, baseVisible, notesVisible, paintLayers, cl
         <div className="pointer-events-none absolute inset-0">
           {notes.map((n, idx) => (
             <div
-              key={n.pageissueid ?? n.Pageissueid ?? n.issueid ?? n.Issueid ?? idx}
+              key={n.clientKey ?? n.pageissueid ?? n.Pageissueid ?? n.issueid ?? n.Issueid ?? idx}
               className="absolute rounded-md border-2 border-dashed border-rose-500/90 bg-rose-500/10"
               style={{
                 left: `${n.boxx ?? n.boxX ?? n.BoxX ?? 0}%`,
@@ -648,7 +648,7 @@ async function handleSubmitToMangaka() {
                     <CardContent>
                       <ul className="grid gap-2 sm:grid-cols-2">
                         {pageNotes.map((n, i) => (
-                          <li key={n.pageissueid ?? n.Pageissueid ?? i} className="flex items-start gap-2 rounded-md border p-2.5">
+                          <li key={n.clientKey ?? n.pageissueid ?? n.Pageissueid ?? i} className="flex items-start gap-2 rounded-md border p-2.5">
                             <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-rose-500 text-xs font-bold text-white">
                               {i + 1}
                             </span>
