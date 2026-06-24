@@ -222,6 +222,13 @@ export default function Assistant() {
     () => assignments.find(a => a.chapterId === selectedChapterId) ?? null,
     [assignments, selectedChapterId],
   )
+  console.log('[Assistant] selectedAssignment →', {
+    key: selectedAssignment?.id ?? selectedAssignment?.contractId ?? selectedAssignment?.chapterId,
+    chapterId: selectedAssignment?.chapterId,
+    seriesTitle: selectedAssignment?.seriesTitle,
+    pageCount: selectedAssignment?.pageCount,
+    pages: selectedAssignment?.pages?.map(p => ({ id: p.id, url: p.url ? 'HAS_URL' : 'NO_URL' })),
+  })
 
   const safePageIdx = 0
   const safePage = selectedAssignment?.pages?.[safePageIdx] ?? null
@@ -231,8 +238,10 @@ export default function Assistant() {
 
   useEffect(() => {
     if (!safePage?.id) { setPageNotes([]); return }
+    console.log('[Assistant] fetching pageIssues for chapterId:', selectedAssignment?.chapterId, 'pageId:', safePage?.id)
     pageIssuesService.getAll(selectedAssignment?.chapterId).then(res => {
       const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
+      console.log('[Assistant] pageIssuesService.getAll →', list.length, 'issues:', list.map(n => ({ id: n.pageissueid, clientKey: n.clientKey, description: n.description })))
       setPageNotes(list)
     }).catch(() => setPageNotes([]))
   }, [safePage?.id, selectedAssignment?.chapterId])
@@ -283,6 +292,13 @@ export default function Assistant() {
   }
 
   function handleSelectChapter(chapter) {
+    console.log('[Assistant] handleSelectChapter →', {
+      key: chapter.id ?? chapter.contractId ?? chapter.chapterId,
+      chapterId: chapter.chapterId,
+      seriesTitle: chapter.seriesTitle,
+      pages: chapter.pages?.map(p => ({ id: p.id, url: p.url ? 'HAS_URL' : 'NO_URL', pageNum: p.pageNum })),
+      source: chapter.id ? 'submission' : chapter.contractId ? 'contract' : 'chapter',
+    })
     setSelectedChapterId(chapter.chapterId)
     setPaintLayers([])
     setNotesVisible(true)

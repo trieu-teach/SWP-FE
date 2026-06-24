@@ -469,6 +469,16 @@ export default function Mangaka() {
   function handleSendToAssistant({ chapter, pageIndex, pageUrl, pageName, notes, assistantId }) {
     if (!notes?.length) return
     const assistant = hiredAssistants.find(a => String(a.assistantId) === String(assistantId))
+    console.log('[Mangaka] handleSendToAssistant →', {
+      series: chapter.series,
+      chapterId: chapter.id,
+      chapterNum: chapter.num,
+      pageIndex,
+      assistantId,
+      assistantName: assistant?.name,
+      notesCount: notes.length,
+      activePageApiId: chapter?.pages?.[pageIndex]?.apiPageId,
+    })
     const submission = buildSubmissionFromMangakaPage({
       seriesTitle: chapter.series,
       chapterId: chapter.id,
@@ -480,7 +490,9 @@ export default function Mangaka() {
       mangakaName: user?.name ?? 'Mangaka',
       assistantId,
     })
+    console.log('[Mangaka] submission built →', { id: submission.id, chapterId: submission.chapterId, notes: submission.notes.map(n => n.clientKey) })
     void pushAssistantSubmission(submission)
+    console.log('[Mangaka] submission pushed to localStorage, chapterId used:', submission.chapterId)
 
     const activePage = chapter?.pages?.[pageIndex]
     // Save notes to API (mapping sang field backend: PageId, CreatedById, IssueType, WorkCategory, BoxX/Y/W/H, Description)
@@ -503,7 +515,8 @@ export default function Mangaka() {
           boxWidth: Math.round(note.w),
           boxHeight: Math.round(note.h),
           description: note.text ?? note.content ?? '',
-        }).catch(console.error)
+        }).then(r => console.log('[Mangaka] pageIssuesService.create OK →', { noteClientKey: note.clientKey, response: JSON.stringify(r?.data) }))
+          .catch(e => console.error('[Mangaka] pageIssuesService.create FAILED →', { noteClientKey: note.clientKey, error: e?.response?.data ?? e.message }))
       })
     }
 
