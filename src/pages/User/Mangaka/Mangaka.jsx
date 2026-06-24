@@ -316,6 +316,7 @@ function SeriesCard({ series, ebApproved, uploadPct, onOpenAnnotate, onOpenEdit,
 export default function Mangaka() {
   const navigate = useNavigate()
   const location = useLocation()
+  const [locationKey, setLocationKey] = useState(0)
   const user = getSession()
   const mangakaId = user?.id ?? user?.userid ?? null
   const mangakaName = user?.fullname ?? user?.name ?? 'Demo Mangaka'
@@ -343,7 +344,15 @@ export default function Mangaka() {
   const hydrated = useMemo(() => loadMangakaWorkspaceState(wsDefaults), [wsDefaults])
 
   const [tab, setTab] = useState(() => hydrated.tab)
-  const [annotateSeries, setAnnotateSeries] = useState(() => hydrated.annotateSeries)
+  // annotateSeries must read from location.state first (navigation carries the correct series),
+  // then fall back to persisted workspace value — otherwise navigating from series detail
+  // with "Upload chapter" shows the wrong series in the dropdown
+  const locationState = location.state
+  const [annotateSeries, setAnnotateSeries] = useState(() => {
+    const fromNav = locationState?.series
+    if (typeof fromNav === 'string' && fromNav.trim()) return fromNav.trim()
+    return hydrated.annotateSeries
+  })
   const [localSeriesList, setLocalSeriesList] = useState([])
   const [addSeriesOpen, setAddSeriesOpen] = useState(false)
   const [editingSeries, setEditingSeries] = useState(null)
@@ -787,13 +796,15 @@ export default function Mangaka() {
     const mangakaId = user?.id ?? null
     // Lookup real server series ID by title from the API (local IDs can collide with server IDs)
     let serverSeriesId = null
+    let allSeriesTitles = []
     if (mangakaId) {
       try {
         const sr = await seriesService.getByTitle(title, mangakaId)
         const list = Array.isArray(sr?.data) ? sr.data : []
         const found = list.find(s => s.title === title)
+        allSeriesTitles = list.map(s => ({ id: s.seriesid, title: s.title }))
         if (found?.seriesid) serverSeriesId = found.seriesid
-        console.log('[handleUploadComplete] series lookup →', { title, serverSeriesId, allTitles: list.map(s => ({ id: s.seriesid, title: s.title })) })
+        console.log('[handleUploadComplete] series lookup →', { title, serverSeriesId, allTitles: allSeriesTitles })
       } catch (e) {
         console.warn('[handleUploadComplete] series lookup failed:', e)
       }
@@ -838,10 +849,15 @@ export default function Mangaka() {
       })
     })
 
-    // Khi la chapter moi: tao chapter tren server, lay real ID, roi upload tung trang
+    // Capture current snapshot for use inside async callbacks (avoids stale closure)
+    const snapshotForCallback = {
+      chapterRows: nextChapterRows,
+      annotatorChapters: nextAnnotatorChapters,
+    }
+
     console.log('[DEBUG] handleUploadComplete →', {
       title, isNewChapter, mangakaId, serverSeriesId,
-      foundSeriesId: found?.seriesid, seriesListIds: seriesList.map(s => ({ id: s.id, title: s.title })),
+      seriesListIds: seriesList.map(s => ({ id: s.id, title: s.title })),
     })
     if (isNewChapter && mangakaId && serverSeriesId) {
       const chData = {
@@ -865,12 +881,12 @@ export default function Mangaka() {
           toast.success(`Đã tạo Ch. ${displayNum} trên server!`)
 
           // Lay real chapterId tu backend (ho tro ca wrapped va unwrapped)
-          const payload = responseData?.data ?? responseData
+          const payloadData = responseData?.data ?? responseData
           const realChapterId =
-            payload?.chapterid
-            ?? payload?.Chapterid
-            ?? payload?.chapterId
-            ?? payload?.id
+            payloadData?.chapterid
+            ?? payloadData?.Chapterid
+            ?? payloadData?.chapterId
+            ?? payloadData?.id
 
           if (realChapterId == null) {
             toast.error('Server không trả về chapter ID — không thể upload trang.')
@@ -884,7 +900,7 @@ export default function Mangaka() {
               ? { ...r, id: realChapterId, apiChapterId: realChapterId }
               : r
           ))
-            setAnnotatorChapters(prev => {
+          setAnnotatorChapters(prev => {
             const updated = prev.map(ch =>
               String(ch.id) === String(rowId)
                 ? { ...ch, id: realChapterId }
@@ -893,7 +909,12 @@ export default function Mangaka() {
             // 2) Flush workspace NGAY sau khi state da co real ID
             void persistMangakaWorkspaceStateNow({
               ...workspaceSnapshot,
-              chapterRows: nextChapterRows,
+              ...snapshotForCallback,
+              chapterRows: snapshotForCallback.chapterRows.map(r =>
+                String(r.id) === String(rowId)
+                  ? { ...r, id: realChapterId, apiChapterId: realChapterId }
+                  : r
+              ),
               annotatorChapters: updated,
             })
             return updated
@@ -963,8 +984,7 @@ export default function Mangaka() {
       // Chapter cu: chi persist workspace, khong goi API
       void persistMangakaWorkspaceStateNow({
         ...workspaceSnapshot,
-        chapterRows: nextChapterRows,
-        annotatorChapters: Array.isArray(nextAnnotatorChapters) ? nextAnnotatorChapters : annotatorChapters,
+        ...snapshotForCallback,
       })
     }
   }
@@ -1051,34 +1071,36 @@ export default function Mangaka() {
       sendCreate(fd, newSeries)
       return
     }
-
-    // Không có user (chưa login) — chỉ lưu local
-    setLocalSeriesList(prev => [newSeries, ...prev])
-    setAnnotateSeries(newSeries.title)
-    closeAddSeriesModal()
-    navigate(seriesPath(newSeries))
   }
 
   function sendCreate(fd, newSeries) {
+    // Optimistic: them vao list ngay de tranh race
+    setLocalSeriesList(prev => {
+      const exists = prev.some(s => s.title === newSeries.title)
+      return exists ? prev : [newSeries, ...prev]
+    })
+    setAnnotateSeries(newSeries.title)
+    closeAddSeriesModal()
+
     createSeries.mutate(fd, {
       onSuccess: (res) => {
         const serverId = res?.data?.data?.Id ?? res?.data?.Id ?? res?.data?.id
+        const updatedSeries = serverId ? { ...newSeries, id: serverId, seriesid: serverId } : newSeries
         if (serverId) {
-          newSeries.id = serverId
-          newSeries.seriesid = serverId
+          // Sync server ID
+          setLocalSeriesList(prev => prev.map(s => s.title === newSeries.title ? updatedSeries : s))
         }
         toast.success('Đã tạo series trên server!')
+        navigate(seriesPath(updatedSeries), { state: { tab: 'annotate', series: updatedSeries.title } })
       },
       onError: (err) => {
         const body = err?.response?.data
         const msg = typeof body === 'string' ? body : body?.message ?? body?.title
         toast.error(msg || 'Không tạo được series trên server.')
+        // Rollback optimistic add
+        setLocalSeriesList(prev => prev.filter(s => s.title !== newSeries.title))
       },
     })
-    setLocalSeriesList(prev => [newSeries, ...prev])
-    setAnnotateSeries(newSeries.title)
-    closeAddSeriesModal()
-    navigate(seriesPath(newSeries))
   }
 
   const existingSeriesTitles = useMemo(() => seriesList.map(s => s.title), [seriesList])
@@ -1174,6 +1196,8 @@ export default function Mangaka() {
       setAnnotatorActiveChapterId(st.chapterId)
       setAnnotatorPageIndex(0)
     }
+    // Force re-render so that tab/annotateSeries changes from navigation state are reflected
+    setLocationKey(k => k + 1)
   }, [location.state])
 
   function openAnnotate(seriesTitle, chapterLocalId) {
@@ -1368,6 +1392,7 @@ export default function Mangaka() {
 
               <TabsContent value="annotate">
                 <ChapterAnnotator
+                  key={`annotate-${tab}-${annotateSeries}`}
                   selectedSeriesTitle={annotateSeries}
                   onSelectedSeriesTitleChange={setAnnotateSeries}
                   seriesOptions={seriesList.map(s => ({
