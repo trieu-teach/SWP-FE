@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { toast } from 'sonner'
 import { clearSession } from '@/lib/auth.js'
+import { authService } from '@/api'
 
 const baseURL = import.meta.env.DEV
   ? '/api'
@@ -24,6 +25,77 @@ function normalizeKeys(obj) {
   )
 }
 
+// ── JWT helpers & auto-refresh ─────────────────────────────────────────────────
+function decodeJwtPayload(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '=='.slice((base64.length + 4) % 4)
+    return JSON.parse(atob(padded))
+  } catch {
+    return {}
+  }
+}
+
+function tokenExpiresAtMs(token) {
+  const p = decodeJwtPayload(token)
+  return Number.isFinite(p?.exp) ? p.exp * 1000 : 0
+}
+
+// Proactive refresh: nếu token còn < 5 phút thì refresh ngay (trước khi gửi request)
+const REFRESH_AHEAD_MS = 5 * 60 * 1000
+
+let refreshInflight = null
+
+async function refreshAccessToken() {
+  const refreshToken = localStorage.getItem('refreshToken')
+  if (!refreshToken) throw new Error('No refresh token available')
+
+  if (!refreshInflight) {
+    refreshInflight = authService
+      .refreshToken({ token: refreshToken })
+      .then(res => {
+        const data = res?.data
+        const newToken = data?.token ?? data?.Token
+        const newRefresh = data?.refreshToken ?? data?.RefreshToken
+        if (!newToken) throw new Error('Refresh response missing access token')
+        localStorage.setItem('token', newToken)
+        if (newRefresh) localStorage.setItem('refreshToken', newRefresh)
+
+        // Cập nhật sessionStorage để role/exp mới đồng bộ
+        try {
+          const raw = sessionStorage.getItem('auth_user')
+          if (raw) {
+            const session = JSON.parse(raw)
+            session.token = newToken
+            if (newRefresh) session.refreshToken = newRefresh
+            sessionStorage.setItem('auth_user', JSON.stringify(session))
+          }
+        } catch { /* ignore */ }
+
+        window.__apiLog.push({ phase: 'refresh', ts: Date.now(), message: 'Access token refreshed proactively' })
+        return newToken
+      })
+      .finally(() => {
+        // Reset after a tick so queued requests can attach to the resolved promise
+        setTimeout(() => { refreshInflight = null }, 0)
+      })
+  }
+  return refreshInflight
+}
+
+function maybeProactiveRefresh(config) {
+  const token = config?.headers?.Authorization?.replace(/^Bearer\s+/i, '')
+  if (!token) return Promise.resolve()
+  if (config.url?.includes('/auth/')) return Promise.resolve()
+
+  const expMs = tokenExpiresAtMs(token)
+  if (!expMs) return Promise.resolve()
+  if (Date.now() < expMs - REFRESH_AHEAD_MS) return Promise.resolve()
+
+  // Token sắp hết hạn hoặc đã hết → refresh trước
+  return refreshAccessToken().catch(() => { /* fallback: để request đi tới, 401 sẽ xử lý */ })
+}
+
 const instance = axios.create({
   baseURL,
   headers: { 'Content-Type': 'application/json' },
@@ -42,7 +114,9 @@ const instance = axios.create({
 window.__apiLog = []
 
 // ── Request interceptor ─────────────────────────────────────────────────────────
-instance.interceptors.request.use(config => {
+instance.interceptors.request.use(async config => {
+  await maybeProactiveRefresh(config)
+
   const token = localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   if (config.data instanceof FormData) {
@@ -91,6 +165,30 @@ instance.interceptors.response.use(
     const status = err.response?.status
     const errorData = err.response?.data
     const errorMsg = extractErrorMessage(errorData) || err.message
+
+    // ── Auto-retry on 401: refresh once, then replay the original request ───────
+    const originalRequest = err.config
+    const alreadyRetried = originalRequest?._retried
+    const isAuthEndpoint = url?.includes('/auth/')
+
+    if (status === 401 && !alreadyRetried && !isAuthEndpoint) {
+      originalRequest._retried = true
+      return refreshAccessToken()
+        .then(newToken => {
+          originalRequest.headers = originalRequest.headers ?? {}
+          originalRequest.headers.Authorization = `Bearer ${newToken}`
+          return instance.request(originalRequest)
+        })
+        .catch(refreshErr => {
+          // Refresh thất bại → fall through tới handler logout
+          console.warn('[axiosClient] refresh-on-401 failed:', refreshErr?.message)
+          // Trả về một 401 marker để caller biết refresh đã thử nhưng fail
+          const finalErr = new Error('Session expired. Please log in again.')
+          finalErr.isRefreshFailed = true
+          finalErr.originalError = refreshErr
+          throw finalErr
+        })
+    }
 
     console.group(`\u2718  ${method} ${url}  (${ms}ms)  ${status ?? 'NETWORK ERROR'}`)
     console.log('status:', status)
