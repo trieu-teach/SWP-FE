@@ -65,7 +65,9 @@ export const seriesService = {
   },
   updateStatus: (id, status) => {
     console.log('[API] PATCH /Series/:id/status', id, status)
-    return axios.patch(`/Series/${id}/status`, { Status: status })
+    return axios.patch(`/Series/${id}/status`, JSON.stringify(status), {
+      headers: { 'Content-Type': 'application/json' },
+    })
   },
   updatePublishFormat: (id, publishFormat) => {
     console.log('[API] PATCH /Series/:id/publish-format', id, publishFormat)
@@ -105,7 +107,9 @@ export const chaptersService = {
   },
   updateStatus: (id, status) => {
     console.log('[API] PATCH /Chapters/:id/status', id, status)
-    return axios.patch(`/Chapters/${id}/status`, { Status: status })
+    return axios.patch(`/Chapters/${id}/status`, JSON.stringify(status), {
+      headers: { 'Content-Type': 'application/json' },
+    })
   },
 }
 
@@ -137,7 +141,9 @@ export const pagesService = {
   },
   updateStatus: (id, status) => {
     console.log('[API] PATCH /Pages/:id/status', id, status)
-    return axios.patch(`/Pages/${id}/status`, { Status: status })
+    return axios.patch(`/Pages/${id}/status`, JSON.stringify(status), {
+      headers: { 'Content-Type': 'application/json' },
+    })
   },
   softDelete: (id) => {
     console.log('[API] DELETE /Pages/:id/soft', id)
@@ -333,7 +339,9 @@ export const contractsService = {
   },
   updateStatus: (id, status) => {
     console.log('[API] PATCH /MangakaAssistant/:id/status', id, status)
-    return axios.patch(`/MangakaAssistant/${id}/status`, { Status: status })
+    return axios.patch(`/MangakaAssistant/${id}/status`, JSON.stringify(status), {
+      headers: { 'Content-Type': 'application/json' },
+    })
   },
   softDelete: (id) => {
     console.log('[API] DELETE /MangakaAssistant/:id', id)
@@ -365,7 +373,9 @@ export const pageIssuesApi = {
   },
   updateStatus: (id, status) => {
     console.log('[API] PATCH /PageIssues/:id/status', id, status)
-    return axios.patch(`/PageIssues/${id}/status`, { Status: status })
+    return axios.patch(`/PageIssues/${id}/status`, JSON.stringify(status), {
+      headers: { 'Content-Type': 'application/json' },
+    })
   },
   softDelete: (id) => {
     console.log('[API] DELETE /PageIssues/:id/soft', id)

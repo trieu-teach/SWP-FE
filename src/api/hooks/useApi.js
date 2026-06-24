@@ -330,6 +330,14 @@ export function useDeletePageLayer() {
   })
 }
 
+export function useHardDeletePageLayer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id) => pageLayersService.hardDelete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pageLayers'] }) },
+  })
+}
+
 export function useTogglePageLayerVisibility() {
   const qc = useQueryClient()
   return useMutation({
