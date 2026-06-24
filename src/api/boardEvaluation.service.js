@@ -1,47 +1,101 @@
-import axios from './axiosClient'
+// src/api/boardEvaluation.service.js
+import axiosClient from "./axiosClient";
 
-function unwrap(res) {
-  return res?.data !== undefined ? res.data : res
+/**
+ * Lấy tất cả BoardEvaluation (có thể filter theo seriesId nếu BE hỗ trợ query param)
+ * GET /api/BoardEvaluation
+ */
+export async function getBoardEvaluations(params = {}) {
+  const res = await axiosClient.get("/BoardEvaluation", { params });
+  return Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
 }
 
-export const boardEvaluationService = {
-  getAll() {
-    return axios.get('/BoardEvaluation').then(unwrap)
-  },
+/**
+ * Lấy 1 BoardEvaluation theo id
+ * GET /api/BoardEvaluation/{id}
+ */
+export async function getBoardEvaluationById(id) {
+  const res = await axiosClient.get(`/BoardEvaluation/${id}`);
+  return res.data;
+}
 
-  getById(id) {
-    return axios.get(`/BoardEvaluation/${id}`).then(unwrap)
-  },
+/**
+ * Lấy tổng hợp điểm Hội đồng của một evaluationId
+ * GET /api/BoardEvaluation/{evaluationId}/summary
+ */
+export async function getBoardEvaluationSummary(evaluationId) {
+  const res = await axiosClient.get(`/BoardEvaluation/${evaluationId}/summary`);
+  return res.data;
+}
 
-  // Swagger chi co GET /BoardEvaluation (list tat ca), khong co route rieng
-  // loc theo seriesId (khac voi /Series/mangakaid/{mangakaId} ben Series).
-  // Tam thoi lay tat ca roi filter o FE — giong pattern getMyAssignments()
-  // trong assistantService.js. Neu sau nay backend them route
-  // /BoardEvaluation/seriesid/{seriesId} thi doi lai cho do tai du lieu thua.
-  getBySeriesId(seriesId) {
-    return this.getAll().then(list => (list ?? []).filter(ev => ev.series_id === seriesId))
-  },
+/**
+ * Tạo mới điểm cho một thành viên Hội đồng
+ * POST /api/BoardEvaluation
+ * @param {{
+ *   series_id: number,
+ *   member_id: string,
+ *   score_type: "color"|"mono",
+ *   scores: Record<string, number>,
+ *   criterion_notes: Record<string, string>,
+ *   average: number,
+ *   assessed_at: string,
+ *   entered_by: string,
+ * }} payload
+ */
+export async function createBoardEvaluation(payload) {
+  const res = await axiosClient.post("/BoardEvaluation", payload);
+  return res.data;
+}
 
-  // data ki vong (theo cot DB board_evaluations, da bo evaluationid/average_score/
-  // evaluatedat vi nhung field nay nhieu kha nang do BE tu sinh):
-  // {
-  //   seriesId, storyScore, artScore, characterScore, commercialScore,
-  //   pacingScore, finalDecision, approvedPublishFormat, feedback
-  // }
-  // CHUA XAC NHAN duoc casing chinh xac BE doi (camelCase/PascalCase) va
-  // gia tri enum cua finalDecision ("approved"/"rejected" hay so?) vi chua
-  // co JSON mau tu Swagger "Try it out". ASP.NET Core mac dinh case-insensitive
-  // khi bind body nen camelCase o duoi thuong se chay duoc, nhung NEN xac nhan
-  // lai truoc khi dung that.
-  create(data) {
-    return axios.post('/BoardEvaluation', data).then(unwrap)
-  },
+/**
+ * Cập nhật điểm cho một thành viên Hội đồng đã có
+ * PUT /api/BoardEvaluation/{id}
+ */
+export async function updateBoardEvaluation(id, payload) {
+  const res = await axiosClient.put(`/BoardEvaluation/${id}`, payload);
+  return res.data;
+}
 
-  update(id, data) {
-    return axios.put(`/BoardEvaluation/${id}`, data).then(unwrap)
-  },
+/**
+ * Batch upsert — gửi nhiều đánh giá cùng lúc
+ * POST /api/BoardEvaluation/batch
+ * @param {Array} evaluations
+ */
+export async function batchBoardEvaluation(evaluations) {
+  const res = await axiosClient.post("/BoardEvaluation/batch", evaluations);
+  return res.data;
+}
 
-  remove(id) {
-    return axios.delete(`/BoardEvaluation/${id}`).then(unwrap)
-  },
+/**
+ * Upsert thông minh: tìm evaluation hiện tại của member trong series,
+ * nếu có thì PUT, nếu chưa có thì POST.
+ * @param {object} params
+ * @param {number} params.seriesId
+ * @param {string} params.memberId
+ * @param {object} params.assessment - { scoreType, scores, criterionNotes, average, assessedAt, enteredBy }
+ * @param {Array}  params.existingEvaluations - kết quả từ getSeriesEvaluations() để tránh gọi thêm
+ */
+export async function upsertMemberEvaluation({ seriesId, memberId, assessment, existingEvaluations = [] }) {
+  // axiosClient normalizeKeys → response về snake_case
+  // request body gửi lên cần PascalCase hoặc camelCase tùy BE — dùng camelCase theo convention Spring Boot
+  const body = {
+    seriesId,
+    memberId,
+    scoreType: assessment.scoreType,
+    scores: assessment.scores,
+    criterionNotes: assessment.criterionNotes ?? {},
+    average: assessment.average,
+    assessedAt: assessment.assessedAt,
+    enteredBy: assessment.enteredBy,
+  };
+
+  // Tìm record cũ của chính member này trong series
+  const existing = existingEvaluations.find(
+    (e) => e.member_id === memberId || e.memberId === memberId
+  );
+
+  if (existing?.id) {
+    return updateBoardEvaluation(existing.id, body);
+  }
+  return createBoardEvaluation(body);
 }

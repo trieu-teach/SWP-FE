@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { CheckCircle2, ChevronDown, ChevronUp, Gavel, Star, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, Gavel, Loader2, Star, XCircle } from "lucide-react";
 import Header from "@/components/User/Header/Header.jsx";
 import Footer from "@/components/User/Footer/Footer.jsx";
 import { WorkspaceHero } from "@/components/layout/WorkspaceHero.jsx";
@@ -25,28 +25,14 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { getSession, logout } from "@/lib/auth.js";
-import {
-  approveEbDebutSeries,
-  readEbDebutApproved,
-  readEbDebutPending,
-  // TODO: cần thêm 2 hàm này vào utils/ebDebutStorage.js — xem gợi ý implementation
-  // ở cuối phần giải thích. Đặt tạm comment để file không vỡ build trước khi bạn thêm.
-  readEbDebutRejected,
-  rejectEbDebutSeries,
-} from "@/utils/ebDebutStorage.js";
-import { updateSeriesEbAssessmentInWorkspace } from "@/utils/mangakaWorkspaceReader.js";
-import { listTantouSubmissions } from "@/utils/tantouWorkspaceStorage.js";
 import { placeholderPageDataUrl } from "@/utils/assistantWorkspaceStorage.js";
 import { LABEL_EDITOR_BOARD } from "@/constants/roleTerminology.js";
-import {
-  EB_COUNCIL_MEMBERS,
-  buildCouncilAggregate,
-  readCouncilSeriesScores,
-  saveCouncilMemberAssessment,
-  seedCouncilDemoScores,
-} from "@/utils/ebCouncilStorage.js";
+import { getEbPendingSubmissions, getSeriesEvaluations, patchSubmissionScore } from "@/api/submissions.service.js";
+import { upsertMemberEvaluation } from "@/api/boardEvaluation.service.js";
+import axiosClient from "@/api/axiosClient.js";
 import "./Eb.css";
 
+// ─── Constants ────────────────────────────────────────────────────────────────
 const NAV_LINKS = [
   { to: "/", label: "Trang chủ" },
   { to: "/mangaka", label: "Mangaka" },
@@ -54,19 +40,20 @@ const NAV_LINKS = [
 ];
 
 const COMMON_CRITERIA = [
-  { key: "plotDialogue", label: "Cốt truyện & Lời thoại", hint: "Plot & Dialogue" },
-  { key: "artDesign", label: "Nét vẽ & Tạo hình nhân vật", hint: "Art Style & Character Design" },
-  { key: "panelingCamera", label: "Phân khung & Góc máy", hint: "Paneling & Camera Angles" },
-  { key: "pacingHook", label: "Nhịp độ & Cao trào", hint: "Pacing & Hook" },
+  { key: "plotDialogue",   label: "Cốt truyện & Lời thoại",      hint: "Plot & Dialogue" },
+  { key: "artDesign",      label: "Nét vẽ & Tạo hình nhân vật",  hint: "Art Style & Character Design" },
+  { key: "panelingCamera", label: "Phân khung & Góc máy",         hint: "Paneling & Camera Angles" },
+  { key: "pacingHook",     label: "Nhịp độ & Cao trào",           hint: "Pacing & Hook" },
 ];
 
 const TYPE_CRITERIA = {
-  color: { key: "coloring", label: "Đổ màu & Phối màu", hint: "Coloring" },
-  mono: { key: "toneShading", label: "Sử dụng Tone/Đánh bóng", hint: "Screentone & Shading" },
+  color: { key: "coloring",    label: "Đổ màu & Phối màu",          hint: "Coloring" },
+  mono:  { key: "toneShading", label: "Sử dụng Tone/Đánh bóng",     hint: "Screentone & Shading" },
 };
 
 const SCORE_MAX = 5;
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function clampScore(value) {
   const parsed = Number.parseFloat(value);
   if (Number.isNaN(parsed)) return 0;
@@ -84,47 +71,103 @@ function validateScore(value) {
   return "";
 }
 
-// ── Interactive star rating ──────────────────────────────────────────────────
+function buildScoreFields(scoreType) {
+  const typeField = TYPE_CRITERIA[scoreType] ?? TYPE_CRITERIA.color;
+  return [...COMMON_CRITERIA, typeField];
+}
+
+function buildInitialScores() {
+  return { plotDialogue: "", artDesign: "", panelingCamera: "", pacingHook: "", coloring: "", toneShading: "" };
+}
+
+function buildInitialNotes() {
+  return { plotDialogue: "", artDesign: "", panelingCamera: "", pacingHook: "", coloring: "", toneShading: "" };
+}
+
+function getClassification(average) {
+  if (average < 2.5)  return { label: "KHÔNG ĐẠT", note: "Series chưa đạt chất lượng, cần chỉnh sửa lớn trước khi xét lại.",   className: "border-red-200 bg-red-50 text-red-700" };
+  if (average < 3.5)  return { label: "ĐẠT",       note: "Series có thể thông qua, nhưng cần cải thiện theo ghi chú.",          className: "border-amber-200 bg-amber-50 text-amber-700" };
+  if (average < 4.25) return { label: "TỐT",        note: "Chất lượng series ổn định, phù hợp duyệt nhanh.",                    className: "border-sky-200 bg-sky-50 text-sky-700" };
+  return               { label: "XUẤT SẮC",         note: "Series chất lượng cao, phù hợp đẩy nổi bật/banner.",                 className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+}
+
+/**
+ * Chuyển danh sách evaluations từ API (snake_case) thành councilRecord dạng cũ.
+ */
+function buildCouncilRecordFromApi(evaluations, members) {
+  if (!evaluations?.length) return null;
+  const membersMap = {};
+  for (const ev of evaluations) {
+    const memberId = ev.member_id ?? ev.memberId;
+    const member   = members.find(m => m.id === memberId);
+    membersMap[memberId] = {
+      evaluationId:   ev.id,
+      scoreType:      ev.score_type ?? ev.scoreType ?? "color",
+      scores:         ev.scores ?? {},
+      criterionNotes: ev.criterion_notes ?? ev.criterionNotes ?? {},
+      average:        ev.average ?? 0,
+      assessedAt:     ev.assessed_at ?? ev.assessedAt,
+      enteredBy:      ev.entered_by ?? ev.enteredBy ?? member?.name ?? "",
+      scored:         true,
+    };
+  }
+  return {
+    seriesTitle: evaluations[0]?.series_title ?? "",
+    scoreType:   evaluations[0]?.score_type ?? "color",
+    members:     membersMap,
+    updatedAt:   evaluations[0]?.updated_at ?? null,
+  };
+}
+
+function buildCouncilAggregate(councilRecord, members, criterionKeys = []) {
+  const membersData = councilRecord?.members ?? {};
+  const memberRows = members.map((member) => {
+    const entry = membersData[member.id];
+    if (!entry?.scored) return { ...member, scored: false, scores: {}, average: 0 };
+    const scores = entry.scores ?? {};
+    const keys   = criterionKeys.length ? criterionKeys : Object.keys(scores);
+    const values = keys.map(k => Number(scores[k] ?? 0));
+    const avg    = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+    return { ...member, scored: true, scores, average: parseFloat(avg.toFixed(2)), assessedAt: entry.assessedAt, enteredBy: entry.enteredBy };
+  });
+
+  const scoredRows  = memberRows.filter(r => r.scored);
+  const scoredCount = scoredRows.length;
+
+  const criterionAverages = {};
+  if (scoredCount > 0) {
+    for (const key of criterionKeys) {
+      const vals = scoredRows.map(r => Number(r.scores?.[key] ?? 0));
+      criterionAverages[key] = parseFloat((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
+    }
+  }
+
+  const councilAverage = scoredCount > 0
+    ? parseFloat((scoredRows.reduce((sum, r) => sum + r.average, 0) / scoredCount).toFixed(2))
+    : 0;
+
+  return { memberRows, criterionAverages, councilAverage, scoredCount };
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 function StarRating({ value, onChange }) {
   const [hovered, setHovered] = useState(null);
-  const safe = clampScore(value);
+  const safe    = clampScore(value);
   const display = hovered ?? safe;
-
   return (
-    <div
-      className="flex items-center gap-0.5"
-      onMouseLeave={() => setHovered(null)}
-    >
+    <div className="flex items-center gap-0.5" onMouseLeave={() => setHovered(null)}>
       {Array.from({ length: SCORE_MAX }, (_, idx) => {
         const fullScore = idx + 1;
         const halfScore = idx + 0.5;
-        const isFull = display >= fullScore;
-        const isHalf = !isFull && display >= halfScore;
-
+        const isFull    = display >= fullScore;
+        const isHalf    = !isFull && display >= halfScore;
         return (
-          <span
-            key={fullScore}
-            className="relative inline-flex size-6 cursor-pointer"
-          >
-            <span
-              className="absolute inset-0 z-10 w-1/2"
-              onMouseEnter={() => setHovered(halfScore)}
-              onClick={() => onChange(halfScore.toFixed(1))}
-            />
-            <span
-              className="absolute inset-y-0 right-0 z-10 w-1/2"
-              onMouseEnter={() => setHovered(fullScore)}
-              onClick={() => onChange(fullScore.toFixed(1))}
-            />
+          <span key={fullScore} className="relative inline-flex size-6 cursor-pointer">
+            <span className="absolute inset-0 z-10 w-1/2" onMouseEnter={() => setHovered(halfScore)} onClick={() => onChange(halfScore.toFixed(1))} />
+            <span className="absolute inset-y-0 right-0 z-10 w-1/2" onMouseEnter={() => setHovered(fullScore)} onClick={() => onChange(fullScore.toFixed(1))} />
             <Star className="size-6 text-muted-foreground/30" />
-            {isFull && (
-              <Star className="absolute inset-0 size-6 fill-amber-400 text-amber-400" />
-            )}
-            {isHalf && (
-              <span className="absolute inset-0 w-1/2 overflow-hidden">
-                <Star className="size-6 fill-amber-400 text-amber-400" />
-              </span>
-            )}
+            {isFull && <Star className="absolute inset-0 size-6 fill-amber-400 text-amber-400" />}
+            {isHalf && <span className="absolute inset-0 w-1/2 overflow-hidden"><Star className="size-6 fill-amber-400 text-amber-400" /></span>}
           </span>
         );
       })}
@@ -132,50 +175,24 @@ function StarRating({ value, onChange }) {
   );
 }
 
-// ── Read-only stars (for table) ───────────────────────────────────────────────
 function ScoreStars({ value }) {
   const safe = clampScore(value);
   return (
     <div className="flex items-center gap-0.5">
       {Array.from({ length: SCORE_MAX }, (_, idx) => {
-        const score = idx + 1;
+        const score  = idx + 1;
         const isFull = safe >= score;
         const isHalf = !isFull && safe >= score - 0.5;
         return (
           <span key={score} className="relative inline-flex size-4">
             <Star className="size-4 text-muted-foreground/35" />
             {isFull && <Star className="absolute inset-0 size-4 fill-amber-400 text-amber-400" />}
-            {isHalf && (
-              <span className="absolute inset-0 w-1/2 overflow-hidden">
-                <Star className="size-4 fill-amber-400 text-amber-400" />
-              </span>
-            )}
+            {isHalf && <span className="absolute inset-0 w-1/2 overflow-hidden"><Star className="size-4 fill-amber-400 text-amber-400" /></span>}
           </span>
         );
       })}
     </div>
   );
-}
-
-function getClassification(average) {
-  if (average < 2.5) return { label: "KHÔNG ĐẠT", note: "Series chưa đạt chất lượng, cần chỉnh sửa lớn trước khi xét lại.", className: "border-red-200 bg-red-50 text-red-700" };
-  if (average < 3.5) return { label: "ĐẠT", note: "Series có thể thông qua, nhưng cần cải thiện theo ghi chú.", className: "border-amber-200 bg-amber-50 text-amber-700" };
-  if (average < 4.25) return { label: "TỐT", note: "Chất lượng series ổn định, phù hợp duyệt nhanh.", className: "border-sky-200 bg-sky-50 text-sky-700" };
-  return { label: "XUẤT SẮC", note: "Series chất lượng cao, phù hợp đẩy nổi bật/banner.", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
-}
-
-function buildScoreFields(scoreType) {
-  const typeField = TYPE_CRITERIA[scoreType] ?? TYPE_CRITERIA.color;
-  return [...COMMON_CRITERIA, typeField];
-}
-
-// FIX #2: mặc định để rỗng "" thay vì "0" — tránh nhầm "chưa chấm" thành "chấm 0 điểm"
-function buildInitialNotes() {
-  return { plotDialogue: "", artDesign: "", panelingCamera: "", pacingHook: "", coloring: "", toneShading: "" };
-}
-
-function buildInitialScores() {
-  return { plotDialogue: "", artDesign: "", panelingCamera: "", pacingHook: "", coloring: "", toneShading: "" };
 }
 
 function CouncilScoresTable({ memberRows, scoreFields, criterionAverages, councilAverage, scoredCount, activeMemberId }) {
@@ -209,16 +226,15 @@ function CouncilScoresTable({ memberRows, scoreFields, criterionAverages, counci
                   </td>
                   {showDetail && scoreFields.map(f => (
                     <td key={f.key} className="px-2 py-2.5 text-center tabular-nums">
-                      {row.scored ? (
-                        <span className="inline-flex flex-col items-center gap-0.5">
-                          <span className="font-medium">{clampScore(row.scores?.[f.key]).toFixed(1)}</span>
-                          <ScoreStars value={row.scores?.[f.key]} />
-                        </span>
-                      ) : <span className="text-muted-foreground">—</span>}
+                      {row.scored
+                        ? <span className="inline-flex flex-col items-center gap-0.5"><span className="font-medium">{clampScore(row.scores?.[f.key]).toFixed(1)}</span><ScoreStars value={row.scores?.[f.key]} /></span>
+                        : <span className="text-muted-foreground">—</span>}
                     </td>
                   ))}
                   <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
-                    {row.scored ? <span className={row.average >= 2.5 ? "text-emerald-700" : "text-red-600"}>{row.average.toFixed(1)}</span> : <span className="text-muted-foreground">—</span>}
+                    {row.scored
+                      ? <span className={row.average >= 2.5 ? "text-emerald-700" : "text-red-600"}>{row.average.toFixed(1)}</span>
+                      : <span className="text-muted-foreground">—</span>}
                   </td>
                 </tr>
               );
@@ -259,24 +275,16 @@ function ThresholdTable() {
   );
 }
 
-// ── Score field card ──────────────────────────────────────────────────────────
 function ScoreFieldCard({ field, score, error, note, onScoreChange, onBlur, onNoteChange }) {
   return (
     <div className="space-y-3 rounded-xl border bg-card p-4">
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-3">
           <Label htmlFor={field.key}>{field.label}</Label>
-          <span className="text-sm font-semibold tabular-nums text-foreground">
-            {clampScore(score).toFixed(1)} / {SCORE_MAX}
-          </span>
+          <span className="text-sm font-semibold tabular-nums text-foreground">{clampScore(score).toFixed(1)} / {SCORE_MAX}</span>
         </div>
         <p className="text-xs text-muted-foreground">{field.hint}</p>
-        <StarRating
-          value={score}
-          onChange={(val) => {
-            onScoreChange(val);
-          }}
-        />
+        <StarRating value={score} onChange={onScoreChange} />
       </div>
       <Input
         id={field.key}
@@ -290,138 +298,154 @@ function ScoreFieldCard({ field, score, error, note, onScoreChange, onBlur, onNo
         onBlur={onBlur}
         aria-invalid={Boolean(error)}
       />
-      {error ? (
-        <p className="text-xs text-red-600">{error}</p>
-      ) : (
-        <p className="text-xs text-muted-foreground">Nhập điểm hoặc click ngôi sao. Bước 0.5.</p>
-      )}
+      {error
+        ? <p className="text-xs text-red-600">{error}</p>
+        : <p className="text-xs text-muted-foreground">Nhập điểm hoặc click ngôi sao. Bước 0.5.</p>}
       <div className="space-y-2">
-        <Label htmlFor={`${field.key}-note`} className="text-xs text-muted-foreground">
-          Ghi chú riêng cho tiêu chí này
-        </Label>
-        <Textarea
-          id={`${field.key}-note`}
-          value={note}
-          onChange={(e) => onNoteChange(e.target.value)}
-          placeholder="Nhận xét ngắn cho tiêu chí này..."
-          className="min-h-20"
-        />
+        <Label htmlFor={`${field.key}-note`} className="text-xs text-muted-foreground">Ghi chú riêng cho tiêu chí này</Label>
+        <Textarea id={`${field.key}-note`} value={note} onChange={(e) => onNoteChange(e.target.value)} placeholder="Nhận xét ngắn cho tiêu chí này..." className="min-h-20" />
       </div>
     </div>
   );
 }
 
+// ─── Main component ───────────────────────────────────────────────────────────
 export default function Eb() {
   const navigate = useNavigate();
-  const user = getSession();
-  const [councilTick, bumpCouncil] = useState(0);
-  const [selectedTitle, setSelectedTitle] = useState("");
-  const [activeMemberId, setActiveMemberId] = useState(EB_COUNCIL_MEMBERS[0].id);
-  const [scoreType, setScoreType] = useState("color");
-  const [scores, setScores] = useState(buildInitialScores);
+  const user     = getSession();
+
+  // ── Server state ──────────────────────────────────────────────────────────
+  const [pending,      setPending]      = useState([]);
+  const [members,      setMembers]      = useState([]);
+  const [evaluations,  setEvaluations]  = useState([]);
+  const [loadingQueue, setLoadingQueue] = useState(true);
+  const [loadingEval,  setLoadingEval]  = useState(false);
+  const [saving,       setSaving]       = useState(false);
+
+  // ── UI state ──────────────────────────────────────────────────────────────
+  const [selectedId,     setSelectedId]     = useState(null);
+  const [activeMemberId, setActiveMemberId] = useState(null);
+  const [scoreType,      setScoreType]      = useState("color");
+  const [scores,         setScores]         = useState(buildInitialScores);
   const [criterionNotes, setCriterionNotes] = useState(buildInitialNotes);
-  const [scoreErrors, setScoreErrors] = useState({ plotDialogue: "", artDesign: "", panelingCamera: "", pacingHook: "", coloring: "", toneShading: "" });
-  const refresh = useCallback(() => bumpCouncil(n => n + 1), []);
+  const [scoreErrors,    setScoreErrors]    = useState(buildInitialScores);
 
+  // ── Load danh sách thành viên HĐ từ /admin/users filter roleid=2 ──────────
   useEffect(() => {
-    const onSync = () => refresh();
-    window.addEventListener("mk-eb-pending-update", onSync);
-    window.addEventListener("mk-eb-council-update", onSync);
-    window.addEventListener("storage", onSync);
-    window.addEventListener("mk-eb-approved-update", onSync);
-    return () => {
-      window.removeEventListener("mk-eb-pending-update", onSync);
-      window.removeEventListener("mk-eb-council-update", onSync);
-      window.removeEventListener("storage", onSync);
-      window.removeEventListener("mk-eb-approved-update", onSync);
-    };
-  }, [refresh]);
+    axiosClient.get("/admin/users")
+      .then(res => {
+        const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+        // axiosClient normalizeKeys đã convert PascalCase→snake_case
+        // DB columns: userid, fullname, roleid, username
+        const ebMembers = list.filter(u => u.roleid === 2 && u.isdeleted === 0 && u.status === "Active");
+        if (!ebMembers.length) throw new Error("empty");
+        setMembers(ebMembers.map(u => ({
+          id:    String(u.userid),
+          name:  u.fullname ?? u.username,
+          title: "Thành viên Hội đồng",
+        })));
+      })
+      .catch(() => {
+        // Fallback nếu API lỗi hoặc không có quyền
+        toast.error("Không thể tải danh sách thành viên Hội đồng.");
+        setMembers([]);
+      });
+  }, []);
 
-  function handleLogout() { logout(); navigate("/login"); }
-
-  const approved = readEbDebutApproved();
-  const rejected = readEbDebutRejected ? readEbDebutRejected() : {}; // FIX #4 dependency
-  const pending = readEbDebutPending().filter(p => p?.title && !approved[p.title] && !rejected[p.title]);
-  const approvedList = Object.keys(approved).filter(k => approved[k]);
-  const scoreFields = useMemo(() => buildScoreFields(scoreType), [scoreType]);
-  const activeTitle = pending.some(item => item.title === selectedTitle) ? selectedTitle : (pending[0]?.title ?? "");
-
-  // FIX #5: chỉ auto-seed điểm demo ở môi trường dev, không chạy ở production
+  // ── Khởi tạo activeMemberId khi members load xong ────────────────────────
   useEffect(() => {
-    if (!activeTitle) return;
-    const existing = readCouncilSeriesScores(activeTitle);
-    const isDev = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.DEV;
-    if (!existing && isDev) {
-      seedCouncilDemoScores(activeTitle, scoreType);
-      refresh();
+    if (members.length && !activeMemberId) setActiveMemberId(members[0].id);
+  }, [members]);
+
+  // ── Load hàng chờ ─────────────────────────────────────────────────────────
+  const loadQueue = useCallback(async () => {
+    setLoadingQueue(true);
+    try {
+      const data = await getEbPendingSubmissions();
+      setPending(data);
+      if (data.length && !selectedId) {
+        setSelectedId(data[0].series_id ?? data[0].id);
+      }
+    } catch {
+      toast.error("Không thể tải hàng chờ EB. Kiểm tra kết nối backend.");
+    } finally {
+      setLoadingQueue(false);
     }
-  }, [activeTitle, scoreType, refresh]);
+  }, []);
 
-  const councilRecord = useMemo(() => activeTitle ? readCouncilSeriesScores(activeTitle) : null, [activeTitle, councilTick]);
+  useEffect(() => { loadQueue(); }, [loadQueue]);
 
+  // ── Load evaluations khi chọn series ─────────────────────────────────────
   useEffect(() => {
-    if (!activeTitle) return;
-    const record = readCouncilSeriesScores(activeTitle);
-    if (record?.scoreType) setScoreType(record.scoreType);
-    const memberEntry = record?.members?.[activeMemberId];
-    if (memberEntry?.scores) {
-      setScores(cur => ({ ...cur, ...Object.fromEntries(Object.entries(memberEntry.scores).map(([k, v]) => [k, Number(v).toFixed(1)])) }));
-      setCriterionNotes(cur => ({ ...cur, ...(memberEntry.criterionNotes ?? {}) }));
-      setScoreErrors({ plotDialogue: "", artDesign: "", panelingCamera: "", pacingHook: "", coloring: "", toneShading: "" });
+    if (!selectedId) { setEvaluations([]); return; }
+    setLoadingEval(true);
+    getSeriesEvaluations(selectedId)
+      .then(data => {
+        setEvaluations(Array.isArray(data) ? data : []);
+        const first = Array.isArray(data) ? data[0] : null;
+        if (first?.score_type) setScoreType(first.score_type);
+      })
+      .catch(() => setEvaluations([]))
+      .finally(() => setLoadingEval(false));
+  }, [selectedId]);
+
+  // ── Điền form khi đổi member hoặc evaluations ────────────────────────────
+  useEffect(() => {
+    if (!activeMemberId || !evaluations.length) {
+      setScores(buildInitialScores());
+      setCriterionNotes(buildInitialNotes());
+      setScoreErrors(buildInitialScores());
       return;
     }
-    setScores(buildInitialScores());
-    setCriterionNotes(buildInitialNotes());
-    setScoreErrors({ plotDialogue: "", artDesign: "", panelingCamera: "", pacingHook: "", coloring: "", toneShading: "" });
-  }, [activeTitle, activeMemberId, councilTick]);
+    const myEval = evaluations.find(e => String(e.member_id ?? e.memberId) === String(activeMemberId));
+    if (myEval?.scores) {
+      setScores(cur => ({ ...cur, ...Object.fromEntries(Object.entries(myEval.scores).map(([k, v]) => [k, Number(v).toFixed(1)])) }));
+      setCriterionNotes(cur => ({ ...cur, ...(myEval.criterion_notes ?? myEval.criterionNotes ?? {}) }));
+    } else {
+      setScores(buildInitialScores());
+      setCriterionNotes(buildInitialNotes());
+    }
+    setScoreErrors(buildInitialScores());
+  }, [activeMemberId, evaluations]);
 
-  const activeTantouSubmission = listTantouSubmissions().find(s => s.seriesTitle === activeTitle) ?? null;
-  const activeSeriesImage = activeTantouSubmission?.mangakaImageUrl || placeholderPageDataUrl(activeTitle ? `${activeTitle} · Tantou` : "Chưa chọn series");
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const scoreFields = useMemo(() => buildScoreFields(scoreType), [scoreType]);
+
+  const councilRecord = useMemo(
+    () => buildCouncilRecordFromApi(evaluations, members),
+    [evaluations, members]
+  );
+
+  const councilAggregate = useMemo(() => {
+    const keys = scoreFields.map(f => f.key);
+    return buildCouncilAggregate(councilRecord, members, keys);
+  }, [councilRecord, members, scoreFields]);
+
+  const councilClassification = getClassification(councilAggregate.councilAverage);
+  const activeMember          = members.find(m => m.id === activeMemberId);
+
+  const activeSubmission  = pending.find(p => (p.series_id ?? p.id) === selectedId);
+  const activeTitle       = activeSubmission?.series_title ?? activeSubmission?.title ?? "";
+  const activeSeriesImage = activeSubmission?.cover_image_url ?? activeSubmission?.manga_image_url ?? placeholderPageDataUrl(activeTitle || "Chưa chọn series");
 
   const average = useMemo(() => {
     const total = scoreFields.reduce((sum, f) => sum + clampScore(scores[f.key]), 0);
     return scoreFields.length ? total / scoreFields.length : 0;
   }, [scoreFields, scores]);
 
-  const councilAggregate = useMemo(() => {
-    const keys = scoreFields.map(f => f.key);
-    return buildCouncilAggregate(councilRecord, keys);
-  }, [councilRecord, scoreFields]);
-
-  const councilClassification = getClassification(councilAggregate.councilAverage);
-  const activeMember = EB_COUNCIL_MEMBERS.find(m => m.id === activeMemberId);
-
-  // FIX #3: đọc trạng thái điểm của BẤT KỲ title nào trong hàng chờ (không chỉ activeTitle)
-  // để hiển thị badge + gate khi bấm Chấp nhận/Từ chối ngay trên từng card.
-  const getQueueAssessment = useCallback((title) => {
-    const record = readCouncilSeriesScores(title);
-    const total = EB_COUNCIL_MEMBERS.length;
-    if (!record) return { scoredCount: 0, total, classification: null, councilAverage: 0 };
-    const fields = buildScoreFields(record.scoreType ?? "color");
-    const keys = fields.map(f => f.key);
-    const aggregate = buildCouncilAggregate(record, keys);
-    return {
-      scoredCount: aggregate.scoredCount,
-      total,
-      classification: aggregate.scoredCount > 0 ? getClassification(aggregate.councilAverage) : null,
-      councilAverage: aggregate.councilAverage,
-    };
-  }, [councilTick]);
+  // ── Handlers ──────────────────────────────────────────────────────────────
+  function handleLogout() { logout(); navigate("/login"); }
 
   function updateScore(key, value) {
     setScores(cur => ({ ...cur, [key]: value }));
     setScoreErrors(cur => ({ ...cur, [key]: validateScore(value) }));
   }
 
-  // FIX #1: snap về bước 0.5 thật, và không tự điền 0 khi ô đang để trống
   function normalizeScoreField(key) {
     const raw = String(scores[key] ?? "").trim();
-    if (!raw) {
-      setScoreErrors(cur => ({ ...cur, [key]: validateScore(raw) }));
-      return;
-    }
+    if (!raw) { setScoreErrors(cur => ({ ...cur, [key]: validateScore(raw) })); return; }
     const stepped = Math.round(clampScore(raw) * 2) / 2;
-    const next = stepped.toFixed(1);
+    const next    = stepped.toFixed(1);
     setScores(cur => ({ ...cur, [key]: next }));
     setScoreErrors(cur => ({ ...cur, [key]: validateScore(next) }));
   }
@@ -430,93 +454,103 @@ export default function Eb() {
     setCriterionNotes(cur => ({ ...cur, [key]: value }));
   }
 
-  // FIX #3: soft-gate — vẫn cho phép EB override (vì Tantou có thể đã chịu trách nhiệm
-  // nội dung từ trước), nhưng phải xác nhận rõ ràng khi chưa đủ điểm hoặc đang KHÔNG ĐẠT.
-  function handleApprove(title) {
-    const { scoredCount, total, classification } = getQueueAssessment(title);
-    const incomplete = scoredCount < total;
-    const failing = classification?.label === "KHÔNG ĐẠT";
-    if (incomplete || failing) {
-      const reason = failing
-        ? `Series đang ở mức "${classification.label}".`
-        : `Series mới có ${scoredCount}/${total} thành viên Hội đồng chấm điểm.`;
-      const confirmed = window.confirm(`${reason} Bạn vẫn muốn chấp nhận?`);
-      if (!confirmed) return;
-    }
-    approveEbDebutSeries(title);
-    toast.success(`Đã chấp nhận "${title}".`);
-    refresh();
-  }
+  async function handleSaveAssessment() {
+    if (!selectedId) { toast.error("Chưa chọn series để chấm điểm."); return; }
+    if (!activeMemberId) { toast.error("Chưa chọn thành viên Hội đồng."); return; }
 
-  // FIX #4: thêm hành động Từ chối — cần thêm rejectEbDebutSeries/readEbDebutRejected
-  // vào utils/ebDebutStorage.js (xem gợi ý implementation trong phần giải thích đi kèm).
-  function handleReject(title) {
-    const confirmed = window.confirm(`Từ chối "${title}"? Series sẽ bị loại khỏi hàng chờ duyệt.`);
-    if (!confirmed) return;
-    if (typeof rejectEbDebutSeries === "function") {
-      rejectEbDebutSeries(title);
-    }
-    toast.success(`Đã từ chối "${title}".`);
-    refresh();
-  }
-
-  function handleSaveAssessment() {
-    if (!activeTitle) { toast.error("Chưa có chapter trong hàng chờ để chấm điểm."); return; }
     const nextErrors = Object.fromEntries(scoreFields.map(f => [f.key, validateScore(scores[f.key])]));
     setScoreErrors(cur => ({ ...cur, ...nextErrors }));
-    if (Object.values(nextErrors).some(Boolean)) { toast.error("Có tiêu chí chưa hợp lệ. Vui lòng kiểm tra lại điểm."); return; }
+    if (Object.values(nextErrors).some(Boolean)) {
+      toast.error("Có tiêu chí chưa hợp lệ. Vui lòng kiểm tra lại điểm.");
+      return;
+    }
 
-    const criterionDetails = scoreFields.map(f => ({ key: f.key, label: f.label, hint: f.hint, score: clampScore(scores[f.key]), note: criterionNotes[f.key] || "" }));
-    const summaryNotes = criterionDetails.filter(c => c.note.trim()).map(c => `${c.label}: ${c.note.trim()}`);
+    setSaving(true);
+    try {
+      // 1. Upsert điểm của member này
+      await upsertMemberEvaluation({
+        seriesId: selectedId,
+        memberId: activeMemberId,  // ← userid thật từ DB, ví dụ "2"
+        assessment: {
+          scoreType,
+          scores:         Object.fromEntries(scoreFields.map(f => [f.key, clampScore(scores[f.key])])),
+          criterionNotes: { ...criterionNotes },
+          average:        parseFloat(average.toFixed(1)),
+          assessedAt:     new Date().toISOString(),
+          enteredBy:      user?.name ?? "Đại diện EB",
+        },
+        existingEvaluations: evaluations,
+      });
 
-    saveCouncilMemberAssessment(activeTitle, activeMemberId, {
-      scoreType,
-      scores: Object.fromEntries(criterionDetails.map(c => [c.key, c.score])),
-      criterionNotes: { ...criterionNotes },
-      average: Number(average.toFixed(1)),
-      assessedAt: new Date().toISOString(),
-      enteredBy: user?.name ?? "Đại diện EB",
-    });
+      // 2. Reload evaluations để bảng tổng hợp cập nhật
+      const updated = await getSeriesEvaluations(selectedId);
+      setEvaluations(Array.isArray(updated) ? updated : []);
 
-    const updatedRecord = readCouncilSeriesScores(activeTitle);
-    const keys = scoreFields.map(f => f.key);
-    const aggregate = buildCouncilAggregate(updatedRecord, keys);
-    const councilClass = getClassification(aggregate.councilAverage);
-    const memberAssessments = aggregate.memberRows.filter(r => r.scored).map(r => ({ memberId: r.id, memberName: r.name, memberTitle: r.title, average: r.average, scores: r.scores, assessedAt: r.assessedAt, enteredBy: r.enteredBy }));
+      // 3. Sync điểm aggregate lên Series nếu đã có đủ member
+      const updatedRecord = buildCouncilRecordFromApi(updated, members);
+      const keys          = scoreFields.map(f => f.key);
+      const aggregate     = buildCouncilAggregate(updatedRecord, members, keys);
+      const cls           = getClassification(aggregate.councilAverage);
 
-    updateSeriesEbAssessmentInWorkspace(activeTitle, {
-      seriesTitle: activeTitle,
-      chapterNum: activeTantouSubmission?.chapterNum ?? null,
-      scoreType,
-      average: aggregate.councilAverage,
-      councilAverage: aggregate.councilAverage,
-      memberAverage: Number(average.toFixed(1)),
-      activeMemberId,
-      activeMemberName: activeMember?.name ?? null,
-      classification: councilClass.label,
-      classificationNote: councilClass.note,
-      scores: aggregate.criterionAverages,
-      criteria: scoreFields.map(f => ({ key: f.key, label: f.label, hint: f.hint, score: aggregate.criterionAverages[f.key] ?? 0, note: "" })),
-      memberAssessments,
-      councilScoredCount: aggregate.scoredCount,
-      councilMemberCount: EB_COUNCIL_MEMBERS.length,
-      summaryNotes,
-      source: "eb-council",
-      assessedAt: new Date().toISOString(),
-      enteredBy: user?.name ?? "Đại diện EB",
-    });
+      if (aggregate.scoredCount === members.length) {
+        await patchSubmissionScore(selectedId, {
+          score:          aggregate.councilAverage,
+          classification: cls.label,
+        });
+      }
 
-    refresh();
-    toast.success(`Đã lưu điểm ${activeMember?.name ?? "thành viên"} · DTB HĐ ${aggregate.councilAverage.toFixed(1)} (${aggregate.scoredCount}/${EB_COUNCIL_MEMBERS.length})`);
+      toast.success(`Đã lưu điểm ${activeMember?.name ?? "thành viên"} · DTB HĐ ${aggregate.councilAverage.toFixed(1)} (${aggregate.scoredCount}/${members.length})`);
+    } catch {
+      // axiosClient interceptor đã toast lỗi
+    } finally {
+      setSaving(false);
+    }
   }
 
+  async function handleApprove(seriesId, title) {
+    const assessment = getQueueAssessment(seriesId);
+    const incomplete = assessment.scoredCount < members.length;
+    const failing    = assessment.classification?.label === "KHÔNG ĐẠT";
+    if (incomplete || failing) {
+      const reason = failing
+        ? `Series đang ở mức "${assessment.classification.label}".`
+        : `Series mới có ${assessment.scoredCount}/${members.length} thành viên Hội đồng chấm điểm.`;
+      if (!window.confirm(`${reason} Bạn vẫn muốn chấp nhận?`)) return;
+    }
+    try {
+      await axiosClient.patch(`/Series/${seriesId}/status`, { status: "approved" });
+      toast.success(`Đã chấp nhận "${title}".`);
+      loadQueue();
+    } catch { /* interceptor toast */ }
+  }
+
+  async function handleReject(seriesId, title) {
+    if (!window.confirm(`Từ chối "${title}"? Series sẽ bị loại khỏi hàng chờ duyệt.`)) return;
+    try {
+      await axiosClient.patch(`/Series/${seriesId}/status`, { status: "rejected" });
+      toast.success(`Đã từ chối "${title}".`);
+      loadQueue();
+    } catch { /* interceptor toast */ }
+  }
+
+  function getQueueAssessment(seriesId) {
+    if (seriesId !== selectedId) return { scoredCount: 0, total: members.length, classification: null, councilAverage: 0 };
+    return {
+      scoredCount:    councilAggregate.scoredCount,
+      total:          members.length,
+      classification: councilAggregate.scoredCount > 0 ? councilClassification : null,
+      councilAverage: councilAggregate.councilAverage,
+    };
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="ws-page--eb flex min-h-screen flex-col bg-background">
       <Header links={NAV_LINKS} onLogout={user ? handleLogout : undefined} />
       <WorkspaceHero
-        label={`${LABEL_EDITOR_BOARD} · demo`}
+        label={`${LABEL_EDITOR_BOARD} · Hội đồng`}
         title={`Xin chào${user?.name ? `, ${user.name}` : ""}`}
-        description="Một tài khoản đại diện nhập điểm từng thành viên — bảng tổng hợp hiển thị đầy đủ điểm Hội đồng."
+        description="Nhập điểm từng thành viên Hội đồng — bảng tổng hợp cập nhật realtime từ API."
         className="ws-hero--eb"
       />
 
@@ -525,39 +559,44 @@ export default function Eb() {
           <Card>
             <CardHeader className="space-y-2">
               <CardTitle>Nhập điểm (tài khoản đại diện)</CardTitle>
-              <CardDescription>
-                Đại diện Hội đồng nhập điểm cho từng thành viên. Bảng bên dưới luôn hiển thị đủ điểm của cả Hội đồng và DTB chung.
-              </CardDescription>
+              <CardDescription>Chọn series trong hàng chờ, chọn thành viên, nhập điểm rồi Lưu.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Banner đại diện */}
               <div className="eb-rep-banner rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
-                <p className="font-medium text-foreground">
-                  Tài khoản đại diện: <span className="text-primary">{user?.name ?? "Thư ký Hội đồng"}</span>
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Chọn thành viên HĐ, nhập điểm thay họ, rồi lưu — có thể lần lượt nhập cho từng người trong cùng series.
-                </p>
+                <p className="font-medium text-foreground">Tài khoản đại diện: <span className="text-primary">{user?.name ?? "Thư ký Hội đồng"}</span></p>
+                <p className="mt-1 text-xs text-muted-foreground">Chọn thành viên HĐ, nhập điểm thay họ, rồi lưu — có thể lần lượt nhập cho từng người trong cùng series.</p>
               </div>
 
+              {/* Series + loại truyện */}
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Series đang chấm</Label>
-                  <Select value={activeTitle || undefined} onValueChange={setSelectedTitle} disabled={pending.length === 0}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={pending.length ? "Chọn series trong hàng chờ" : "Chưa có series chờ EB duyệt"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {pending.map(item => <SelectItem key={item.title} value={item.title}>{item.title}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                  {pending.length === 0 && (
-                    <p className="text-xs text-muted-foreground">Hàng chờ lấy từ localStorage (demo). Chưa nối API <code className="text-[10px]">/submissions/eb</code>.</p>
-                  )}
+                  {loadingQueue
+                    ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Đang tải hàng chờ…</div>
+                    : (
+                      <Select
+                        value={selectedId ? String(selectedId) : undefined}
+                        onValueChange={v => setSelectedId(Number(v) || v)}
+                        disabled={pending.length === 0}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder={pending.length ? "Chọn series trong hàng chờ" : "Chưa có series chờ EB duyệt"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {pending.map(item => {
+                            const id    = item.series_id ?? item.id;
+                            const label = item.series_title ?? item.title ?? `Series #${id}`;
+                            return <SelectItem key={id} value={String(id)}>{label}</SelectItem>;
+                          })}
+                        </SelectContent>
+                      </Select>
+                    )}
                 </div>
                 <div className="space-y-2">
                   <Label>Loại truyện</Label>
                   <Select value={scoreType} onValueChange={setScoreType}>
-                    <SelectTrigger className="w-full"><SelectValue placeholder="Chọn loại truyện" /></SelectTrigger>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="color">Truyện màu</SelectItem>
                       <SelectItem value="mono">Truyện không màu</SelectItem>
@@ -566,17 +605,26 @@ export default function Eb() {
                 </div>
               </div>
 
+              {/* Thành viên */}
               <div className="space-y-2">
                 <Label>Thành viên đang nhập điểm</Label>
-                <Select value={activeMemberId} onValueChange={setActiveMemberId}>
-                  <SelectTrigger className="w-full"><SelectValue placeholder="Chọn thành viên Hội đồng" /></SelectTrigger>
-                  <SelectContent>
-                    {EB_COUNCIL_MEMBERS.map(member => {
-                      const scored = councilAggregate.memberRows.find(r => r.id === member.id)?.scored;
-                      return <SelectItem key={member.id} value={member.id}>{member.name}{scored ? " · đã chấm" : ""}</SelectItem>;
-                    })}
-                  </SelectContent>
-                </Select>
+                {members.length === 0
+                  ? <p className="text-sm text-muted-foreground">Không có thành viên Hội đồng nào.</p>
+                  : (
+                    <Select value={activeMemberId ?? undefined} onValueChange={setActiveMemberId}>
+                      <SelectTrigger className="w-full"><SelectValue placeholder="Chọn thành viên Hội đồng" /></SelectTrigger>
+                      <SelectContent>
+                        {members.map(member => {
+                          const scored = councilAggregate.memberRows.find(r => r.id === member.id)?.scored;
+                          return (
+                            <SelectItem key={member.id} value={member.id}>
+                              {member.name}{scored ? " · đã chấm" : ""}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  )}
                 {activeMember && (
                   <p className="text-xs text-muted-foreground">
                     {activeMember.title} — DTB cá nhân tạm tính: <strong className="text-foreground">{average.toFixed(1)}</strong>
@@ -584,21 +632,29 @@ export default function Eb() {
                 )}
               </div>
 
+              {/* Bảng điểm HĐ */}
               <div className="space-y-3">
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">Điểm các thành viên Hội đồng</h3>
-                  <p className="text-xs text-muted-foreground">Hiển thị đầy đủ điểm đã lưu của từng thành viên và trung bình chung.</p>
+                  <p className="text-xs text-muted-foreground">
+                    {loadingEval ? "Đang tải điểm…" : "Hiển thị điểm đã lưu của từng thành viên và trung bình chung."}
+                  </p>
                 </div>
-                <CouncilScoresTable
-                  memberRows={councilAggregate.memberRows}
-                  scoreFields={scoreFields}
-                  criterionAverages={councilAggregate.criterionAverages}
-                  councilAverage={councilAggregate.councilAverage}
-                  scoredCount={councilAggregate.scoredCount}
-                  activeMemberId={activeMemberId}
-                />
+                {loadingEval
+                  ? <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Đang tải…</div>
+                  : (
+                    <CouncilScoresTable
+                      memberRows={councilAggregate.memberRows}
+                      scoreFields={scoreFields}
+                      criterionAverages={councilAggregate.criterionAverages}
+                      councilAverage={councilAggregate.councilAverage}
+                      scoredCount={councilAggregate.scoredCount}
+                      activeMemberId={activeMemberId}
+                    />
+                  )}
               </div>
 
+              {/* Score fields */}
               <div className="grid gap-4 md:grid-cols-2">
                 {scoreFields.map((field, idx) => {
                   const isLastOdd = idx === scoreFields.length - 1 && scoreFields.length % 2 === 1;
@@ -609,15 +665,16 @@ export default function Eb() {
                         score={scores[field.key]}
                         error={scoreErrors[field.key]}
                         note={criterionNotes[field.key]}
-                        onScoreChange={(val) => updateScore(field.key, val)}
+                        onScoreChange={val => updateScore(field.key, val)}
                         onBlur={() => normalizeScoreField(field.key)}
-                        onNoteChange={(val) => updateCriterionNote(field.key, val)}
+                        onNoteChange={val => updateCriterionNote(field.key, val)}
                       />
                     </div>
                   );
                 })}
               </div>
 
+              {/* DTB tổng hợp */}
               <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
                 <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">DTB Hội đồng (tổng hợp)</p>
                 <div className="flex items-end justify-between gap-3">
@@ -625,7 +682,7 @@ export default function Eb() {
                   <Badge variant="outline">/ {SCORE_MAX}.0</Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {councilAggregate.scoredCount}/{EB_COUNCIL_MEMBERS.length} thành viên đã chấm
+                  {councilAggregate.scoredCount}/{members.length} thành viên đã chấm
                   {activeMember && <> · Đang nhập cho <strong className="text-foreground">{activeMember.name}</strong> (DTB {average.toFixed(1)})</>}
                 </p>
                 <Badge variant="secondary" className={`border ${councilClassification.className}`}>{councilClassification.label}</Badge>
@@ -633,29 +690,33 @@ export default function Eb() {
                 <ThresholdTable />
               </div>
 
+              {/* Sticky save bar */}
               <div className="sticky bottom-4 z-10">
                 <div className="flex items-center gap-3 rounded-xl border bg-background/95 px-4 py-3 shadow-md backdrop-blur">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">
                       {activeMember?.name ?? "Chọn thành viên"}{" · "}
-                      <span className="text-muted-foreground">DTB cá nhân</span>{" "}
-                      {average.toFixed(1)}
+                      <span className="text-muted-foreground">DTB cá nhân</span>{" "}{average.toFixed(1)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       DTB HĐ: <strong className="text-foreground">{councilAggregate.councilAverage.toFixed(1)}</strong>{" · "}
                       <Badge variant="secondary" className={`border text-[10px] py-0 px-1.5 ${councilClassification.className}`}>{councilClassification.label}</Badge>
                     </p>
                   </div>
-                  <Button onClick={handleSaveAssessment} className="shrink-0">Lưu điểm</Button>
+                  <Button onClick={handleSaveAssessment} disabled={saving || !activeMemberId || !selectedId} className="shrink-0">
+                    {saving && <Loader2 className="size-4 animate-spin" />}
+                    Lưu điểm
+                  </Button>
                 </div>
               </div>
             </CardContent>
           </Card>
 
+          {/* Ảnh series */}
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle>Ảnh series từ Tantou</CardTitle>
-              <CardDescription>Hình preview của series đang được chấm, lấy trực tiếp từ submission Tantou.</CardDescription>
+              <CardDescription>Hình preview của series đang được chấm.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="overflow-hidden rounded-2xl border bg-muted/30">
@@ -664,86 +725,70 @@ export default function Eb() {
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="secondary">Tantou gửi sang EB</Badge>
-                  {activeTantouSubmission?.chapterNum && <Badge variant="outline">Ch. {activeTantouSubmission.chapterNum}</Badge>}
+                  {activeSubmission?.chapter_num && <Badge variant="outline">Ch. {activeSubmission.chapter_num}</Badge>}
                 </div>
                 <p className="text-sm font-medium text-foreground">{activeTitle || "Chưa có series trong hàng chờ"}</p>
-                <p className="text-sm text-muted-foreground">{activeTantouSubmission?.pageLabel ?? "Ảnh đang hiển thị là bản gửi từ Tantou hoặc ảnh thay thế nếu chưa có submission tương ứng."}</p>
+                <p className="text-sm text-muted-foreground">{activeSubmission?.page_label ?? "Ảnh lấy từ submission Tantou hoặc ảnh thay thế nếu chưa có."}</p>
               </div>
             </CardContent>
           </Card>
         </section>
 
+        {/* Hàng chờ duyệt */}
         <section className="space-y-4">
           <div>
-            <h2 className="flex items-center gap-2 text-xl font-semibold">
-              <Gavel className="size-5 text-primary" />
-              Hàng chờ duyệt
-            </h2>
+            <h2 className="flex items-center gap-2 text-xl font-semibold"><Gavel className="size-5 text-primary" />Hàng chờ duyệt</h2>
             <p className="text-sm text-muted-foreground">
-              Đồng bộ từ <Link to="/mangaka" className="font-medium text-primary hover:underline">Mangaka</Link>{" / "}
-              <Link to="/tantou" className="font-medium text-primary hover:underline">Tantou</Link>
+              Đồng bộ từ{" "}
+              <Link to="/mangaka" className="font-medium text-primary hover:underline">Mangaka</Link>{" / "}
+              <Link to="/tantou"  className="font-medium text-primary hover:underline">Tantou</Link>
             </p>
           </div>
-          {pending.length === 0 ? (
-            <Card><CardContent className="py-16 text-center text-muted-foreground">Không có series lần đầu trong hàng chờ.</CardContent></Card>
-          ) : (
-            <div className="grid gap-4">
-              {pending.map(p => {
-                const assessment = getQueueAssessment(p.title);
-                const isActive = p.title === activeTitle;
-                return (
-                  <Card
-                    key={p.id ?? p.title}
-                    onClick={() => setSelectedTitle(p.title)}
-                    className={`cursor-pointer transition-shadow hover:shadow-md ${isActive ? "ring-2 ring-primary" : ""}`}
-                  >
-                    <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="font-semibold">{p.title}</h3>
-                          <Badge variant="secondary">✦ Lần đầu</Badge>
-                          {assessment.scoredCount > 0 ? (
-                            <Badge variant="secondary" className={`border text-[11px] ${assessment.classification.className}`}>
-                              {assessment.scoredCount}/{assessment.total} đã chấm · {assessment.classification.label}
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline" className="text-[11px] text-muted-foreground">Chưa có điểm</Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {[p.genres?.slice(0, 2).join(" · "), p.formatLabel?.replace(/\s*\(.*\)$/, ""), p.authorName].filter(Boolean).join(" · ")}
-                        </p>
-                      </div>
-                      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          variant="outline"
-                          className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                          onClick={() => handleReject(p.title)}
-                        >
-                          <XCircle className="size-4" />
-                          Từ chối
-                        </Button>
-                        <Button onClick={() => handleApprove(p.title)}>
-                          <CheckCircle2 className="size-4" />
-                          Chấp nhận
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+          {loadingQueue
+            ? <Card><CardContent className="flex items-center justify-center gap-2 py-16 text-muted-foreground"><Loader2 className="size-5 animate-spin" />Đang tải hàng chờ…</CardContent></Card>
+            : pending.length === 0
+              ? <Card><CardContent className="py-16 text-center text-muted-foreground">Không có series lần đầu trong hàng chờ.</CardContent></Card>
+              : (
+                <div className="grid gap-4">
+                  {pending.map(p => {
+                    const id    = p.series_id ?? p.id;
+                    const title = p.series_title ?? p.title ?? `Series #${id}`;
+                    const assessment = getQueueAssessment(id);
+                    const isActive   = id === selectedId;
+                    return (
+                      <Card
+                        key={id}
+                        onClick={() => setSelectedId(id)}
+                        className={`cursor-pointer transition-shadow hover:shadow-md ${isActive ? "ring-2 ring-primary" : ""}`}
+                      >
+                        <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="font-semibold">{title}</h3>
+                              <Badge variant="secondary">✦ Lần đầu</Badge>
+                              {assessment.scoredCount > 0
+                                ? <Badge variant="secondary" className={`border text-[11px] ${assessment.classification.className}`}>{assessment.scoredCount}/{assessment.total} đã chấm · {assessment.classification.label}</Badge>
+                                : <Badge variant="outline" className="text-[11px] text-muted-foreground">Chưa có điểm</Badge>}
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                              {[p.genres?.slice(0, 2).join(" · "), p.format_label, p.author_name].filter(Boolean).join(" · ")}
+                            </p>
+                          </div>
+                          <div className="flex gap-2" onClick={e => e.stopPropagation()}>
+                            <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => handleReject(id, title)}>
+                              <XCircle className="size-4" />Từ chối
+                            </Button>
+                            <Button onClick={() => handleApprove(id, title)}>
+                              <CheckCircle2 className="size-4" />Chấp nhận
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
         </section>
-
-        {approvedList.length > 0 && (
-          <section className="space-y-4">
-            <h2 className="text-lg font-semibold">Đã chấp nhận</h2>
-            <div className="flex flex-wrap gap-2">
-              {approvedList.map(title => <Badge key={title} variant="outline" className="px-3 py-1">{title}</Badge>)}
-            </div>
-          </section>
-        )}
       </main>
 
       <Footer />
