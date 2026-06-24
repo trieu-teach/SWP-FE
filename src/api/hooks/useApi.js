@@ -260,6 +260,14 @@ export function useDeletePage() {
   })
 }
 
+export function useHardDeletePage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id) => pagesService.hardDelete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pages'] }) },
+  })
+}
+
 export function usePageComposite() {
   const qc = useQueryClient()
   return useMutation({
@@ -430,6 +438,25 @@ export function useUpdateContractStatus() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ id, status }) => contractsService.updateStatus(id, status),
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ['contracts'] })
+      qc.invalidateQueries({ queryKey: ['contracts', 'detail', id] })
+    },
+  })
+}
+
+export function useSoftDeleteContract() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id) => contractsService.softDelete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['contracts'] }) },
+  })
+}
+
+export function useUploadContractFile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, formData }) => contractsService.uploadFile(id, formData),
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ['contracts'] })
       qc.invalidateQueries({ queryKey: ['contracts', 'detail', id] })
