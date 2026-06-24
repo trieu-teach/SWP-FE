@@ -789,11 +789,11 @@ export default function Mangaka() {
     let serverSeriesId = null
     if (mangakaId) {
       try {
-        const sr = await seriesService.getByTitle(null, mangakaId)
+        const sr = await seriesService.getByTitle(title, mangakaId)
         const list = Array.isArray(sr?.data) ? sr.data : []
         const found = list.find(s => s.title === title)
-        if (found?.series_id) serverSeriesId = found.series_id
-        console.log('[handleUploadComplete] series lookup →', { title, serverSeriesId, allTitles: list.map(s => ({ id: s.series_id, title: s.title })) })
+        if (found?.seriesid) serverSeriesId = found.seriesid
+        console.log('[handleUploadComplete] series lookup →', { title, serverSeriesId, allTitles: list.map(s => ({ id: s.seriesid, title: s.title })) })
       } catch (e) {
         console.warn('[handleUploadComplete] series lookup failed:', e)
       }
