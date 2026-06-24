@@ -1,16 +1,11 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/lib/providers'
-import { isLoggingIn } from '@/lib/providers/AuthProvider'
 import { getRolePath } from '@/lib/auth'
 
 export function ProtectedRoute({ roles = [] }) {
-  const ctx = useAuth()
-  if (!ctx) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>
-  }
-  const { user, loading } = ctx
+  const { user, loading } = useAuth()
 
-  if (loading || isLoggingIn) {
+  if (loading) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>
   }
 
@@ -26,13 +21,9 @@ export function ProtectedRoute({ roles = [] }) {
 }
 
 export function GuestRoute() {
-  const ctx = useAuth()
-  if (!ctx) {
-    return <div className="flex items-center justify-center h-screen">Loading...</div>
-  }
-  const { user, loading } = ctx
+  const { user, loading } = useAuth()
 
-  if (loading || isLoggingIn) {
+  if (loading) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>
   }
 

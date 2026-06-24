@@ -41,23 +41,20 @@ export function clearSession() {
 
 function buildSessionFromAuthResponse(data) {
   if (!data) return null
-  const roleKey =
-    ROLE_ID_TO_KEY[data.roleid] ??
-    ROLE_ID_TO_KEY[data.Roleid] ??
-    ROLE_ID_TO_KEY[data.roleId] ??
-    ROLE_ID_TO_KEY[data.RoleId] ??
-    null
+  const rawRoleId = data.role_id ?? data.roleid ?? data.roleId ?? data.RoleId
+  const rawUserId = data.user_id ?? data.userid ?? data.userId ?? data.UserId
+  const roleKey = ROLE_ID_TO_KEY[Number(rawRoleId)] ?? null
   return {
-    id: data.userid ?? data.Userid ?? data.userId ?? data.UserId,
-    userid: data.userid ?? data.Userid ?? data.userId ?? data.UserId,
+    id: rawUserId,
+    userid: rawUserId,
     username: data.username ?? data.Username,
-    name: data.fullname ?? data.Fullname ?? data.fullName ?? data.Username,
-    fullname: data.fullname ?? data.Fullname ?? data.fullName,
-    email: data.email ?? data.Email,
-    roleid: data.roleid ?? data.Roleid ?? data.roleId ?? data.RoleId,
+    name: data.full_name ?? data.fullname ?? data.fullName ?? data.username,
+    fullname: data.full_name ?? data.fullname ?? data.fullName,
+    email: data.email,
+    roleid: Number(rawRoleId),
     role: roleKey,
     token: data.token,
-    refreshToken: data.refreshToken,
+    refreshToken: data.refresh_token ?? data.refreshToken,
   }
 }
 
@@ -66,12 +63,9 @@ export async function login(username, password) {
   const data = res.data
   if (!data?.token) throw new Error('Phan hoi dang nhap khong hop le — khong co token.')
 
-  // Luu token truoc de cac API call sau co Bearer header
   if (data.token) localStorage.setItem('token', data.token)
   if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken)
 
-  // Lay user tu response login (khong goi profile o day vi endpoint /users/profile
-  // chua co hoac co the 404 → tranh lam crash React error boundary)
   const user = buildSessionFromAuthResponse(data)
   if (!user) throw new Error('Phan hoi dang nhap khong hop le.')
 
