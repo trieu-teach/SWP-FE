@@ -108,7 +108,7 @@ instance.interceptors.response.use(
     }
 
     if (status === 403) {
-      const backendMsg = errorMsg && errorMsg !== 'Ban khong co quyen thuc hien thao tac nay.' ? ` (${errorMsg})` : ''
+      const backendMsg = errorMsg && errorMsg !== 'Ban khong co quyen thuc hien thao tac nay' ? ` (${errorMsg})` : ''
       toast.error(`Ban khong co quyen thuc hien thao tac nay${backendMsg}`)
       return Promise.reject(err)
     }

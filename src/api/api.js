@@ -65,9 +65,7 @@ export const seriesService = {
   },
   updateStatus: (id, status) => {
     console.log('[API] PATCH /Series/:id/status', id, status)
-    return axios.patch(`/Series/${id}/status`, JSON.stringify(status), {
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return axios.patch(`/Series/${id}/status`, { Status: status })
   },
   updatePublishFormat: (id, publishFormat) => {
     console.log('[API] PATCH /Series/:id/publish-format', id, publishFormat)
@@ -339,9 +337,7 @@ export const contractsService = {
   },
   updateStatus: (id, status) => {
     console.log('[API] PATCH /MangakaAssistant/:id/status', id, status)
-    return axios.patch(`/MangakaAssistant/${id}/status`, JSON.stringify(status), {
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return axios.patch(`/MangakaAssistant/${id}/status`, { Status: status })
   },
   softDelete: (id) => {
     console.log('[API] DELETE /MangakaAssistant/:id', id)
@@ -373,9 +369,7 @@ export const pageIssuesApi = {
   },
   updateStatus: (id, status) => {
     console.log('[API] PATCH /PageIssues/:id/status', id, status)
-    return axios.patch(`/PageIssues/${id}/status`, JSON.stringify(status), {
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return axios.patch(`/PageIssues/${id}/status`, { Status: status })
   },
   softDelete: (id) => {
     console.log('[API] DELETE /PageIssues/:id/soft', id)
