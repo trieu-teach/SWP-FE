@@ -55,8 +55,9 @@ async function refreshAccessToken() {
       .refreshToken({ token: refreshToken })
       .then(res => {
         const data = res?.data
+        // snake-case transformer already ran, so try lowercase first
         const newToken = data?.token ?? data?.Token
-        const newRefresh = data?.refreshToken ?? data?.RefreshToken
+        const newRefresh = data?.refresh_token ?? data?.refreshToken ?? data?.RefreshToken
         if (!newToken) throw new Error('Refresh response missing access token')
         localStorage.setItem('token', newToken)
         if (newRefresh) localStorage.setItem('refreshToken', newRefresh)

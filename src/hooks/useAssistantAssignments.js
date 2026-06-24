@@ -164,11 +164,24 @@ export function useAssistantAssignments() {
     void refresh()
   }, [refresh])
 
-  // Poll localStorage inbox for new submissions from Mangaka (every 3s)
+  // Refresh when:
+  //  - assistant changes
+  //  - the page becomes visible again (e.g. user switches back to tab, or returns from /mangaka)
+  //  - a "contract-updated" event fires (new assignment accepted, status changed, etc.)
   useEffect(() => {
     if (!assistantId) return
-    const interval = setInterval(() => { void refresh() }, 3000)
-    return () => clearInterval(interval)
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    const onContractUpdated = () => { void refresh() }
+
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('assistant-assignments-changed', onContractUpdated)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('assistant-assignments-changed', onContractUpdated)
+    }
   }, [assistantId, refresh])
 
   return { assignments, loading, error, refresh }
