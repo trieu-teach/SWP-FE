@@ -105,9 +105,7 @@ export const chaptersService = {
   },
   updateStatus: (id, status) => {
     console.log('[API] PATCH /Chapters/:id/status', id, status)
-    return axios.patch(`/Chapters/${id}/status`, status, {
-      headers: { 'Content-Type': 'text/plain' },
-    })
+    return axios.patch(`/Chapters/${id}/status`, { status })
   },
 }
 
