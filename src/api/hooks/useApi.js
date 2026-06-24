@@ -1,5 +1,17 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSession } from '@/lib/auth'
+/**
+ * Unwrap the standard backend envelope {succeeded, message, errors, data, status_code}.
+ * Returns `res.data.data` if present, else `res.data` (for raw responses that
+ * aren't wrapped, e.g. some endpoints). Falls back to null.
+ */
+function unwrap(res) {
+  if (!res) return null
+  const payload = res.data
+  if (payload && typeof payload === 'object' && 'data' in payload && !Array.isArray(payload)) {
+    return payload.data
+  }
+  return payload ?? null
+}
+
 import {
   seriesService,
   chaptersService,
@@ -21,7 +33,10 @@ import { notificationsService } from '@/api/notificationsService'
 export function useAvailableAssistants() {
   return useQuery({
     queryKey: ['available-assistants'],
-    queryFn: () => usersService.getAvailableAssistants().then(res => res?.data ?? []),
+    queryFn: async () => {
+      const res = await usersService.getAvailableAssistants()
+      return unwrap(res) ?? []
+    },
   })
 }
 
@@ -31,14 +46,20 @@ export function useAvailableAssistants() {
 export function useSeries() {
   return useQuery({
     queryKey: ['series'],
-    queryFn: () => seriesService.getAll().then(res => res.data ?? []),
+    queryFn: async () => {
+      const res = await seriesService.getAll()
+      return unwrap(res)
+    },
   })
 }
 
 export function useSeriesByMangaka(mangakaId) {
   return useQuery({
     queryKey: ['series', 'mangaka', mangakaId],
-    queryFn: () => seriesService.getByMangaka(mangakaId).then(res => res.data ?? []),
+    queryFn: async () => {
+      const res = await seriesService.getByMangaka(mangakaId)
+      return unwrap(res) ?? []
+    },
     enabled: !!mangakaId,
   })
 }
@@ -46,7 +67,10 @@ export function useSeriesByMangaka(mangakaId) {
 export function useSeriesById(id) {
   return useQuery({
     queryKey: ['series', id],
-    queryFn: () => seriesService.getById(id).then(res => res.data),
+    queryFn: async () => {
+      const res = await seriesService.getById(id)
+      return unwrap(res)
+    },
     enabled: !!id,
   })
 }
@@ -115,14 +139,20 @@ export function useHardDeleteSeries() {
 export function useChapters(seriesId) {
   return useQuery({
     queryKey: ['chapters', seriesId ? { seriesId } : 'all'],
-    queryFn: () => chaptersService.getAll(seriesId).then(res => res.data ?? []),
+    queryFn: async () => {
+      const res = await chaptersService.getAll(seriesId)
+      return unwrap(res) ?? []
+    },
   })
 }
 
 export function useChapterById(id) {
   return useQuery({
     queryKey: ['chapters', id],
-    queryFn: () => chaptersService.getById(id).then(res => res.data),
+    queryFn: async () => {
+      const res = await chaptersService.getById(id)
+      return unwrap(res)
+    },
     enabled: !!id,
   })
 }
@@ -130,7 +160,10 @@ export function useChapterById(id) {
 export function useChaptersByAssistant(assistantId) {
   return useQuery({
     queryKey: ['chapters', 'assistant', assistantId],
-    queryFn: () => chaptersService.getByAssistant(assistantId).then(res => res?.data ?? []),
+    queryFn: async () => {
+      const res = await chaptersService.getByAssistant(assistantId)
+      return unwrap(res) ?? []
+    },
     enabled: !!assistantId,
   })
 }
@@ -182,7 +215,10 @@ export function usePages(chapterId) {
   const isServerId = Number.isFinite(numericId)
   return useQuery({
     queryKey: ['pages', isServerId ? { chapterId: numericId } : 'local'],
-    queryFn: () => pagesService.getAll(isServerId ? numericId : null).then(res => res.data ?? []),
+    queryFn: async () => {
+      const res = await pagesService.getAll(isServerId ? numericId : null)
+      return unwrap(res) ?? []
+    },
     enabled: isServerId,
   })
 }
@@ -190,7 +226,7 @@ export function usePages(chapterId) {
 export function usePageById(id) {
   return useQuery({
     queryKey: ['pages', id],
-    queryFn: () => pagesService.getById(id).then(res => res.data),
+    queryFn: async () => { const res = await pagesService.getById(id); return unwrap(res) },
     enabled: !!id,
   })
 }
@@ -239,14 +275,20 @@ export function usePageComposite() {
 export function usePageLayers(pageId) {
   return useQuery({
     queryKey: ['pageLayers', pageId ? { pageId } : 'all'],
-    queryFn: () => pageLayersService.getAll(pageId).then(res => res.data ?? []),
+    queryFn: async () => {
+      const res = await pageLayersService.getAll(pageId)
+      return unwrap(res) ?? []
+    },
   })
 }
 
 export function usePageLayerById(id) {
   return useQuery({
     queryKey: ['pageLayers', id],
-    queryFn: () => pageLayersService.getById(id).then(res => res.data),
+    queryFn: async () => {
+      const res = await pageLayersService.getById(id)
+      return unwrap(res)
+    },
     enabled: !!id,
   })
 }
@@ -294,7 +336,7 @@ export function usePageIssues(chapterId) {
   const isServerId = Number.isFinite(numericId)
   return useQuery({
     queryKey: ['pageIssues', isServerId ? { chapterId: numericId } : 'local'],
-    queryFn: () => pageIssuesApi.getAll({ chapterId: isServerId ? numericId : undefined }).then(res => res?.data ?? []),
+    queryFn: async () => { const res = await pageIssuesApi.getAll(isServerId ? numericId : null); return unwrap(res) ?? [] },
     enabled: isServerId,
   })
 }
@@ -302,7 +344,7 @@ export function usePageIssues(chapterId) {
 export function usePageIssueById(id) {
   return useQuery({
     queryKey: ['pageIssues', id],
-    queryFn: () => pageIssuesApi.getById(id).then(res => res?.data),
+    queryFn: async () => { const res = await pageIssuesApi.getById(id); return unwrap(res) },
     enabled: !!id,
   })
 }
@@ -351,14 +393,14 @@ export function useDeletePageIssue() {
 export function useContracts({ mangakaId, assistantId } = {}) {
   return useQuery({
     queryKey: ['contracts', { mangakaId, assistantId }],
-    queryFn: () => contractsService.getAll({ mangakaId, assistantId }).then(res => res?.data ?? []),
+    queryFn: async () => { const res = await contractsService.getAll({ mangakaId, assistantId }); return unwrap(res) ?? [] },
   })
 }
 
 export function useContractById(id) {
   return useQuery({
     queryKey: ['contracts', 'detail', id],
-    queryFn: () => contractsService.getById(id).then(res => res?.data),
+    queryFn: async () => { const res = await contractsService.getById(id); return unwrap(res) },
     enabled: !!id,
   })
 }
@@ -399,7 +441,7 @@ export function useUpdateContractStatus() {
 export function useGenres() {
   return useQuery({
     queryKey: ['genres'],
-    queryFn: () => genresService.getAll().then(res => res.data ?? []),
+    queryFn: async () => { const res = await genresService.getAll(); return unwrap(res) ?? [] },
     staleTime: 5 * 60 * 1000,
   })
 }
@@ -407,7 +449,7 @@ export function useGenres() {
 export function useGenreById(id) {
   return useQuery({
     queryKey: ['genres', id],
-    queryFn: () => genresService.getById(id).then(res => res.data),
+    queryFn: async () => { const res = await genresService.getById(id); return unwrap(res) },
     enabled: !!id,
   })
 }
@@ -423,7 +465,7 @@ export function useCreateGenre() {
 export function useTags() {
   return useQuery({
     queryKey: ['tags'],
-    queryFn: () => tagsService.getAll().then(res => res.data ?? []),
+    queryFn: async () => { const res = await tagsService.getAll(); return unwrap(res) ?? [] },
     staleTime: 5 * 60 * 1000,
   })
 }
@@ -431,7 +473,7 @@ export function useTags() {
 export function useTagById(id) {
   return useQuery({
     queryKey: ['tags', id],
-    queryFn: () => tagsService.getById(id).then(res => res.data),
+    queryFn: async () => { const res = await tagsService.getById(id); return unwrap(res) },
     enabled: !!id,
   })
 }
@@ -450,14 +492,14 @@ export function useCreateTag() {
 export function useAvailableAssistantProfiles() {
   return useQuery({
     queryKey: ['assistant-profiles', 'available'],
-    queryFn: () => assistantProfileService.getAvailable().then(res => res?.data ?? []),
+    queryFn: async () => { const res = await assistantProfileService.getAvailable(); return unwrap(res) ?? [] },
   })
 }
 
 export function useAssistantProfile(assistantId) {
   return useQuery({
     queryKey: ['assistant-profiles', assistantId],
-    queryFn: () => assistantProfileService.getById(assistantId).then(res => res?.data),
+    queryFn: async () => { const res = await assistantProfileService.getById(assistantId); return unwrap(res) },
     enabled: !!assistantId,
   })
 }
@@ -468,14 +510,14 @@ export function useAssistantProfile(assistantId) {
 export function useAvailableTantouEditors() {
   return useQuery({
     queryKey: ['tantou-editors', 'available'],
-    queryFn: () => tantouService.getAvailable().then(res => res?.data ?? []),
+    queryFn: async () => { const res = await tantouService.getAvailable(); return unwrap(res) ?? [] },
   })
 }
 
 export function useTantouEditor(editorId) {
   return useQuery({
     queryKey: ['tantou-editors', editorId],
-    queryFn: () => tantouService.getById(editorId).then(res => res?.data),
+    queryFn: async () => { const res = await tantouService.getById(editorId); return unwrap(res) },
     enabled: !!editorId,
   })
 }
@@ -486,7 +528,7 @@ export function useTantouEditor(editorId) {
 export function useProfile() {
   return useQuery({
     queryKey: ['profile'],
-    queryFn: () => usersService.getProfile().then(res => res.data),
+    queryFn: async () => { const res = await usersService.getProfile(); return unwrap(res) },
   })
 }
 

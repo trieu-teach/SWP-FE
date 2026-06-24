@@ -841,7 +841,7 @@ export default function Mangaka() {
     // Khi la chapter moi: tao chapter tren server, lay real ID, roi upload tung trang
     console.log('[DEBUG] handleUploadComplete →', {
       title, isNewChapter, mangakaId, serverSeriesId,
-      foundSeriesId: foundSeries?.id, seriesListIds: seriesList.map(s => ({ id: s.id, title: s.title })),
+      foundSeriesId: found?.seriesid, seriesListIds: seriesList.map(s => ({ id: s.id, title: s.title })),
     })
     if (isNewChapter && mangakaId && serverSeriesId) {
       const chData = {
@@ -854,14 +854,29 @@ export default function Mangaka() {
       }
       createChapter.mutate(chData, {
         onSuccess: (createdChapter) => {
+          // Backend tra ve wrapped response: {succeeded, message, errors, data, statusCode}
+          // data that that nam trong createdChapter.data.data.*
+          const responseData = createdChapter?.data
+          const succeeded = responseData?.succeeded ?? true
+          if (succeeded === false) {
+            toast.error(responseData?.message ?? `Không tạo được Ch. ${displayNum} trên server.`)
+            return
+          }
           toast.success(`Đã tạo Ch. ${displayNum} trên server!`)
 
-          // Lay real chapterId tu backend
+          // Lay real chapterId tu backend (ho tro ca wrapped va unwrapped)
+          const payload = responseData?.data ?? responseData
           const realChapterId =
-            createdChapter?.data?.chapterid
-            ?? createdChapter?.data?.Chapterid
-            ?? createdChapter?.data?.id
-            ?? createdChapter?.data
+            payload?.chapterid
+            ?? payload?.Chapterid
+            ?? payload?.chapterId
+            ?? payload?.id
+
+          if (realChapterId == null) {
+            toast.error('Server không trả về chapter ID — không thể upload trang.')
+            console.error('[Mangaka] createChapter response thiếu ID:', responseData)
+            return
+          }
 
           // 1) Cap nhat chapterRows & annotatorChapters voi real ID
           setLocalChapterRows(prev => prev.map(r =>
@@ -888,7 +903,7 @@ export default function Mangaka() {
           }
 
           // 3) Upload tung trang (pages) len server
-          if (realChapterId && Number.isFinite(realChapterId)) {
+          if (realChapterId != null) {
             const srcChapter = Array.isArray(nextAnnotatorChapters)
               ? nextAnnotatorChapters.find(c => String(c.id) === String(rowId))
               : null
@@ -905,7 +920,20 @@ export default function Mangaka() {
                 createPage.mutate(fd, {
                   onSuccess: (res) => {
                     console.log('[Mangaka] POST /Pages OK trang', idx + 1, '→ response:', JSON.stringify(res?.data))
-                    const pageId = res?.data?.id ?? res?.data?.Id ?? res?.data?.PAGEID ?? res?.data?.Pageid ?? null
+                    // Backend tra ve wrapped: {succeeded, message, errors, data, statusCode}
+                    // -> page that that nam trong res.data.data.*
+                    const pageResponseData = res?.data
+                    const pageSucceeded = pageResponseData?.succeeded ?? true
+                    if (pageSucceeded === false) {
+                      toast.error(`Upload trang ${idx + 1} thất bại: ${pageResponseData?.message ?? 'server trả về lỗi'}`)
+                      return
+                    }
+                    const pagePayload = pageResponseData?.data ?? pageResponseData
+                    const pageId =
+                      pagePayload?.pageid
+                      ?? pagePayload?.Pageid
+                      ?? pagePayload?.pageId
+                      ?? pagePayload?.id
                     if (pageId) {
                       toast.success(`Đã upload trang ${idx + 1} (ID: ${pageId})`)
                       // Patch the page in annotatorChapters with its server ID
@@ -918,6 +946,8 @@ export default function Mangaka() {
                           ),
                         }
                       }))
+                    } else {
+                      console.warn('[Mangaka] page response thiếu pageId:', pageResponseData)
                     }
                   },
                   onError: (err) =>
