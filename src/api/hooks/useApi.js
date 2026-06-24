@@ -349,12 +349,23 @@ export function useTogglePageLayerVisibility() {
 /* ===========================
    PAGE ISSUES HOOKS
    =========================== */
-export function usePageIssues(chapterId) {
-  const numericId = Number(chapterId)
+// Hỗ trợ cả 2 dạng: usePageIssues({ pageId }) hoặc usePageIssues({ chapterId })
+// BE trả raw array PageIssueDto[] (không wrap)
+export function usePageIssues({ pageId, chapterId, status } = {}) {
+  const pid = pageId != null ? Number(pageId) : null
+  const cid = chapterId != null ? Number(chapterId) : null
+  const numericId = pid ?? cid
   const isServerId = Number.isFinite(numericId)
+  const key = isServerId
+    ? { pageId: pid, chapterId: pid ? null : cid, status: status ?? null }
+    : 'local'
   return useQuery({
-    queryKey: ['pageIssues', isServerId ? { chapterId: numericId } : 'local'],
-    queryFn: async () => { const res = await pageIssuesApi.getAll(isServerId ? numericId : null); return unwrap(res) ?? [] },
+    queryKey: ['pageIssues', key],
+    queryFn: async () => {
+      const res = await pageIssuesApi.getAll({ pageId: pid, chapterId: pid ? null : cid, status })
+      const data = unwrap(res)
+      return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : [])
+    },
     enabled: isServerId,
   })
 }

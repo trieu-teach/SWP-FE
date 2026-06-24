@@ -69,21 +69,39 @@ export default function LayerEditor({ chapter, pageId: pageIdProp, onSubmitted, 
     refresh,
   } = layersApi
 
-  // Notes cho page hiện tại
+  // Notes cho page hiện tại — dùng pageId (preferred) thay vì chapterId
   useEffect(() => {
     let cancelled = false
     async function load() {
-      if (!chapter?.chapterId) {
+      if (!activePageId) {
         setPageNotes([])
         return
       }
       setNotesLoading(true)
       try {
-        const res = await pageIssuesService.getAll(chapter.chapterId)
+        // BE trả về raw array PageIssueDto[] — không filter theo status
+        // để hiển thị cả "Pending" (note mới từ Mangaka)
+        const res = await pageIssuesService.getAll({ pageId: activePageId })
         if (cancelled) return
-        const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []
-        setPageNotes(list)
-      } catch {
+        const raw = res?.data
+        const list = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : []
+        // Map BE fields → UI fields (BE trả PascalCase nhưng snake-case transform sẽ đổi)
+        // BE: issueid, pageid, description, status, boxX, boxY, boxWidth, boxHeight
+        // Sau transform: issueid, pageid, description, status, box_x, box_y, box_width, box_height
+        const mapped = list.map(n => ({
+          id: n.issueid ?? n.issueId ?? n.Issueid ?? n.id,
+          pageId: n.pageid ?? n.pageId ?? n.Pageid,
+          description: n.description ?? n.Description ?? '',
+          status: n.status ?? n.Status ?? 'Pending',
+          x: Number(n.boxx ?? n.boxX ?? n.BoxX ?? n.x ?? 0),
+          y: Number(n.boxy ?? n.boxY ?? n.BoxY ?? n.y ?? 0),
+          w: Number(n.boxwidth ?? n.boxWidth ?? n.BoxWidth ?? n.w ?? n.width ?? 10),
+          h: Number(n.boxheight ?? n.boxHeight ?? n.BoxHeight ?? n.h ?? n.height ?? 10),
+        }))
+        console.log('[LayerEditor] notes for pageId', activePageId, '→', mapped.length, 'items:', mapped.map(n => ({ id: n.id, status: n.status, desc: n.description?.slice(0, 30) })))
+        setPageNotes(mapped)
+      } catch (err) {
+        console.error('[LayerEditor] failed to load notes:', err)
         if (!cancelled) setPageNotes([])
       } finally {
         if (!cancelled) setNotesLoading(false)
@@ -91,7 +109,7 @@ export default function LayerEditor({ chapter, pageId: pageIdProp, onSubmitted, 
     }
     void load()
     return () => { cancelled = true }
-  }, [chapter?.chapterId, activePageId])
+  }, [activePageId])
 
   const baseImage = showOriginal ? (originalImage ?? safePage?.url ?? null) : null
 

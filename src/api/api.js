@@ -191,9 +191,15 @@ export const pageLayersService = {
 
 // ── PAGE ISSUES ────────────────────────────────────────────────────────────────
 export const pageIssuesService = {
-  getAll: (chapterId) => {
-    console.log('[API] GET /PageIssues', { chapterId })
-    return axios.get('/PageIssues', { params: chapterId != null ? { chapterId } : undefined })
+  // GET /PageIssues?pageId=N (preferred) or ?chapterId=N (fallback) or ?status=...
+  // Returns raw PageIssueDto[] (not wrapped)
+  getAll: ({ pageId, chapterId, status } = {}) => {
+    const params = {}
+    if (pageId != null) params.pageId = pageId
+    else if (chapterId != null) params.chapterId = chapterId
+    if (status) params.status = status
+    console.log('[API] GET /PageIssues', params)
+    return axios.get('/PageIssues', { params: Object.keys(params).length ? params : undefined })
   },
   getById: (id) => {
     console.log('[API] GET /PageIssues/:id', id)
@@ -351,9 +357,14 @@ export const contractsService = {
 
 // ── PAGE ISSUES (duplicated service) ──────────────────────────────────────────
 export const pageIssuesApi = {
-  getAll: (chapterId) => {
-    console.log('[API] GET /PageIssues', { chapterId })
-    return axios.get('/PageIssues', { params: chapterId != null ? { chapterId } : undefined })
+  // GET /PageIssues?pageId=N (preferred) or ?chapterId=N (fallback) or ?status=...
+  getAll: ({ pageId, chapterId, status } = {}) => {
+    const params = {}
+    if (pageId != null) params.pageId = pageId
+    else if (chapterId != null) params.chapterId = chapterId
+    if (status) params.status = status
+    console.log('[API] GET /PageIssues', params)
+    return axios.get('/PageIssues', { params: Object.keys(params).length ? params : undefined })
   },
   getById: (id) => {
     console.log('[API] GET /PageIssues/:id', id)

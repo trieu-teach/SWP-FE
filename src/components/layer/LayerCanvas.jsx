@@ -107,23 +107,45 @@ export default function LayerCanvas({
         // Vẽ notes overlay
         if (showNotes && notes.length > 0) {
           for (const note of notes) {
-            const x = (note.boxx ?? note.boxX ?? 0)
-            const y = (note.boxy ?? note.boxY ?? 0)
-            const w = (note.boxwidth ?? note.boxWidth ?? 10)
-            const h = (note.boxheight ?? note.boxHeight ?? 10)
+            // Hỗ trợ cả 2 shape: {boxx, boxy, boxwidth, boxheight} (PascalCase) và {x, y, w, h} (mapped)
+            const x = Number(note.x ?? note.boxx ?? note.boxX ?? 0)
+            const y = Number(note.y ?? note.boxy ?? note.boxY ?? 0)
+            const w = Number(note.w ?? note.boxwidth ?? note.boxWidth ?? 10)
+            const h = Number(note.h ?? note.boxheight ?? note.boxHeight ?? 10)
             const nx = (canvas.width * x) / 100
             const ny = (canvas.height * y) / 100
             const nw = (canvas.width * w) / 100
             const nh = (canvas.height * h) / 100
 
+            // Tô màu theo status: Pending = đỏ, InProgress = vàng, Completed = xám
+            const status = (note.status ?? 'Pending').toLowerCase()
+            const stroke = status === 'completed' ? '#9ca3af' : status === 'inprogress' ? '#f59e0b' : '#f43f5e'
+            const fill = status === 'completed' ? 'rgba(156, 163, 175, 0.08)' : status === 'inprogress' ? 'rgba(245, 158, 11, 0.10)' : 'rgba(244, 63, 94, 0.10)'
+
             ctx.save()
-            ctx.fillStyle = 'rgba(244, 63, 94, 0.10)'
-            ctx.strokeStyle = '#f43f5e'
+            ctx.fillStyle = fill
+            ctx.strokeStyle = stroke
             ctx.lineWidth = 2
             ctx.setLineDash([6, 4])
             ctx.fillRect(nx, ny, nw, nh)
             ctx.strokeRect(nx, ny, nw, nh)
             ctx.setLineDash([])
+
+            // Vẽ label với số thứ tự + status
+            const label = note.description
+              ? `[${status}] ${note.description.slice(0, 40)}`
+              : `[${status}] #${note.id ?? '?'}`
+            if (label) {
+              ctx.font = 'bold 11px sans-serif'
+              const tw = ctx.measureText(label).width
+              const padX = 5, padY = 3
+              const lx = Math.min(nx, nx + nw - tw - padX * 2)
+              const ly = Math.max(0, ny - 18)
+              ctx.fillStyle = stroke
+              ctx.fillRect(lx, ly, tw + padX * 2, 16)
+              ctx.fillStyle = '#ffffff'
+              ctx.fillText(label, lx + padX, ly + 12)
+            }
             ctx.restore()
           }
         }
