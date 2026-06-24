@@ -48,6 +48,9 @@ export default function Login() {
 
     try {
       const user = await authLogin(form.username.trim(), form.password)
+      console.log('user:', user)
+      console.log('role:', user.role)
+      console.log('navigate to:', getRolePath(user.role))
       if (remember) sessionStorage.setItem('rememberUsername', form.username.trim())
       else sessionStorage.removeItem('rememberUsername')
       toast.success(`Dang nhap thanh cong! Chao ${user.name || user.username}.`)

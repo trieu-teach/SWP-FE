@@ -72,7 +72,7 @@ function buildSessionFromAuthResponse(data) {
   const jwtPayload = pick(data, ['token']) ? decodeJwtPayload(data.token) : {}
 
   // Resolve role: ưu tiên chuỗi role hợp lệ, fallback roleId (snake & Pascal) từ
-  // response hoặc JWT.  Đảm bảo check cả hai dạng snake_case + PascalCase cho mọi
+  // response backend hoặc JWT.  Đảm bảo check cả hai dạng snake_case + PascalCase cho mọi
   // field để chịu được cả response backend PascalCase lẫn response sau khi
   // normalizeKeys của axiosClient đã convert thành snake_case.
   const rawRole = pick(data, ['role', 'Role'])
@@ -118,8 +118,6 @@ export async function login(username, password) {
   if (token) localStorage.setItem('token', token)
   if (refreshToken) localStorage.setItem('refreshToken', refreshToken)
 
-  // Lay user tu response login (khong goi profile o day vi endpoint /users/profile
-  // chua co hoac co the 404 → tranh lam crash React error boundary)
   const user = buildSessionFromAuthResponse(data)
   if (!user) throw new Error('Phan hoi dang nhap khong hop le.')
 
