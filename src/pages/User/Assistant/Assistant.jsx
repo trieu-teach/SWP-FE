@@ -546,12 +546,14 @@ async function handleSubmitToMangaka() {
             ) : (
               <ScrollArea className="max-h-[calc(100vh-220px)]">
                 <ul className="divide-y">
-                  {assignments.map(a => {
+                  {assignments.map((a, idx) => {
                     const badge = STATUS_BADGE[a.status] ?? STATUS_BADGE.pending
                     const cover = a.pages?.find(p => p.url)
                     const isSelected = a.chapterId === selectedChapterId
+                    // Use composite key to avoid collisions: server chapterId vs localStorage submission
+                    const assignmentKey = a.id ?? a.contractId ?? `${a.chapterId}-${a.seriesTitle}-${idx}`
                     return (
-                      <li key={a.chapterId}>
+                      <li key={assignmentKey}>
                         <button
                           type="button"
                           onClick={() => handleSelectChapter(a)}
