@@ -13,6 +13,8 @@ import {
   Layers,
   Loader2,
   Plus,
+  Send,
+  StickyNote,
   Trash2,
   Upload,
   Wand2,
@@ -55,6 +57,9 @@ import {
   useDeletePageLayer,
   useTogglePageLayerVisibility,
   usePageComposite,
+  usePageIssues,
+  useUpdatePageIssueStatus,
+  useUpdateChapterStatus,
 } from '@/api/hooks'
 import { pagesService } from '@/api'
 import '@/styles/mangaPage.css'
@@ -131,7 +136,7 @@ function LayerThumbnail({ layer, selected, onClick }) {
   )
 }
 
-function LayerItem({ layer, index, isSelected, onSelect, onToggleVisibility, onDelete, onMoveUp, onMoveDown, isFirst, isLast }) {
+function LayerItem({ layer, index, isSelected, onSelect, onToggleVisibility, onDelete, onDownload, onMoveUp, onMoveDown, isFirst, isLast }) {
   const [img, setImg] = useState(null)
   const url = layer.dataUrl || layer.imageUrl || layer.url
 
@@ -200,6 +205,15 @@ function LayerItem({ layer, index, isSelected, onSelect, onToggleVisibility, onD
           title={layer.visible ? 'Ẩn layer' : 'Hiện layer'}
         >
           {layer.visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+        </Button>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          onClick={e => { e.stopPropagation(); onDownload?.() }}
+          disabled={!url}
+          title="Tải layer về"
+        >
+          <Download className="size-3.5" />
         </Button>
         <Button
           size="icon-sm"
@@ -392,12 +406,24 @@ export default function PageLayerWorkspace() {
   const deleteLayer = useDeletePageLayer()
   const toggleVisibility = useTogglePageLayerVisibility()
   const composite = usePageComposite()
+  const updateIssueStatus = useUpdatePageIssueStatus()
+  const updateChapterStatus = useUpdateChapterStatus()
 
   const [localLayers, setLocalLayers] = useState([])
   const [selectedLayerId, setSelectedLayerId] = useState(null)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [compositeResult, setCompositeResult] = useState(null)
   const [compositeLoading, setCompositeLoading] = useState(false)
+  const [showNotes, setShowNotes] = useState(true)
+  const [selectedNote, setSelectedNote] = useState(null)
+  const [sendingToMangaka, setSendingToMangaka] = useState(false)
+
+  // Server-side page issues (notes from Mangaka)
+  const { data: pageIssues = [] } = usePageIssues({ pageId: serverPageId ? Number(serverPageId) : null })
+  const activeIssues = useMemo(
+    () => (pageIssues || []).filter(i => (i.status ?? '').toLowerCase() !== 'closed'),
+    [pageIssues],
+  )
 
   const allLayers = useMemo(() => {
     const serverItems = serverLayers.map((l, i) => ({
@@ -508,6 +534,26 @@ export default function PageLayerWorkspace() {
     if (selectedLayerId === layerId) setSelectedLayerId(null)
   }, [allLayers, selectedLayerId, deleteLayer])
 
+  const handleDownloadLayer = useCallback((layerId) => {
+    const layer = allLayers.find(l => l.id === layerId)
+    if (!layer) return
+    const dlUrl = layer.dataUrl || layer.imageUrl
+    if (!dlUrl) {
+      toast.error('Layer chưa có URL ảnh.')
+      return
+    }
+    if (dlUrl.startsWith('data:')) {
+      const a = document.createElement('a')
+      a.href = dlUrl
+      a.download = `${(layer.name || 'layer').replace(/[^\w\-]+/g, '_')}.png`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } else {
+      window.open(dlUrl, '_blank', 'noopener,noreferrer')
+    }
+  }, [allLayers])
+
   function handleMoveUp(layerId) {
     const idx = allLayers.findIndex(l => l.id === layerId)
     if (idx <= 0) return
@@ -566,6 +612,52 @@ export default function PageLayerWorkspace() {
       toast.error(msg)
     } finally {
       setCompositeLoading(false)
+    }
+  }
+
+  function handleDismissNote(note) {
+    if (!note) return
+    const id = note.id ?? note.issueId
+    if (!id) return
+    updateIssueStatus.mutate(
+      { id, status: 'Closed' },
+      {
+        onSuccess: () => {
+          toast.success('Đã bỏ note.')
+          setSelectedNote(null)
+        },
+        onError: (err) => {
+          const msg = err?.response?.data?.message ?? err?.message ?? 'Lỗi khi bỏ note.'
+          toast.error(msg)
+        },
+      },
+    )
+  }
+
+  async function handleSendToMangaka() {
+    if (!serverPageId) {
+      toast.error('Trang chưa được lưu trên server.')
+      return
+    }
+    const chapterId = serverPage?.chapterId ?? serverPage?.chapter_id
+    if (!chapterId) {
+      toast.error('Không xác định được chapter.')
+      return
+    }
+    setSendingToMangaka(true)
+    try {
+      // Bước 1: composite (nếu chưa)
+      if (allLayers.length > 0) {
+        try { await pagesService.composite(serverPageId) } catch { /* ignore, có thể đã composite trước đó */ }
+      }
+      // Bước 2: set chapter status → SendingToMangaka
+      await updateChapterStatus.mutateAsync({ id: chapterId, status: 'SendingToMangaka' })
+      toast.success('Đã gửi cho Mangaka duyệt.')
+    } catch (err) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Lỗi khi gửi Mangaka.'
+      toast.error(msg)
+    } finally {
+      setSendingToMangaka(false)
     }
   }
 
@@ -630,6 +722,22 @@ export default function PageLayerWorkspace() {
                 </p>
               </div>
 
+              <div className="border-b bg-muted/10 px-4 py-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm">
+                  <StickyNote className="size-4 text-amber-500" />
+                  <span className="font-medium">Notes từ Mangaka</span>
+                  <Badge variant="secondary" className="text-xs">{activeIssues.length}</Badge>
+                </div>
+                <Button
+                  size="xs"
+                  variant={showNotes ? 'default' : 'outline'}
+                  onClick={() => setShowNotes(v => !v)}
+                >
+                  {showNotes ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                  {showNotes ? 'Đang hiện' : 'Đang ẩn'}
+                </Button>
+              </div>
+
               <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
                 {allLayers.length === 0 ? (
                   <div className="flex flex-col items-center gap-3 py-12 text-center text-muted-foreground">
@@ -650,6 +758,7 @@ export default function PageLayerWorkspace() {
                       onSelect={() => setSelectedLayerId(layer.id)}
                       onToggleVisibility={() => handleToggleVisibility(layer.id)}
                       onDelete={() => handleDeleteLayer(layer.id)}
+                      onDownload={() => handleDownloadLayer(layer.id)}
                       onMoveUp={() => handleMoveUp(layer.id)}
                       onMoveDown={() => handleMoveDown(layer.id)}
                       isFirst={idx === 0}
@@ -671,6 +780,19 @@ export default function PageLayerWorkspace() {
                     <Wand2 className="size-4" />
                   )}
                   Tạo ảnh hoàn chỉnh
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="default"
+                  onClick={handleSendToMangaka}
+                  disabled={sendingToMangaka || !serverPageId}
+                >
+                  {sendingToMangaka ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Send className="size-4" />
+                  )}
+                  Gửi Mangaka duyệt
                 </Button>
                 {!serverPageId && (
                   <p className="text-xs text-muted-foreground text-center">
@@ -711,6 +833,31 @@ export default function PageLayerWorkspace() {
                     <p className="text-xs text-zinc-600 mt-1">Upload layer hoặc bật visibility để xem</p>
                   </div>
                 )}
+
+                {showNotes && activeIssues.map((issue) => {
+                  const x = Number(issue.boxX ?? issue.BoxX ?? issue.x ?? 0)
+                  const y = Number(issue.boxY ?? issue.BoxY ?? issue.y ?? 0)
+                  const w = Number(issue.boxW ?? issue.BoxW ?? issue.width ?? issue.w ?? 10)
+                  const h = Number(issue.boxH ?? issue.BoxH ?? issue.height ?? issue.h ?? 10)
+                  const status = String(issue.status ?? 'Open').toLowerCase()
+                  const color = status === 'resolved' ? 'emerald' : status === 'inprogress' ? 'amber' : 'rose'
+                  return (
+                    <button
+                      type="button"
+                      key={issue.id ?? issue.issueId}
+                      onClick={() => setSelectedNote(issue)}
+                      className={cn(
+                        'absolute rounded border-2 cursor-pointer transition-all',
+                        'hover:shadow-lg',
+                        color === 'emerald' && 'border-emerald-400 bg-emerald-400/15',
+                        color === 'amber' && 'border-amber-400 bg-amber-400/15',
+                        color === 'rose' && 'border-rose-400 bg-rose-400/15',
+                      )}
+                      style={{ left: `${x}%`, top: `${y}%`, width: `${w}%`, height: `${h}%`, zIndex: 9999 }}
+                      title={issue.note ?? issue.title ?? 'Note từ Mangaka'}
+                    />
+                  )
+                })}
               </div>
             </div>
           </div>
@@ -802,6 +949,41 @@ export default function PageLayerWorkspace() {
         onClose={() => setCompositeResult(null)}
         imageUrl={compositeResult}
       />
+
+      <Dialog open={!!selectedNote} onOpenChange={(o) => !o && setSelectedNote(null)}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Note từ Mangaka</DialogTitle>
+            <DialogDescription>
+              Xem chi tiết note và chọn <strong>Bỏ note</strong> nếu đã xử lý xong.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedNote ? (
+            <div className="space-y-3 text-sm">
+              <div>
+                <Label className="text-xs text-muted-foreground">Trạng thái</Label>
+                <p className="font-medium">{selectedNote.status ?? 'Open'}</p>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Nội dung</Label>
+                <p className="rounded border bg-muted/40 p-2 text-sm whitespace-pre-wrap">
+                  {selectedNote.note ?? selectedNote.title ?? '(Không có nội dung)'}
+                </p>
+              </div>
+            </div>
+          ) : null}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setSelectedNote(null)}>Đóng</Button>
+            <Button
+              variant="destructive"
+              onClick={() => handleDismissNote(selectedNote)}
+              disabled={updateIssueStatus.isPending}
+            >
+              {updateIssueStatus.isPending ? 'Đang bỏ...' : 'Bỏ note'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

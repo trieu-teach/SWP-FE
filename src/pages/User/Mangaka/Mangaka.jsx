@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   FileText,
+  History,
   Image as ImageIcon,
   Lightbulb,
   ListChecks,
@@ -34,7 +35,17 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { getSession, logout } from '@/lib/auth.js'
 import { cn } from '@/lib/utils'
 import ChapterAnnotator from './ChapterAnnotator.jsx'
@@ -95,6 +106,7 @@ import {
   useUpdateChapterStatus,
   useAvailableTantouEditors,
   useAssignTantouEditor,
+  useNotifications,
 } from '@/api/hooks'
 import '@/styles/mangaPage.css'
 import './Mangaka.css'
@@ -150,6 +162,7 @@ const TAB_ITEMS = [
   { id: 'chapters', label: 'Chapter', icon: FileText },
   { id: 'assistants', label: 'Thuê Assistant', icon: UserPlus },
   { id: 'annotate', label: 'Upload & Ghi chú', icon: PenSquare },
+  { id: 'history', label: 'Lịch sử', icon: History },
 ]
 
 function createMangakaWorkspaceDefaults() {
@@ -324,6 +337,12 @@ export default function Mangaka() {
   // API data
   const { data: apiSeriesRaw = [], isLoading: seriesLoading } = useSeriesByMangaka(mangakaId)
   const { data: apiChapters = [], isLoading: chaptersLoading } = useChapters()
+  // Chapter theo series đang annotate — dùng cho list "Bản tổng hợp từ Assistant"
+  const annotateSeriesId = useMemo(
+    () => apiSeries.find(s => s.title === annotateSeries)?.id ?? null,
+    [apiSeries, annotateSeries],
+  )
+  const { data: annotateChaptersRaw = [] } = useChapters(annotateSeriesId || undefined)
   const createSeries = useCreateSeries()
   const updateSeries = useUpdateSeries()
   const deleteSeries = useDeleteSeries()
@@ -334,6 +353,81 @@ export default function Mangaka() {
   const updateChapterStatus = useUpdateChapterStatus()
   const availableTantouEditors = useAvailableTantouEditors()
   const assignTantouEditor = useAssignTantouEditor()
+
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
+  const [rejectChapterId, setRejectChapterId] = useState(null)
+  const [rejectReason, setRejectReason] = useState('')
+
+  // Chapter chờ Mangaka duyệt (status = SendingToMangaka)
+  const pendingFromAssistant = useMemo(
+    () => (annotateChaptersRaw || []).filter(c => {
+      const s = String(c.status ?? c.Status ?? '').toLowerCase().replace(/[\s_-]/g, '')
+      return s === 'sendingtomangaka'
+    }),
+    [annotateChaptersRaw],
+  )
+
+  // History: chapter đã gửi Tantou / duyệt / published
+  const HISTORY_STATUSES = useMemo(() => new Set([
+    'editorreviewing', 'submittedtoeditor', 'readyforprint', 'published',
+    'mangakarejected', 'rejected',
+  ]), [])
+  const historyChapters = useMemo(
+    () => (apiChapters || []).filter(c => {
+      const s = String(c.status ?? c.Status ?? '').toLowerCase().replace(/[\s_-]/g, '')
+      return HISTORY_STATUSES.has(s)
+    }),
+    [apiChapters, HISTORY_STATUSES],
+  )
+
+  function historyStatusLabel(status) {
+    switch (status) {
+      case 'editorreviewing':
+      case 'submittedtoeditor':
+        return 'Tantou đang xem'
+      case 'readyforprint':
+        return 'Sẵn sàng in'
+      case 'published':
+        return 'Đã xuất bản'
+      case 'mangakarejected':
+        return 'Assistant đang sửa'
+      case 'rejected':
+        return 'Bị từ chối'
+      default:
+        return status || '—'
+    }
+  }
+
+  function historyBadgeClass(status) {
+    if (status === 'published') return 'bg-emerald-100 text-emerald-700'
+    if (status === 'rejected' || status === 'mangakarejected') return 'bg-rose-100 text-rose-700'
+    if (status === 'readyforprint') return 'bg-sky-100 text-sky-700'
+    return 'bg-amber-100 text-amber-700'
+  }
+
+  // A6: Khi có notification chapter.* mới → refetch chapter list
+  const qc = useQueryClient()
+  const { data: notifications = [] } = useNotifications()
+  const lastSeenNotifIdsRef = useRef(new Set())
+  useEffect(() => {
+    if (!Array.isArray(notifications) || notifications.length === 0) return
+    const last = lastSeenNotifIdsRef.current
+    const fresh = notifications.filter(n => {
+      const id = n.id ?? n.notificationId
+      return id && !last.has(id)
+    })
+    fresh.forEach(n => {
+      const id = n.id ?? n.notificationId
+      if (id) last.add(id)
+    })
+    const hasChapterEvent = fresh.some(n => {
+      const t = String(n.type ?? n.notificationType ?? '').toLowerCase()
+      return t.startsWith('chapter.')
+    })
+    if (hasChapterEvent) {
+      qc.invalidateQueries({ queryKey: ['chapters'] })
+    }
+  }, [notifications, qc])
 
   const apiSeries = useMemo(
     () => (Array.isArray(apiSeriesRaw) ? apiSeriesRaw.map((s, i) => mapApiSeriesToLocal(s, i)).filter(Boolean) : []),
@@ -658,6 +752,47 @@ export default function Mangaka() {
       }
       return { ...r, status: 'review', statusLabel: 'Yêu cầu chỉnh sửa' }
     }))
+  }
+
+  function acceptAssistantChapter(chapter) {
+    if (!chapter?.id) return
+    // Gọi API update status → SubmittedToEditor (BE sẽ gán Tantou mặc định của series ở Prompt 4).
+    // FE fallback dùng PATCH /api/chapters/{id}/status cho tới khi BE làm xong Prompt 4.
+    updateChapterStatus.mutate(
+      { id: chapter.id, status: 'SubmittedToEditor' },
+      {
+        onSuccess: () => toast.success('Đã chấp nhận, chuyển sang Tantou.'),
+        onError: (err) => toast.error(`Lỗi: ${err?.message ?? 'không xác định'}`),
+      },
+    )
+  }
+
+  function openRejectDialog(chapter) {
+    if (!chapter?.id) return
+    setRejectChapterId(chapter.id)
+    setRejectReason('')
+    setRejectDialogOpen(true)
+  }
+
+  function confirmReject() {
+    if (!rejectChapterId) return
+    if (!rejectReason.trim()) {
+      toast.error('Vui lòng nhập lý do từ chối.')
+      return
+    }
+    // Update status → MangakaRejected; lý do đính kèm qua custom field nếu BE hỗ trợ.
+    updateChapterStatus.mutate(
+      { id: rejectChapterId, status: 'MangakaRejected', mangakaRejectionReason: rejectReason.trim() },
+      {
+        onSuccess: () => {
+          toast.success('Đã từ chối, Assistant sẽ sửa lại.')
+          setRejectDialogOpen(false)
+          setRejectChapterId(null)
+          setRejectReason('')
+        },
+        onError: (err) => toast.error(`Lỗi: ${err?.message ?? 'không xác định'}`),
+      },
+    )
   }
 
   const tantouRevisions = useMemo(
@@ -1420,6 +1555,55 @@ export default function Mangaka() {
                   onSendToTantou={handleSendToTantou}
                 />
               </TabsContent>
+
+              <TabsContent value="history" className="space-y-4">
+                <div>
+                  <h2 className="text-xl font-semibold">Lịch sử chapter</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Các chapter đã gửi Tantou, đã duyệt, hoặc đã xuất bản.
+                  </p>
+                </div>
+                {historyChapters.length === 0 ? (
+                  <Card>
+                    <CardContent className="p-8 text-center text-muted-foreground">
+                      <History className="size-10 mx-auto mb-3 opacity-40" />
+                      <p>Chưa có chapter nào trong lịch sử.</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {historyChapters.map((c) => {
+                      const chId = c.id ?? c.chapterId
+                      const num = c.chapterNumber ?? c.num ?? '?'
+                      const title = c.title ?? c.chapterTitle ?? `Ch. ${num}`
+                      const status = String(c.status ?? '').toLowerCase()
+                      const series = apiSeries.find(s => s.id === (c.seriesId ?? c.series_id))
+                      const updated = c.updatedAt ?? c.UpdatedAt
+                      return (
+                        <Card key={chId} className="hover:shadow-md transition-shadow">
+                          <CardHeader className="pb-2">
+                            <CardTitle className="text-sm">
+                              {series?.title ?? '—'} · Ch. {num}
+                            </CardTitle>
+                            <CardDescription className="truncate">{title}</CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-2">
+                            <Badge
+                              variant="secondary"
+                              className={historyBadgeClass(status)}
+                            >
+                              {historyStatusLabel(status)}
+                            </Badge>
+                            <p className="text-xs text-muted-foreground">
+                              {updated ? new Date(updated).toLocaleString('vi-VN') : ''}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      )
+                    })}
+                  </div>
+                )}
+              </TabsContent>
             </Tabs>
           </div>
 
@@ -1476,6 +1660,62 @@ export default function Mangaka() {
                 </ol>
               </CardContent>
             </Card>
+
+            {pendingFromAssistant.length > 0 ? (
+              <Card className="border-emerald-300/40 shadow-md">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <ClipboardCheck className="size-4 text-emerald-600" />
+                    Bản ghép từ Assistant ({pendingFromAssistant.length})
+                  </CardTitle>
+                  <CardDescription>
+                    Duyệt hoặc từ chối các bản ghép mà Assistant vừa gửi.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {pendingFromAssistant.map((c) => {
+                    const chId = c.id ?? c.chapterId
+                    const num = c.chapterNumber ?? c.num ?? '?'
+                    const title = c.title ?? c.chapterTitle ?? `Ch. ${num}`
+                    return (
+                      <div key={chId} className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold">Ch. {num} — {title}</p>
+                          <Badge variant="secondary" className="bg-amber-100 text-amber-700">
+                            Chờ duyệt
+                          </Badge>
+                        </div>
+                        {c.mangakaRejectionReason ? (
+                          <p className="text-xs text-destructive">
+                            Từng bị từ chối: {c.mangakaRejectionReason}
+                          </p>
+                        ) : null}
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => acceptAssistantChapter(c)}
+                            disabled={updateChapterStatus.isPending}
+                          >
+                            <CheckCircle2 className="size-3.5" />
+                            Chấp nhận
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => openRejectDialog(c)}
+                            disabled={updateChapterStatus.isPending}
+                          >
+                            Từ chối
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </CardContent>
+              </Card>
+            ) : null}
 
             {pendingCompositeReview ? (
               <Card className="border-primary/30 shadow-md">
@@ -1620,6 +1860,36 @@ export default function Mangaka() {
         authorName={user?.name}
         existingTitles={existingSeriesTitles}
       />
+
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Từ chối bản ghép từ Assistant</DialogTitle>
+            <DialogDescription>
+              Nhập lý do — Assistant sẽ nhận được thông báo để chỉnh sửa lại.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Lý do</Label>
+            <Textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Vd: Lớp text che mặt nhân vật chính ở trang 3."
+              rows={4}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRejectDialogOpen(false)}>Hủy</Button>
+            <Button
+              variant="destructive"
+              onClick={confirmReject}
+              disabled={updateChapterStatus.isPending || !rejectReason.trim()}
+            >
+              {updateChapterStatus.isPending ? 'Đang gửi...' : 'Xác nhận từ chối'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

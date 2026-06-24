@@ -17,7 +17,7 @@ import { NOTE_TASK_TYPES, noteTaskLabel } from '@/constants/workspaceTasks.js'
 import { fileToStorableDataUrl } from '@/utils/mangakaWorkspaceStorage.js'
 import { getActiveAssigneesForMangaka } from '@/utils/assistantRosterStorage.js'
 import { getSession } from '@/lib/auth.js'
-import { usePages, usePageIssues, useContracts, useAvailableAssistantProfiles } from '@/api/hooks'
+import { usePages, usePageIssues, useContracts, useAvailableAssistantProfiles, useAvailableTantouEditors, useUpdateChapterStatus } from '@/api/hooks'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,14 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -109,6 +117,12 @@ export default function ChapterAnnotator({
   const [uploadRejectMessage, setUploadRejectMessage] = useState(null)
   const [selectedAssistantId, setSelectedAssistantId] = useState(null)
   const [localRosterTick, setLocalRosterTick] = useState(0)
+  const [tantouDialogOpen, setTantouDialogOpen] = useState(false)
+  const [selectedTantouId, setSelectedTantouId] = useState(null)
+
+  // BE flow: gửi thẳng tới Tantou qua API (đã bỏ qua Assistant)
+  const updateChapterStatus = useUpdateChapterStatus()
+  const { data: tantouEditorsRaw = [] } = useAvailableTantouEditors()
 
   // Subscribe trực tiếp vào roster update event — không phụ thuộc parent re-render
   useEffect(() => {
@@ -892,7 +906,8 @@ export default function ChapterAnnotator({
           {effectiveHiredAssistants.length === 0 ? (
             <Alert className="border-violet-200 bg-violet-50/50 dark:border-violet-500/30 dark:bg-violet-500/5">
               <AlertDescription className="text-xs">
-                Chưa có Assistant trong đội —{' '}
+                Bạn có thể tạo chapter và upload ảnh ngay, hoặc gửi thẳng cho {LABEL_TANTOU_EDITOR} (không qua Assistant).
+                Nếu muốn giao qua Assistant, hãy{' '}
                 {onOpenAssistantsTab ? (
                   <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={onOpenAssistantsTab}>
                     thuê Assistant
@@ -900,7 +915,7 @@ export default function ChapterAnnotator({
                 ) : (
                   'thuê Assistant ở tab Thuê Assistant'
                 )}
-                {' '}trước khi giao việc.
+                {' '}trước.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -965,15 +980,42 @@ export default function ChapterAnnotator({
       })
     }
     const handleTantou = () => {
-      if (!activeChapter || !onSendToTantou) return
-      const page = pages[pageIndex]
-      onSendToTantou({
-        chapter: activeChapter,
-        pageIndex,
-        pageUrl: page?.url ?? null,
-        pageName: page?.name,
-        notes: pageNotes,
-      })
+      if (!activeChapter) return
+      const realChapterId = activeChapter.serverChapterId ?? activeChapter.id
+      if (!realChapterId || String(realChapterId).startsWith('ch-local-')) {
+        toast.error('Chapter này chưa được lưu lên server — vui lòng tạo chapter trước.')
+        return
+      }
+      if (pages.length === 0) {
+        toast.error('Chưa có ảnh trang nào để gửi.')
+        return
+      }
+      setSelectedTantouId(null)
+      setTantouDialogOpen(true)
+    }
+
+    const confirmSendTantou = async () => {
+      if (!activeChapter) return
+      const realChapterId = activeChapter.serverChapterId ?? activeChapter.id
+      if (!realChapterId) return
+      try {
+        // BE sẽ gán Tantou mặc định của series (Series.EditorId) hoặc dùng selectedTantouId nếu có
+        // Prompt 4 BE: status SubmittedToEditor + EditorId
+        await updateChapterStatus.mutateAsync({
+          id: realChapterId,
+          status: 'SubmittedToEditor',
+        })
+        toast.success(`Đã gửi thẳng cho ${LABEL_TANTOU_EDITOR}.`)
+        setTantouDialogOpen(false)
+        onSendToTantou?.({
+          chapter: activeChapter,
+          pageIndex,
+          pageName: pages[pageIndex]?.name,
+          tantouId: selectedTantouId,
+        })
+      } catch (err) {
+        toast.error(`Gửi thất bại: ${err?.message ?? 'Lỗi không xác định'}`)
+      }
     }
 
     return (
@@ -1044,7 +1086,56 @@ export default function ChapterAnnotator({
           </div>
         </CardContent>
       </Card>
-    )
+
+      <Dialog open={tantouDialogOpen} onOpenChange={setTantouDialogOpen}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle>Gửi thẳng cho {LABEL_TANTOU_EDITOR}</DialogTitle>
+            <DialogDescription>
+              Chọn 1 {LABEL_TANTOU_EDITOR} để nhận chapter này. Nếu bỏ trống, hệ thống sẽ dùng {LABEL_TANTOU_EDITOR} mặc định của series.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            {(tantouEditorsRaw ?? []).length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Chưa có {LABEL_TANTOU_EDITOR} nào khả dụng trong hệ thống.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {tantouEditorsRaw.map((t) => {
+                  const tid = String(t.id ?? t.user_id ?? t.userId ?? '')
+                  const tname = t.fullName ?? t.fullname ?? t.name ?? t.username ?? 'Tantou'
+                  const checked = selectedTantouId === tid
+                  return (
+                    <li
+                      key={tid}
+                      className={cn(
+                        'flex items-center gap-2 rounded-md border p-2 cursor-pointer hover:bg-muted/50',
+                        checked && 'border-primary bg-primary/5',
+                      )}
+                      onClick={() => setSelectedTantouId(checked ? null : tid)}
+                    >
+                      <input type="radio" name="tantou" checked={checked} onChange={() => setSelectedTantouId(tid)} />
+                      <span className="text-sm">{tname}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setTantouDialogOpen(false)}>Hủy</Button>
+            <Button
+              onClick={confirmSendTantou}
+              disabled={updateChapterStatus.isPending}
+            >
+              {updateChapterStatus.isPending ? 'Đang gửi...' : 'Xác nhận gửi'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
   }
 
   return (
