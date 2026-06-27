@@ -342,12 +342,6 @@ export default function Mangaka() {
   // API data
   const { data: apiSeriesRaw = [], isLoading: seriesLoading } = useSeriesByMangaka(mangakaId)
   const { data: apiChapters = [], isLoading: chaptersLoading } = useChapters()
-  // Chapter theo series đang annotate — dùng cho list "Bản tổng hợp từ Assistant"
-  const annotateSeriesId = useMemo(
-    () => apiSeries.find(s => s.title === annotateSeries)?.id ?? null,
-    [apiSeries, annotateSeries],
-  )
-  const { data: annotateChaptersRaw = [] } = useChapters(annotateSeriesId || undefined)
   const createSeries = useCreateSeries()
   const updateSeries = useUpdateSeries()
   const deleteSeries = useDeleteSeries()
@@ -438,6 +432,13 @@ export default function Mangaka() {
     () => (Array.isArray(apiSeriesRaw) ? apiSeriesRaw.map((s, i) => mapApiSeriesToLocal(s, i)).filter(Boolean) : []),
     [apiSeriesRaw],
   )
+
+  // Chapter theo series đang annotate — dùng cho list "Bản tổng hợp từ Assistant"
+  const annotateSeriesId = useMemo(
+    () => apiSeries.find(s => s.title === annotateSeries)?.id ?? null,
+    [apiSeries, annotateSeries],
+  )
+  const { data: annotateChaptersRaw = [] } = useChapters(annotateSeriesId || undefined)
 
   const wsDefaults = useMemo(() => createMangakaWorkspaceDefaults(), [])
   const hydrated = useMemo(() => loadMangakaWorkspaceState(wsDefaults), [wsDefaults])
