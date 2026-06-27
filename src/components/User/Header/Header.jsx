@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { BookOpen, LogOut, Menu, Bell } from 'lucide-react'
-import { getSession, getRolePath, ROLE_LABELS } from '@/lib/auth.js'
+import { getRolePath, ROLE_LABELS } from '@/lib/auth.js'
+import { useAuth } from '@/lib/providers'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -13,7 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 
 export default function Header({ links = [], onLogout, className, notificationCount = 0, onNotificationClick }) {
-  const user = getSession()
+  const { user } = useAuth()
   const workspacePath = user ? getRolePath(user.role) : null
   const isAssistant = user?.role === 'ASSISTANT'
 

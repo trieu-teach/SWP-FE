@@ -154,7 +154,8 @@ export function getRolePath(role) {
     EDITOR_BOARD: '/eb',
     ADMIN: '/admin',
   }
-  return map[String(role ?? '').toUpperCase()] ?? '/'
+  const normalized = String(role ?? '').toUpperCase().trim()
+  return map[normalized] || null
 }
 
 export const ROLES = {

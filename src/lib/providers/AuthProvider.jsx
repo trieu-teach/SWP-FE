@@ -9,14 +9,30 @@ const AuthContext = createContext(null)
 let isLoggingIn = false
 export function setLoggingIn(val) { isLoggingIn = val }
 
+function validateSession(s) {
+  if (!s || typeof s !== 'object') return null
+  // Bắt buộc phải có token hợp lệ; session corrupt → coi như chưa đăng nhập
+  if (!s.token || typeof s.token !== 'string') return null
+  // Role phải nằm trong whitelist — tránh role lạ khiến getRolePath trả '/'
+  const validRoles = ['ADMIN', 'EDITOR_BOARD', 'TANTOU', 'MANGAKA', 'ASSISTANT']
+  if (!validRoles.includes(String(s.role ?? '').toUpperCase())) return null
+  return s
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => readSession())
-  const [loading, setLoading] = useState(false)
+  // Bắt đầu ở loading=true để ProtectedRoute/GuestRoute không render nhánh sai
+  // trong khi hydrate session từ sessionStorage (tránh flash trắng / redirect nhầm)
+  const [user, setUser] = useState(() => validateSession(readSession()))
+  const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
-    const onSync = () => setUser(readSession())
-    const onAuthChange = () => setUser(readSession())
+    // Hydrate xong — tắt loading ở tick kế tiếp để tránh render lần đầu với state sai
+    setUser(validateSession(readSession()))
+    setLoading(false)
+
+    const onSync = () => setUser(validateSession(readSession()))
+    const onAuthChange = () => setUser(validateSession(readSession()))
 
     const on401 = () => {
       navigate('/login', { replace: true })

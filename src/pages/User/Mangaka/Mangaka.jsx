@@ -46,7 +46,8 @@ import {
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { getSession, logout } from '@/lib/auth.js'
+import { logout as authLogout } from '@/lib/auth.js'
+import { useAuth } from '@/lib/providers'
 import { cn } from '@/lib/utils'
 import ChapterAnnotator from './ChapterAnnotator.jsx'
 import AddSeriesModal from './AddSeriesModal.jsx'
@@ -330,7 +331,11 @@ export default function Mangaka() {
   const navigate = useNavigate()
   const location = useLocation()
   const [locationKey, setLocationKey] = useState(0)
-  const user = getSession()
+  // Dùng useAuth() thay vì getSession() trực tiếp để component reactive với auth state —
+  // nếu không, khi token hết hạn hoặc user bị xóa, component vẫn giữ user cũ → render với state lệch → crash
+  // ProtectedRoute đã chặn render khi authLoading=true, nên ở đây user luôn có hoặc đã logout
+  const { user: authUser } = useAuth()
+  const user = authUser
   const mangakaId = user?.id ?? user?.userid ?? null
   const mangakaName = user?.fullname ?? user?.name ?? 'Demo Mangaka'
 
@@ -1345,7 +1350,7 @@ export default function Mangaka() {
   }
 
   function handleLogout() {
-    logout()
+    authLogout()
     navigate('/login')
   }
 

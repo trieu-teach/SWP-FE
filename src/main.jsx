@@ -4,9 +4,12 @@ import './index.css'
 import './styles/layout.css'
 import './styles/mangaPage.css'
 import App from './App.jsx'
+import ErrorBoundary from '@/components/ErrorBoundary.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )
