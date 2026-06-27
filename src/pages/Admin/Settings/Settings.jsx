@@ -64,14 +64,35 @@ export default function Settings() {
   const [active, setActive] = useState('site')
   const [cfg, setCfg] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => { api.getSettings().then(d => { setCfg(d); setLoading(false) }) }, [])
+  useEffect(() => {
+    loadSettings()
+  }, [])
+
+  async function loadSettings() {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await api.getSettings()
+      setCfg(data)
+    } catch (err) {
+      setError(err.message || 'Lỗi tải cài đặt')
+      console.error('Load settings error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   async function handleSave(section, data) {
-    await api.updateSettings(section, data)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    try {
+      await api.updateSettings(section, data)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      console.error('Save error:', err)
+    }
   }
 
   function set(section, key, val) {
@@ -83,6 +104,24 @@ export default function Settings() {
       <div className="flex flex-col items-center justify-center py-32 text-muted-foreground">
         <Loader2 className="size-8 animate-spin" />
         <p className="mt-3 text-sm">Đang tải cài đặt...</p>
+      </div>
+    )
+  }
+
+  if (error || !cfg) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Cài đặt</h1>
+        </div>
+        <Card className="border-destructive/50">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-destructive">
+            <p className="text-sm font-medium">{error || 'Không thể tải cài đặt'}</p>
+            <Button onClick={loadSettings} className="mt-4">
+              Thử lại
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     )
   }

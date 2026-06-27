@@ -80,10 +80,6 @@ function buildInitialScores() {
   return { plotDialogue: "", artDesign: "", panelingCamera: "", pacingHook: "", coloring: "", toneShading: "" };
 }
 
-function buildInitialNotes() {
-  return { plotDialogue: "", artDesign: "", panelingCamera: "", pacingHook: "", coloring: "", toneShading: "" };
-}
-
 function getClassification(average) {
   if (average < 2.5) return { label: "KHÔNG ĐẠT", note: "Series chưa đạt chất lượng, cần chỉnh sửa lớn trước khi xét lại.", className: "border-red-200 bg-red-50 text-red-700" };
   if (average < 3.5) return { label: "ĐẠT", note: "Series có thể thông qua, nhưng cần cải thiện theo ghi chú.", className: "border-amber-200 bg-amber-50 text-amber-700" };
@@ -292,7 +288,7 @@ function ThresholdTable() {
   );
 }
 
-function ScoreFieldCard({ field, score, error, note, onScoreChange, onBlur, onNoteChange }) {
+function ScoreFieldCard({ field, score, error, onScoreChange, onBlur }) {
   return (
     <div className="space-y-3 rounded-xl border bg-card p-4">
       <div className="space-y-1">
@@ -318,16 +314,6 @@ function ScoreFieldCard({ field, score, error, note, onScoreChange, onBlur, onNo
       {error
         ? <p className="text-xs text-red-600">{error}</p>
         : <p className="text-xs text-muted-foreground">Nhập điểm hoặc click ngôi sao. Bước 0.5.</p>}
-      <div className="space-y-2">
-        <Label htmlFor={`${field.key}-note`} className="text-xs text-muted-foreground">Ghi chú riêng cho tiêu chí này</Label>
-        <Textarea
-          id={`${field.key}-note`}
-          value={note}
-          onChange={(e) => onNoteChange(e.target.value)}
-          placeholder="Nhận xét ngắn cho tiêu chí này..."
-          className="min-h-20"
-        />
-      </div>
     </div>
   );
 }
@@ -351,8 +337,8 @@ export default function Eb() {
   const [activeMemberId, setActiveMemberId] = useState("");
   const [scoreType, setScoreType] = useState("color");
   const [scores, setScores] = useState(buildInitialScores);
-  const [criterionNotes, setCriterionNotes] = useState(buildInitialNotes);
   const [scoreErrors, setScoreErrors] = useState(buildInitialScores);
+  const [feedback, setFeedback] = useState("");
 
   // ── Load danh sách thành viên HĐ từ /users/tantou-editors ──────────────────
   useEffect(() => {
@@ -382,9 +368,13 @@ export default function Eb() {
     setLoadingQueue(true);
     try {
       const data = await getEbPendingSubmissions();
-      setPending(data);
-      if (data.length && !selectedId) {
-        setSelectedId(data[0].seriesid ?? data[0].series_id ?? data[0].id);
+      // Chỉ hiển thị series đã qua Tantou (UnderReview)
+      const filtered = data.filter(p =>
+        (p.status ?? p.Status ?? "").toLowerCase() === "underreview"
+      );
+      setPending(filtered);
+      if (filtered.length && !selectedId) {
+        setSelectedId(filtered[0].seriesid ?? filtered[0].series_id ?? filtered[0].id);
       }
     } catch {
       toast.error("Không thể tải hàng chờ EB. Kiểm tra kết nối backend.");
@@ -413,17 +403,14 @@ export default function Eb() {
   useEffect(() => {
     if (!activeMemberId || !evaluations.length) {
       setScores(buildInitialScores());
-      setCriterionNotes(buildInitialNotes());
       setScoreErrors(buildInitialScores());
       return;
     }
     const myEval = evaluations.find(e => String(e.member_id ?? e.memberId) === String(activeMemberId));
     if (myEval?.scores) {
       setScores(cur => ({ ...cur, ...Object.fromEntries(Object.entries(myEval.scores).map(([k, v]) => [k, Number(v).toFixed(1)])) }));
-      setCriterionNotes(cur => ({ ...cur, ...(myEval.criterion_notes ?? myEval.criterionNotes ?? {}) }));
     } else {
       setScores(buildInitialScores());
-      setCriterionNotes(buildInitialNotes());
     }
     setScoreErrors(buildInitialScores());
   }, [activeMemberId, evaluations]);
@@ -470,9 +457,6 @@ export default function Eb() {
     setScoreErrors(cur => ({ ...cur, [key]: validateScore(next) }));
   }
 
-  function updateCriterionNote(key, value) {
-    setCriterionNotes(cur => ({ ...cur, [key]: value }));
-  }
 
   async function handleSaveAssessment() {
     if (!selectedId) { toast.error("Chưa chọn series để chấm điểm."); return; }
@@ -493,7 +477,6 @@ export default function Eb() {
         assessment: {
           scoreType,
           scores: Object.fromEntries(scoreFields.map(f => [f.key, clampScore(scores[f.key])])),
-          criterionNotes: { ...criterionNotes },
           average: parseFloat(average.toFixed(1)),
           assessedAt: new Date().toISOString(),
           enteredBy: user?.name ?? "Đại diện EB",
@@ -535,7 +518,7 @@ export default function Eb() {
       if (!window.confirm(`${reason} Bạn vẫn muốn chấp nhận?`)) return;
     }
     try {
-      await axiosClient.patch(`/Series/${seriesId}/status`, { status: "approved" });
+      await axiosClient.patch(`/Series/${seriesId}/status`, { Status: "Approved" });
       toast.success(`Đã chấp nhận "${title}".`);
       loadQueue();
     } catch { /* interceptor toast */ }
@@ -544,7 +527,7 @@ export default function Eb() {
   async function handleReject(seriesId, title) {
     if (!window.confirm(`Từ chối "${title}"? Series sẽ bị loại khỏi hàng chờ duyệt.`)) return;
     try {
-      await axiosClient.patch(`/Series/${seriesId}/status`, { status: "rejected" });
+      await axiosClient.patch(`/Series/${seriesId}/status`, { Status: "Rejected" });
       toast.success(`Đã từ chối "${title}".`);
       loadQueue();
     } catch { /* interceptor toast */ }
@@ -690,14 +673,24 @@ export default function Eb() {
                         field={field}
                         score={scores[field.key]}
                         error={scoreErrors[field.key]}
-                        note={criterionNotes[field.key]}
                         onScoreChange={val => updateScore(field.key, val)}
                         onBlur={() => normalizeScoreField(field.key)}
-                        onNoteChange={val => updateCriterionNote(field.key, val)}
                       />
                     </div>
                   );
                 })}
+              </div>
+
+              {/* Nhận xét chung */}
+              <div className="space-y-2">
+                <Label htmlFor="feedback">Nhận xét chung cho series</Label>
+                <Textarea
+                  id="feedback"
+                  value={feedback}
+                  onChange={e => setFeedback(e.target.value)}
+                  placeholder="Nhận xét tổng quan của Hội đồng về series này..."
+                  className="min-h-28"
+                />
               </div>
 
               {/* DTB tổng hợp */}
@@ -801,7 +794,10 @@ export default function Eb() {
                                 : <Badge variant="outline" className="text-[11px] text-muted-foreground">Chưa có điểm</Badge>}
                             </div>
                             <p className="text-sm text-muted-foreground">
-                              {[p.genres?.slice(0, 2).join(" · "), p.format_label, p.author_name].filter(Boolean).join(" · ")}
+                              {[
+                                p.genres?.slice(0, 2).map(g => g?.genrename ?? g?.name ?? "").filter(Boolean).join(" · "),
+                                p.publishformat,
+                              ].filter(Boolean).join(" · ")}
                             </p>
                           </div>
                           <div className="flex gap-2" onClick={e => e.stopPropagation()}>
