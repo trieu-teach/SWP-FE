@@ -77,7 +77,7 @@ function buildSessionFromAuthResponse(data) {
   // normalizeKeys của axiosClient đã convert thành snake_case.
   const rawRole = pick(data, ['role', 'Role'])
   const roleIdNum = Number(
-    pick(data, ['role_id', 'roleid', 'Roleid', 'roleId', 'RoleId']) ??
+    pick(data, ['roleid', 'role_id', 'Roleid', 'roleId', 'RoleId']) ??
     pick(jwtPayload, ['roleid', 'roleId'])
   )
 
@@ -100,7 +100,7 @@ function buildSessionFromAuthResponse(data) {
     name: pick(data, ['full_name', 'fullname', 'Fullname', 'fullName', 'FullName']) ?? pick(data, ['username', 'Username']),
     fullname: pick(data, ['full_name', 'fullname', 'Fullname', 'fullName', 'FullName']),
     email: pick(data, ['email', 'Email']),
-    roleid: Number(pick(data, ['role_id', 'roleid', 'Roleid', 'roleId', 'RoleId']) ?? pick(jwtPayload, ['roleid', 'roleId'])),
+    roleid: Number(pick(data, ['roleid', 'role_id', 'Roleid', 'roleId', 'RoleId']) ?? pick(jwtPayload, ['roleid', 'roleId'])),
     role: roleKey,
     token: pick(data, ['token', 'Token']),
     refreshToken: pick(data, ['refresh_token', 'refreshToken', 'RefreshToken', 'Refresh_Token']),
