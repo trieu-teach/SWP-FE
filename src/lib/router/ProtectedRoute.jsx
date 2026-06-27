@@ -1,86 +1,73 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/lib/providers'
-import { isLoggingIn } from '@/lib/providers/AuthProvider'
 import { getRolePath } from '@/lib/auth'
 
 export function ProtectedRoute({ roles = [] }) {
   const ctx = useAuth()
 
-  console.log("🟢 ProtectedRoute ctx:", ctx)
+  console.log('[ProtectedRoute] 🟢 render', ctx ? 'ctx OK' : 'ctx NULL')
 
   if (!ctx) {
-    console.log("❌ ctx NULL -> AuthProvider chưa wrap")
+    console.log('[ProtectedRoute] ❌ ctx NULL — AuthProvider chưa wrap')
     return <div>Loading...</div>
   }
 
-  const { user, loading } = ctx
+  const { user, loading, loggingIn } = ctx
 
-  console.log("👤 user:", user)
-  console.log("⏳ loading:", loading)
-  console.log("🚦 isLoggingIn:", isLoggingIn)
+  console.log('[ProtectedRoute] 👤 user:', user?.username, 'role:', user?.role)
+  console.log('[ProtectedRoute] ⏳ loading:', loading, '| loggingIn:', loggingIn)
 
-  if (loading || isLoggingIn) {
-    console.log("⏳ STILL LOADING STATE")
+  if (loading || loggingIn) {
+    console.log('[ProtectedRoute] ⏳ BLOCK — đang loading/login')
     return <div>Loading...</div>
   }
 
   if (!user) {
-    console.log("🚫 NO USER -> login")
+    console.log('[ProtectedRoute] 🚫 NO USER → /login')
     return <Navigate to="/login" replace />
   }
 
-  // ✅ normalize role an toàn
   const role = user.role?.toUpperCase()
 
-  // check role access
   if (roles.length > 0) {
     const allowed = roles.map(r => r.toUpperCase()).includes(role)
-
     if (!allowed) {
       const fallbackPath = getRolePath(role)
-
-      console.log("🚫 ROLE BLOCK -> role:", role, "fallback:", fallbackPath)
-
-      // ❗ chống crash nếu fallbackPath null
+      console.log('[ProtectedRoute] 🚫 ROLE BLOCK', role, '→ fallback:', fallbackPath)
       return <Navigate to={fallbackPath || '/login'} replace />
     }
   }
 
-  console.log("✅ ALLOW ACCESS")
+  console.log('[ProtectedRoute] ✅ ALLOW ACCESS')
   return <Outlet />
 }
 
 export function GuestRoute() {
   const ctx = useAuth()
 
-  console.log("🟡 GuestRoute ctx:", ctx)
+  console.log('[GuestRoute] 🟡 render', ctx ? 'ctx OK' : 'ctx NULL')
 
   if (!ctx) {
-    console.log("❌ ctx NULL in GuestRoute")
+    console.log('[GuestRoute] ❌ ctx NULL')
     return <div>Loading...</div>
   }
 
-  const { user, loading } = ctx
+  const { user, loading, loggingIn } = ctx
 
-  console.log("👤 user:", user)
-  console.log("⏳ loading:", loading)
-  console.log("🚦 isLoggingIn:", isLoggingIn)
+  console.log('[GuestRoute] 👤 user:', user?.username, '| loading:', loading, '| loggingIn:', loggingIn)
 
-  if (loading || isLoggingIn) {
-    console.log("⏳ GuestRoute loading state")
+  if (loading || loggingIn) {
+    console.log('[GuestRoute] ⏳ BLOCK — đang loading/login')
     return <div>Loading...</div>
   }
 
   if (user) {
     const role = user.role?.toUpperCase()
     const path = getRolePath(role)
-
-    console.log("🔁 redirect user role:", role, "path:", path)
-
-    // ❗ chống crash tuyệt đối
+    console.log('[GuestRoute] 🔁 redirect logged-in user', role, '→', path)
     return <Navigate to={path || '/'} replace />
   }
 
-  console.log("✅ Guest allowed")
+  console.log('[GuestRoute] ✅ Guest allowed — render Outlet')
   return <Outlet />
 }

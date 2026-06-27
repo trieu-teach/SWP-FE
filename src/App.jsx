@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Toaster } from '@/components/ui/sonner'
-import { QueryProvider, AuthProvider, useAuth, isLoggingIn } from '@/lib/providers'
+import { QueryProvider, AuthProvider, useAuth } from '@/lib/providers'
 import { ProtectedRoute, GuestRoute } from '@/lib/router'
 import { getRolePath } from '@/lib/auth'
 import Layout from '@/components/Admin/Layout/Layout.jsx'
@@ -28,11 +28,13 @@ import UserProfile from '@/pages/User/Profile/Profile.jsx'
 
 // Redirects logged-in user to their workspace, else shows Home
 function HomeOrWorkspace() {
-  const { user, loading } = useAuth()
+  const { user, loading, loggingIn } = useAuth()
+  console.log('[HomeOrWorkspace] render', { user: !!user, loading, loggingIn })
   // Chờ hydrate session + đợi login in-flight xong để không flash Home rồi mới redirect
-  if (loading || isLoggingIn) return null
+  if (loading || loggingIn) return null
   if (user) {
     const target = getRolePath(user.role)
+    console.log('[HomeOrWorkspace] 🔁 redirect logged-in →', target)
     return <Navigate to={target || '/login'} replace />
   }
   return <Home />
