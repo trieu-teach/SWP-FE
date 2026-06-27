@@ -52,6 +52,13 @@ export default function Login() {
       else sessionStorage.removeItem('rememberUsername')
       toast.success(`Dang nhap thanh cong! Chao ${user.name || user.username}.`)
       navigate(getRolePath(user.role) || '/', { replace: true })
+      console.log('User:', user)
+console.log('Role:', user.role)
+console.log('Path:', getRolePath(user.role))
+
+navigate('/mangaka', { replace: true })
+
+console.log('Navigate executed')
     } catch (err) {
       const status = err?.response?.status
       const msg = err?.response?.data
