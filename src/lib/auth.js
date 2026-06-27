@@ -52,56 +52,71 @@ export function clearSession() {
   window.dispatchEvent(new Event('auth-session-change'))
 }
 
+// Lấy giá trị đầu tiên có sẵn trong object (bỏ qua null/undefined/empty-string).
+// Dùng để chấp nhận cả snake_case (user_id) lẫn PascalCase (UserId, userId) từ
+// response backend — axiosClient.js đang normalize PascalCase → snake_case,
+// nhưng một số call site (ví dụ authService) cần fallback về PascalCase nếu
+// normalize bị tắt hoặc backend trả thẳng snake_case.
+function pick(obj, keys) {
+  if (!obj) return null
+  for (const k of keys) {
+    const v = obj[k]
+    if (v !== undefined && v !== null && v !== '') return v
+  }
+  return null
+}
+
 function buildSessionFromAuthResponse(data) {
   if (!data) return null
 
-  // Resolve role: check string role first (from JWT claim), then numeric roleId
-  const rawRole = data.role ?? data.Role ?? null
-  const jwtPayload = data.token ? decodeJwtPayload(data.token) : {}
+  const jwtPayload = pick(data, ['token']) ? decodeJwtPayload(data.token) : {}
 
-  let roleKey =
-    (typeof rawRole === 'string' && VALID_ROLE_KEYS.has(rawRole.toUpperCase()))
-      ? rawRole.toUpperCase()
-      : jwtPayload.role && VALID_ROLE_KEYS.has(String(jwtPayload.role).toUpperCase())
-        ? String(jwtPayload.role).toUpperCase()
-        : typeof data.role === 'number'
-          ? ROLE_ID_TO_KEY[data.role]
-          : ROLE_ID_TO_KEY[jwtPayload.roleid] ??
-            ROLE_ID_TO_KEY[jwtPayload.roleId] ??
-            ROLE_ID_TO_KEY[data.role_id] ??
-            ROLE_ID_TO_KEY[data.roleid] ??
-            ROLE_ID_TO_KEY[data.Roleid] ??
-            ROLE_ID_TO_KEY[data.roleId] ??
-            ROLE_ID_TO_KEY[data.RoleId] ??
-            null
+  // Resolve role: ưu tiên chuỗi role hợp lệ, fallback roleId (snake & Pascal) từ
+  // response hoặc JWT.  Đảm bảo check cả hai dạng snake_case + PascalCase cho mọi
+  // field để chịu được cả response backend PascalCase lẫn response sau khi
+  // normalizeKeys của axiosClient đã convert thành snake_case.
+  const rawRole = pick(data, ['role', 'Role'])
+  const roleIdNum = Number(
+    pick(data, ['role_id', 'roleid', 'Roleid', 'roleId', 'RoleId']) ??
+    pick(jwtPayload, ['roleid', 'roleId'])
+  )
+
+  let roleKey = null
+  if (rawRole && VALID_ROLE_KEYS.has(String(rawRole).toUpperCase())) {
+    roleKey = String(rawRole).toUpperCase()
+  } else if (jwtPayload.role && VALID_ROLE_KEYS.has(String(jwtPayload.role).toUpperCase())) {
+    roleKey = String(jwtPayload.role).toUpperCase()
+  } else if (Number.isFinite(roleIdNum) && ROLE_ID_TO_KEY[roleIdNum]) {
+    roleKey = ROLE_ID_TO_KEY[roleIdNum]
+  }
+
+  const id = pick(data, ['user_id', 'userid', 'Userid', 'userId', 'UserId']) ??
+             pick(jwtPayload, ['userid', 'Userid', 'userId', 'UserId', 'sub', 'id', 'Id'])
 
   return {
-    id: data.userid ?? data.Userid ?? data.userId ?? data.UserId ??
-      jwtPayload.userid ?? jwtPayload.Userid ?? jwtPayload.userId ?? jwtPayload.UserId ??
-      jwtPayload.sub ?? jwtPayload.id ?? jwtPayload.Id ?? null,
-    userid: data.userid ?? data.Userid ?? data.userId ?? data.UserId ??
-      jwtPayload.userid ?? jwtPayload.Userid ?? jwtPayload.userId ?? jwtPayload.UserId ??
-      jwtPayload.sub ?? jwtPayload.id ?? jwtPayload.Id ?? null,
-    username: data.username ?? data.Username,
-    name: data.fullname ?? data.Fullname ?? data.fullName ?? data.Username,
-    fullname: data.fullname ?? data.Fullname ?? data.fullName,
-    email: data.email ?? data.Email,
-    roleid: data.roleid ?? data.Roleid ?? data.roleId ?? data.RoleId ??
-      jwtPayload.roleid ?? jwtPayload.roleId ?? null,
+    id,
+    userid: id,
+    username: pick(data, ['username', 'Username']),
+    name: pick(data, ['full_name', 'fullname', 'Fullname', 'fullName', 'FullName']) ?? pick(data, ['username', 'Username']),
+    fullname: pick(data, ['full_name', 'fullname', 'Fullname', 'fullName', 'FullName']),
+    email: pick(data, ['email', 'Email']),
+    roleid: Number(pick(data, ['role_id', 'roleid', 'Roleid', 'roleId', 'RoleId']) ?? pick(jwtPayload, ['roleid', 'roleId'])),
     role: roleKey,
-    token: data.token,
-    refreshToken: data.refreshToken,
+    token: pick(data, ['token', 'Token']),
+    refreshToken: pick(data, ['refresh_token', 'refreshToken', 'RefreshToken', 'Refresh_Token']),
   }
 }
 
 export async function login(username, password) {
   const res = await authService.login({ userName: username, password })
   const data = res.data
-  if (!data?.token) throw new Error('Phan hoi dang nhap khong hop le — khong co token.')
+  const token = pick(data, ['token', 'Token'])
+  if (!token) throw new Error('Phan hoi dang nhap khong hop le — khong co token.')
 
   // Luu token truoc de cac API call sau co Bearer header
-  if (data.token) localStorage.setItem('token', data.token)
-  if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken)
+  const refreshToken = pick(data, ['refresh_token', 'refreshToken', 'RefreshToken'])
+  if (token) localStorage.setItem('token', token)
+  if (refreshToken) localStorage.setItem('refreshToken', refreshToken)
 
   // Lay user tu response login (khong goi profile o day vi endpoint /users/profile
   // chua co hoac co the 404 → tranh lam crash React error boundary)
@@ -130,8 +145,10 @@ export async function register(data) {
   const body = res.data
   const user = buildSessionFromAuthResponse(body)
   if (!user) throw new Error('Phan hoi dang ky khong hop le.')
-  if (body.token) localStorage.setItem('token', body.token)
-  if (body.refreshToken) localStorage.setItem('refreshToken', body.refreshToken)
+  const token = pick(body, ['token', 'Token'])
+  const refreshToken = pick(body, ['refresh_token', 'refreshToken', 'RefreshToken'])
+  if (token) localStorage.setItem('token', token)
+  if (refreshToken) localStorage.setItem('refreshToken', refreshToken)
   setSession(user)
   return user
 }
