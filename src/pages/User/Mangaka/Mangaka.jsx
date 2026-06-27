@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -357,6 +358,31 @@ export default function Mangaka() {
   const [rejectChapterId, setRejectChapterId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
 
+  const wsDefaults = useMemo(() => createMangakaWorkspaceDefaults(), [])
+  const hydrated = useMemo(() => loadMangakaWorkspaceState(wsDefaults), [wsDefaults])
+
+  const [tab, setTab] = useState(() => hydrated.tab)
+  // annotateSeries must read from location.state first (navigation carries the correct series),
+  // then fall back to persisted workspace value — otherwise navigating from series detail
+  // with "Upload chapter" shows the wrong series in the dropdown
+  const locationState = location.state
+  const [annotateSeries, setAnnotateSeries] = useState(() => {
+    const fromNav = locationState?.series
+    if (typeof fromNav === 'string' && fromNav.trim()) return fromNav.trim()
+    return hydrated.annotateSeries
+  })
+
+  // Chapter theo series đang annotate — dùng cho list "Bản tổng hợp từ Assistant"
+  const apiSeries = useMemo(
+    () => (Array.isArray(apiSeriesRaw) ? apiSeriesRaw.map((s, i) => mapApiSeriesToLocal(s, i)).filter(Boolean) : []),
+    [apiSeriesRaw],
+  )
+  const annotateSeriesId = useMemo(
+    () => apiSeries.find(s => s.title === annotateSeries)?.id ?? null,
+    [apiSeries, annotateSeries],
+  )
+  const { data: annotateChaptersRaw = [] } = useChapters(annotateSeriesId || undefined)
+
   // Chapter chờ Mangaka duyệt (status = SendingToMangaka)
   const pendingFromAssistant = useMemo(
     () => (annotateChaptersRaw || []).filter(c => {
@@ -428,31 +454,6 @@ export default function Mangaka() {
     }
   }, [notifications, qc])
 
-  const apiSeries = useMemo(
-    () => (Array.isArray(apiSeriesRaw) ? apiSeriesRaw.map((s, i) => mapApiSeriesToLocal(s, i)).filter(Boolean) : []),
-    [apiSeriesRaw],
-  )
-
-  // Chapter theo series đang annotate — dùng cho list "Bản tổng hợp từ Assistant"
-  const annotateSeriesId = useMemo(
-    () => apiSeries.find(s => s.title === annotateSeries)?.id ?? null,
-    [apiSeries, annotateSeries],
-  )
-  const { data: annotateChaptersRaw = [] } = useChapters(annotateSeriesId || undefined)
-
-  const wsDefaults = useMemo(() => createMangakaWorkspaceDefaults(), [])
-  const hydrated = useMemo(() => loadMangakaWorkspaceState(wsDefaults), [wsDefaults])
-
-  const [tab, setTab] = useState(() => hydrated.tab)
-  // annotateSeries must read from location.state first (navigation carries the correct series),
-  // then fall back to persisted workspace value — otherwise navigating from series detail
-  // with "Upload chapter" shows the wrong series in the dropdown
-  const locationState = location.state
-  const [annotateSeries, setAnnotateSeries] = useState(() => {
-    const fromNav = locationState?.series
-    if (typeof fromNav === 'string' && fromNav.trim()) return fromNav.trim()
-    return hydrated.annotateSeries
-  })
   const [localSeriesList, setLocalSeriesList] = useState([])
   const [addSeriesOpen, setAddSeriesOpen] = useState(false)
   const [editingSeries, setEditingSeries] = useState(null)
