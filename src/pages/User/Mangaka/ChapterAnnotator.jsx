@@ -1019,6 +1019,7 @@ export default function ChapterAnnotator({
     }
 
     return (
+      <>
       <Card
         className={cn(
           'border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background',
@@ -1134,8 +1135,8 @@ export default function ChapterAnnotator({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </>
-  )
+      </>
+    )
   }
 
   return (
