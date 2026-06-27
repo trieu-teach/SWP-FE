@@ -77,11 +77,25 @@ function MangaDialog({ manga, open, onClose, onSave }) {
 
   async function handleSave() {
     if (!form.title.trim()) return
-    setSaving(true)
-    const payload = { ...form, genre: form.genre.split(',').map(s => s.trim()).filter(Boolean) }
-    await (isEdit ? api.updateManga(manga.id, payload) : api.createManga(payload))
-    setSaving(false)
-    onSave()
+    try {
+      setSaving(true)
+      const payload = {
+        title: form.title,
+        author: form.author,
+        genre: form.genre.split(',').map(s => s.trim()).filter(Boolean),
+        status: form.status,
+      }
+      if (isEdit) {
+        await api.updateManga(manga.id, payload)
+      } else {
+        await api.createManga(payload)
+      }
+      onSave()
+    } catch (err) {
+      console.error('Save error:', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -200,6 +214,7 @@ function MangaDrawer({ manga, onClose, onEdit, onDelete }) {
 export default function Manga() {
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [view, setView] = useState('table')
@@ -207,22 +222,37 @@ export default function Manga() {
   const [modal, setModal] = useState(null)
 
   useEffect(() => {
-    api.getMangaList().then(d => { setList(d); setLoading(false) })
+    loadData()
   }, [])
+
+  async function loadData() {
+    try {
+      setLoading(true)
+      setError(null)
+      const d = await api.getMangaList()
+      setList(d)
+    } catch (err) {
+      setError(err.message || 'Lỗi tải dữ liệu')
+      console.error('Load error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   async function handleSave() {
     setModal(null)
-    setLoading(true)
-    const d = await api.getMangaList()
-    setList(d)
-    setLoading(false)
+    await loadData()
   }
 
   async function handleDelete(id) {
     if (!confirm('Xoá truyện này?')) return
-    await api.deleteManga(id)
-    setSelected(null)
-    setList(l => l.filter(m => m.id !== id))
+    try {
+      await api.deleteManga(id)
+      setSelected(null)
+      setList(l => l.filter(m => m.id !== id))
+    } catch (err) {
+      console.error('Delete error:', err)
+    }
   }
 
   const filtered = list.filter(m => {
@@ -231,6 +261,24 @@ export default function Manga() {
     const matchStatus = statusFilter === 'all' || m.status === statusFilter
     return matchSearch && matchStatus
   })
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Quản lý truyện</h1>
+        </div>
+        <Card className="border-destructive/50">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-destructive">
+            <p className="text-sm font-medium">{error}</p>
+            <Button onClick={loadData} className="mt-4">
+              Thử lại
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

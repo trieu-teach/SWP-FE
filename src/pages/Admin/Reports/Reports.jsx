@@ -61,11 +61,16 @@ function ResolveDialog({ report, open, onClose, onResolve }) {
 
   async function handleResolve() {
     if (!pick) return
-    setSaving(true)
-    const res = RESOLUTIONS.find(r => r.value === pick)
-    await onResolve(report.id, { resolution: res.label + (note ? ` — ${note}` : '') })
-    setSaving(false)
-    onClose()
+    try {
+      setSaving(true)
+      const res = RESOLUTIONS.find(r => r.value === pick)
+      await onResolve(report.id, { resolution: res.label + (note ? ` — ${note}` : '') })
+      onClose()
+    } catch (err) {
+      console.error('Resolve error:', err)
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!report) return null
@@ -134,16 +139,35 @@ function ResolveDialog({ report, open, onClose, onResolve }) {
 export default function Reports() {
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [filter, setFilter] = useState('all')
   const [modal, setModal] = useState(null)
 
   useEffect(() => {
-    api.getReports().then(d => { setList(d); setLoading(false) })
+    loadData()
   }, [])
 
+  async function loadData() {
+    try {
+      setLoading(true)
+      setError(null)
+      const d = await api.getReports()
+      setList(d)
+    } catch (err) {
+      setError(err.message || 'Lỗi tải dữ liệu')
+      console.error('Load error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function handleResolve(id, data) {
-    await api.resolveReport(id, data)
-    setList(l => l.map(r => r.id === id ? { ...r, status: 'resolved', ...data } : r))
+    try {
+      await api.resolveReport(id, data)
+      setList(l => l.map(r => r.id === id ? { ...r, status: 'resolved', ...data } : r))
+    } catch (err) {
+      console.error('Resolve error:', err)
+    }
   }
 
   const filtered = list.filter(r => filter === 'all' || r.status === filter)
@@ -158,6 +182,24 @@ export default function Reports() {
     { key: 'reviewing', label: 'Đang xem xét', icon: Search, color: 'sky' },
     { key: 'resolved', label: 'Đã xử lý', icon: CheckCircle2, color: 'emerald' },
   ]
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Báo cáo</h1>
+        </div>
+        <Card className="border-destructive/50">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-destructive">
+            <p className="text-sm font-medium">{error}</p>
+            <Button onClick={loadData} className="mt-4">
+              Thử lại
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

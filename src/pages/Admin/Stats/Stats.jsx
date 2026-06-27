@@ -14,15 +14,50 @@ function formatNum(n) {
 export default function Stats() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [range, setRange] = useState('6m')
 
-  useEffect(() => { api.getStats().then(d => { setData(d); setLoading(false) }) }, [])
+  useEffect(() => {
+    loadStats()
+  }, [])
+
+  async function loadStats() {
+    try {
+      setLoading(true)
+      setError(null)
+      const result = await api.getStats()
+      setData(result)
+    } catch (err) {
+      setError(err.message || 'Lỗi tải thống kê')
+      console.error('Load stats error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-muted-foreground">
         <Loader2 className="size-8 animate-spin" />
         <p className="mt-3 text-sm">Đang tải thống kê...</p>
+      </div>
+    )
+  }
+
+  if (error || !data) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Thống kê</h1>
+        </div>
+        <Card className="border-destructive/50">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-destructive">
+            <p className="text-sm font-medium">{error || 'Không thể tải thống kê'}</p>
+            <Button onClick={loadStats} className="mt-4">
+              Thử lại
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     )
   }

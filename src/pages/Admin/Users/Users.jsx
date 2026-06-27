@@ -29,6 +29,35 @@ const STATUS_CLS = {
 }
 
 function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
+  const [changing, setChanging] = useState(false)
+
+  async function handleBan() {
+    try {
+      setChanging(true)
+      await onBan(user.id)
+    } finally {
+      setChanging(false)
+    }
+  }
+
+  async function handleUnban() {
+    try {
+      setChanging(true)
+      await onUnban(user.id)
+    } finally {
+      setChanging(false)
+    }
+  }
+
+  async function handleChangeRole(newRole) {
+    try {
+      setChanging(true)
+      await onChangeRole(user.id, newRole)
+    } finally {
+      setChanging(false)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={onClose} />
@@ -91,7 +120,8 @@ function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
                   size="sm"
                   variant={user.role === r ? 'default' : 'outline'}
                   className="flex-1"
-                  onClick={() => onChangeRole(user.id, r)}
+                  onClick={() => handleChangeRole(r)}
+                  disabled={changing}
                 >
                   {ROLE_LABEL[r]}
                 </Button>
@@ -102,12 +132,21 @@ function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
 
         <div className="border-t p-4">
           {user.status === 'active' ? (
-            <Button variant="destructive" className="w-full" onClick={() => onBan(user.id)}>
+            <Button 
+              variant="destructive" 
+              className="w-full" 
+              onClick={handleBan}
+              disabled={changing}
+            >
               <Lock className="size-4" />
               Khoá tài khoản
             </Button>
           ) : (
-            <Button className="w-full" onClick={() => onUnban(user.id)}>
+            <Button 
+              className="w-full" 
+              onClick={handleUnban}
+              disabled={changing}
+            >
               <Unlock className="size-4" />
               Mở khoá
             </Button>
@@ -121,30 +160,57 @@ function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
 export default function Users() {
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
   const [selected, setSelected] = useState(null)
 
   useEffect(() => {
-    api.getUsers().then(d => { setList(d); setLoading(false) })
+    loadData()
   }, [])
 
+  async function loadData() {
+    try {
+      setLoading(true)
+      setError(null)
+      const d = await api.getUsers()
+      setList(d)
+    } catch (err) {
+      setError(err.message || 'Lỗi tải dữ liệu')
+      console.error('Load error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   async function handleBan(id) {
-    await api.updateUserStatus(id, 'banned')
-    setList(l => l.map(u => u.id === id ? { ...u, status: 'banned' } : u))
-    setSelected(s => s?.id === id ? { ...s, status: 'banned' } : s)
+    try {
+      await api.updateUserStatus(id, 'banned')
+      setList(l => l.map(u => u.id === id ? { ...u, status: 'banned' } : u))
+      setSelected(s => s?.id === id ? { ...s, status: 'banned' } : s)
+    } catch (err) {
+      console.error('Ban error:', err)
+    }
   }
 
   async function handleUnban(id) {
-    await api.updateUserStatus(id, 'active')
-    setList(l => l.map(u => u.id === id ? { ...u, status: 'active' } : u))
-    setSelected(s => s?.id === id ? { ...s, status: 'active' } : s)
+    try {
+      await api.updateUserStatus(id, 'active')
+      setList(l => l.map(u => u.id === id ? { ...u, status: 'active' } : u))
+      setSelected(s => s?.id === id ? { ...s, status: 'active' } : s)
+    } catch (err) {
+      console.error('Unban error:', err)
+    }
   }
 
   async function handleChangeRole(id, role) {
-    await api.updateUserRole(id, role)
-    setList(l => l.map(u => u.id === id ? { ...u, role } : u))
-    setSelected(s => s?.id === id ? { ...s, role } : s)
+    try {
+      await api.updateUserRole(id, role)
+      setList(l => l.map(u => u.id === id ? { ...u, role } : u))
+      setSelected(s => s?.id === id ? { ...s, role } : s)
+    } catch (err) {
+      console.error('Change role error:', err)
+    }
   }
 
   const filtered = list.filter(u => {
@@ -152,6 +218,24 @@ export default function Users() {
     return (!q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
       && (roleFilter === 'all' || u.role === roleFilter)
   })
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Độc giả</h1>
+        </div>
+        <Card className="border-destructive/50">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-destructive">
+            <p className="text-sm font-medium">{error}</p>
+            <Button onClick={loadData} className="mt-4">
+              Thử lại
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">

@@ -10,16 +10,49 @@ import { Separator } from '@/components/ui/separator'
 export default function Profile() {
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    api.getProfile().then(setProfile).finally(() => setLoading(false))
+    loadProfile()
   }, [])
+
+  async function loadProfile() {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await api.getProfile()
+      setProfile(data)
+    } catch (err) {
+      setError(err.message || 'Lỗi tải hồ sơ')
+      console.error('Load profile error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-muted-foreground">
         <Loader2 className="size-8 animate-spin" />
         <p className="mt-3 text-sm">Đang tải hồ sơ...</p>
+      </div>
+    )
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Hồ sơ</h1>
+        </div>
+        <Card className="border-destructive/50">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-destructive">
+            <p className="text-sm font-medium">{error || 'Không thể tải hồ sơ'}</p>
+            <Button onClick={loadProfile} className="mt-4">
+              Thử lại
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     )
   }
