@@ -1,0 +1,191 @@
+[33mcommit a32cbc6555f5ba19971a8bd96e38678490eac8a9[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sun Jun 28 10:55:11 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sun Jun 28 10:55:11 2026 +0700
+
+    feat: page layer workspace and assistant collaboration
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+[33mcommit ff7ab89ec39ee0e0b53cb63081d54baed8a2aa7b[m
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sat Jun 27 23:01:12 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 23:01:12 2026 +0700
+
+    fix: prioritize roleid over role_id in buildSessionFromAuthResponse
+    
+    normalizeKeys converts role_id -> roleid, so roleid must be checked first in pick() to avoid role being null after login
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+[33mcommit 162618f14d98259aef161e19e53a97ae3705f93b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sat Jun 27 19:17:20 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 19:17:20 2026 +0700
+
+    fix(Mangaka): resolve TDZ ReferenceError by reordering hooks
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+[33mcommit 891a2f7a05940a83da044dbc5b761f33bfd46125[m
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sat Jun 27 18:43:13 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 18:43:13 2026 +0700
+
+    fix: export upsertMemberEvaluation in boardEvaluationService
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+[33mcommit aaf3a70b53206e2ef8c8f76520f9b3011d9be66a[m
+Merge: df84aee bd48d40
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sat Jun 27 18:16:59 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 18:16:59 2026 +0700
+
+    Merge dev into main: keep mangaka/assistant from main, eb/te from dev
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+[33mcommit df84aeeec5edb104ac781e1c52d0b9c35a8b8dbb[m[33m ([m[1;31morigin/dev-new[m[33m)[m
+Author:     Vinh Trần <vinhtase180339@fpt.edu.vn>
+AuthorDate: Sat Jun 27 16:54:33 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 17:33:20 2026 +0700
+
+    fix: admin,taontou,eb API
+
+[33mcommit 14e46b390b362f1cf2fc43147032019f136f965e[m
+Author:     Vinh Trần <vinhtase180339@fpt.edu.vn>
+AuthorDate: Thu Jun 25 09:52:31 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 17:33:06 2026 +0700
+
+    Update Eb.jsx
+
+[33mcommit 049551fd622ab6e910efa73a060a2db9414f3ded[m
+Author:     Vinh Trần <vinhtase180339@fpt.edu.vn>
+AuthorDate: Thu Jun 25 03:28:28 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 17:32:54 2026 +0700
+
+    feat: API
+
+[33mcommit 7d1d0e8d84db319d672766c9c4215967f3e69b4d[m
+Author:     Vinh Trần <vinhtase180339@fpt.edu.vn>
+AuthorDate: Wed Jun 24 22:19:45 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 17:32:41 2026 +0700
+
+    update API
+
+[33mcommit bd48d40e797df3165545790f1dab52c9b7db01b6[m[33m ([m[1;31morigin/dev[m[33m, [m[1;32mdev[m[33m)[m
+Author:     Vinh Trần <vinhtase180339@fpt.edu.vn>
+AuthorDate: Sat Jun 27 16:54:33 2026 +0700
+Commit:     Vinh Trần <vinhtase180339@fpt.edu.vn>
+CommitDate: Sat Jun 27 16:54:33 2026 +0700
+
+    fix: admin,taontou,eb API
+
+[33mcommit 66c09d00a4dea4b92682d8f3f6fb9bdb0ec5da47[m
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sat Jun 27 15:23:30 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 15:23:30 2026 +0700
+
+    debug: login navigation test
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+[33mcommit b64a16dbb6150c6b920bb237534df9e91b3fbb70[m
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sat Jun 27 14:11:02 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 14:11:02 2026 +0700
+
+    fix(auth): replace module-level isLoggingIn flag with React state
+    
+    The isLoggingIn flag was a plain module-level variable (let isLoggingIn = false).
+    When login() resolved and set isLoggingIn = false in the finally block,
+    React had no way to know — so ProtectedRoute/GuestRoute never re-rendered
+    after the login completed. This caused the /mangaka route to stay blocked at
+    'Loading...' forever after successful navigation.
+    
+    Fix: move isLoggingIn into AuthProvider's useState, expose it via context
+    as loggingIn, and have ProtectedRoute/GuestRoute/HomeOrWorkspace read it
+    from useAuth() so they re-render when it flips true→false.
+    
+    Also added [component] prefix tags to all console.log calls for easier
+    filtering in browser DevTools.
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+[33mcommit a06f22e7908fa1a6d2964184043ca818f1b565c5[m
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sat Jun 27 12:16:59 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 12:16:59 2026 +0700
+
+    fix(Mangaka): resolve TDZ on apiSeries in /mangaka route
+    
+    The useMemo for annotateSeriesId accessed piSeries in its dependency
+    array before the piSeries const was declared at line 437. React's
+    dependency array is evaluated during component function execution,
+    triggering a Temporal Dead Zone ReferenceError on mount:
+    
+      ReferenceError: Cannot access 'apiSeries' before initialization
+    
+    This crashed <Mangaka> immediately after navigation, causing
+    ErrorBoundary to render <Route path='*'> which navigated back to '/'.
+    
+    Move the annotateSeriesId useMemo and the related useChapters call
+    below the declaration of apiSeries so the dependency is in scope.
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+[33mcommit 37d0057de6b85367714fbdf1ec87dca04f5195a3[m
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sat Jun 27 11:49:36 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 11:49:36 2026 +0700
+
+    fix(auth): resolve snake_case + PascalCase fields from login response
+    
+    axiosClient.js is normalizing PascalCase response keys to snake_case
+    (userId -> user_id, roleId -> role_id, refreshToken -> refresh_token, ...).
+    buildSessionFromAuthResponse only checked PascalCase variants, so on a
+    real backend response it resolved id, userid, name, fullname, roleid,
+    refreshToken to null/undefined. That left localStorage.refreshToken as
+    the string "undefined", which then broke the next API call with a 401.
+    
+    Replace the ad-hoc chain with a pick(obj, keys) helper that accepts both
+    snake_case and PascalCase for every field, so the session resolves
+    correctly regardless of whether the backend returns PascalCase (which
+    gets normalized) or snake_case directly.
+    
+    Co-authored-by: Cursor <cursoragent@cursor.com>
+
+[33mcommit 4472006e88321ce5b638388f40cecfbd53bc8225[m
+Author:     trieu-teach <trieungse182933@fpt.edu.vn>
+AuthorDate: Sat Jun 27 11:25:48 2026 +0700
+Commit:     trieu-teach <trieungse182933@fpt.edu.vn>
+CommitDate: Sat Jun 27 11:25:48 2026 +0700
+
+    fix(auth): harden login flow to prevent blank page after sign-in
+    
+    Root cause: race condition between AuthProvider hydration and Mangaka
+    mount. Multiple contributing factors:
+    
+    1. AuthProvider: loading initial state was false, so ProtectedRoute/
+       HomeOrWorkspace rendered branches before sessionStorage was validated,
+       causing flash + redirect loop. Now loading=true until useEffect
+       hydrates, and validateSession() rejects corrupt/invalid sessions
+       (missing token, unknown role) to avoid getRolePath returning wrong path.
+    
+    2. App.jsx HomeOrWorkspace: didn't check isLoggingIn, so Home could
+       flash before Login's navigate took effect. Now waits for both
+       loading and isLoggingIn to clear; fallback to /l

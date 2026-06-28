@@ -16,7 +16,7 @@ export default function TantouPageReview({
   onEditorialCommentChange,
   onBack,
   onForwardEb,
-  onReject,
+  onRequestRevision,
   onApproveRecurring,
 }) {
   const [selectedMangakaId, setSelectedMangakaId] = useState(null)
@@ -70,6 +70,9 @@ export default function TantouPageReview({
                     draggable={false}
                     width={728}
                     height={1030}
+                    // Ảnh lỗi (domain CDN chưa resolve được / 404...) → ẩn ảnh,
+                    // giữ nguyên khung zinc-900 + các ô ghi chú đỏ định vị theo %
+                    onError={(e) => { e.currentTarget.style.visibility = 'hidden' }}
                   />
                 ) : null}
                 {mangakaNotes.map((n, idx) => {
@@ -137,22 +140,23 @@ export default function TantouPageReview({
 
           <Card className="flex-1 border-primary/20 shadow-md">
             <CardHeader>
-              <CardTitle className="text-base">Nhận xét</CardTitle>
+              <CardTitle className="text-base">Ghi chú cho Mangaka</CardTitle>
               <CardDescription>
-                Viết nhận xét gửi Mangaka khi chưa đạt. Bắt buộc có nội dung trước khi gửi chỉnh.
+                Đánh dấu chỗ cần chỉnh nội dung, thoại, kịch bản. Bắt buộc nhập nếu chọn "Yêu cầu chỉnh sửa";
+                không bắt buộc nếu chuyển thẳng sang {LABEL_EDITOR_BOARD}.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <Textarea
                 rows={12}
-                placeholder="Nhận xét biên tập cho Mangaka..."
+                placeholder="Ghi chú cho Mangaka (không bắt buộc)..."
                 value={editorialComment}
                 onChange={e => onEditorialCommentChange(e.target.value)}
                 className="min-h-[220px] resize-y"
               />
               {editorialComment.trim() ? (
                 <Button variant="ghost" size="sm" className="text-destructive" onClick={() => onEditorialCommentChange('')}>
-                  Xóa nhận xét
+                  Xóa ghi chú
                 </Button>
               ) : null}
             </CardContent>
@@ -160,19 +164,23 @@ export default function TantouPageReview({
         </div>
       </div>
 
-      {/* Thanh hành động sticky — khớp với handleForwardEb / handleReject / handleApproveRecurring ở TantouEditor.jsx */}
+      {/* Thanh hành động sticky — "Yêu cầu chỉnh sửa" chỉ gửi notification, KHÔNG đổi status
+          (xem handleRequestRevision trong TantouEditor.jsx). Tantou không có quyền reject/lùi
+          status về Draft — quyết định duyệt/từ chối series thuộc về Editorial Board. */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="page-container flex flex-wrap items-center justify-end gap-2 py-3">
-          <Button
-            variant="destructive"
-            onClick={onReject}
-            disabled={!hasComment}
-            title={!hasComment ? 'Nhập nhận xét trước khi gửi Mangaka chỉnh' : undefined}
-            className="gap-2"
-          >
-            <XCircle className="size-4" />
-            Từ chối — gửi Mangaka chỉnh
-          </Button>
+          {isDebut && (
+            <Button
+              variant="outline"
+              onClick={onRequestRevision}
+              disabled={!hasComment}
+              title={!hasComment ? 'Nhập ghi chú trước khi yêu cầu Mangaka chỉnh sửa' : undefined}
+              className="gap-2"
+            >
+              <XCircle className="size-4" />
+              Yêu cầu chỉnh sửa
+            </Button>
+          )}
 
           {isDebut ? (
             <Button onClick={onForwardEb} className="gap-2">

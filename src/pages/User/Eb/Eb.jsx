@@ -27,8 +27,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { getSession, logout } from "@/lib/auth.js";
 import { placeholderPageDataUrl } from "@/utils/assistantWorkspaceStorage.js";
 import { LABEL_EDITOR_BOARD } from "@/constants/roleTerminology.js";
-import { getEbPendingSubmissions, getSeriesEvaluations, patchSubmissionScore } from "@/api/submissions.service.js";
-import { upsertMemberEvaluation } from "@/api/boardEvaluation.service.js";
 import axiosClient from "@/api/axiosClient.js";
 import "./Eb.css";
 
@@ -40,20 +38,31 @@ const NAV_LINKS = [
 ];
 
 const COMMON_CRITERIA = [
-  { key: "plotDialogue", label: "Cốt truyện & Lời thoại", hint: "Plot & Dialogue" },
-  { key: "artDesign", label: "Nét vẽ & Tạo hình nhân vật", hint: "Art Style & Character Design" },
-  { key: "panelingCamera", label: "Phân khung & Góc máy", hint: "Paneling & Camera Angles" },
-  { key: "pacingHook", label: "Nhịp độ & Cao trào", hint: "Pacing & Hook" },
+  { key: "plotDialogue",   label: "Cốt truyện & Lời thoại",     hint: "Plot & Dialogue" },
+  { key: "artDesign",      label: "Nét vẽ & Tạo hình nhân vật", hint: "Art Style & Character Design" },
+  { key: "panelingCamera", label: "Phân khung & Góc máy",        hint: "Paneling & Camera Angles" },
+  { key: "pacingHook",     label: "Nhịp độ & Cao trào",          hint: "Pacing & Hook" },
 ];
 
 const TYPE_CRITERIA = {
   color: { key: "coloring", label: "Đổ màu & Phối màu", hint: "Coloring" },
-  mono: { key: "toneShading", label: "Sử dụng Tone/Đánh bóng", hint: "Screentone & Shading" },
 };
 
 const SCORE_MAX = 5;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Status của EB queue — normalize để tránh case mismatch
+// DB value: 'EBReview' — backend có thể trả đúng value này hoặc map sang tên khác
+const EB_STATUSES = new Set(['ebreview', 'underreview', 'eb_review', 'eb-review'])
+
+function normalizeStatus(raw) {
+  return (raw ?? '').toLowerCase().replace(/[_\s-]/g, '')
+}
+
+function isEbStatus(raw) {
+  return EB_STATUSES.has(normalizeStatus(raw))
+}
+
+// ─── Score helpers ─────────────────────────────────────────────────────────────
 function clampScore(value) {
   const parsed = Number.parseFloat(value);
   if (Number.isNaN(parsed)) return 0;
@@ -71,9 +80,8 @@ function validateScore(value) {
   return "";
 }
 
-function buildScoreFields(scoreType) {
-  const typeField = TYPE_CRITERIA[scoreType] ?? TYPE_CRITERIA.color;
-  return [...COMMON_CRITERIA, typeField];
+function buildScoreFields() {
+  return [...COMMON_CRITERIA, TYPE_CRITERIA.color];
 }
 
 function buildInitialScores() {
@@ -81,55 +89,43 @@ function buildInitialScores() {
 }
 
 function getClassification(average) {
-  if (average < 2.5) return { label: "KHÔNG ĐẠT", note: "Series chưa đạt chất lượng, cần chỉnh sửa lớn trước khi xét lại.", className: "border-red-200 bg-red-50 text-red-700" };
-  if (average < 3.5) return { label: "ĐẠT", note: "Series có thể thông qua, nhưng cần cải thiện theo ghi chú.", className: "border-amber-200 bg-amber-50 text-amber-700" };
-  if (average < 4.25) return { label: "TỐT", note: "Chất lượng series ổn định, phù hợp duyệt nhanh.", className: "border-sky-200 bg-sky-50 text-sky-700" };
-  return { label: "XUẤT SẮC", note: "Series chất lượng cao, phù hợp đẩy nổi bật/banner.", className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
+  if (average < 2.5)  return { label: "KHÔNG ĐẠT", note: "Series chưa đạt chất lượng, cần chỉnh sửa lớn trước khi xét lại.", className: "border-red-200 bg-red-50 text-red-700" };
+  if (average < 3.5)  return { label: "ĐẠT",       note: "Series có thể thông qua, nhưng cần cải thiện theo ghi chú.",       className: "border-amber-200 bg-amber-50 text-amber-700" };
+  if (average < 4.25) return { label: "TỐT",        note: "Chất lượng series ổn định, phù hợp duyệt nhanh.",                  className: "border-sky-200 bg-sky-50 text-sky-700" };
+  return               { label: "XUẤT SẮC",          note: "Series chất lượng cao, phù hợp đẩy nổi bật/banner.",              className: "border-emerald-200 bg-emerald-50 text-emerald-700" };
 }
 
-function buildCouncilRecordFromApi(evaluations, members) {
-  if (!evaluations?.length) return null;
-  const membersMap = {};
-  for (const ev of evaluations) {
-    const memberId = ev.member_id ?? ev.memberId;
-    const member = members.find(m => m.id === memberId);
-    membersMap[memberId] = {
-      evaluationId: ev.id,
-      scoreType: ev.score_type ?? ev.scoreType ?? "color",
-      scores: ev.scores ?? {},
-      criterionNotes: ev.criterion_notes ?? ev.criterionNotes ?? {},
-      average: ev.average ?? 0,
-      assessedAt: ev.assessed_at ?? ev.assessedAt,
-      enteredBy: ev.entered_by ?? ev.enteredBy ?? member?.name ?? "",
-      scored: true,
-    };
-  }
+function mapEvalDetailToScores(detail) {
+  if (!detail) return buildInitialScores();
   return {
-    seriesTitle: evaluations[0]?.series_title ?? "",
-    scoreType: evaluations[0]?.score_type ?? "color",
-    members: membersMap,
-    updatedAt: evaluations[0]?.updated_at ?? null,
+    plotDialogue:   String(detail.storyScore      ?? detail.story_score      ?? 0),
+    artDesign:      String(detail.artScore        ?? detail.art_score        ?? 0),
+    panelingCamera: String(detail.characterScore  ?? detail.character_score  ?? 0),
+    coloring:       String(detail.commercialScore ?? detail.commercial_score ?? 0),
+    toneShading:    String(detail.commercialScore ?? detail.commercial_score ?? 0),
+    pacingHook:     String(detail.pacingScore     ?? detail.pacing_score     ?? 0),
   };
 }
 
-function buildCouncilAggregate(councilRecord, members, criterionKeys = []) {
-  const membersData = councilRecord?.members ?? {};
-  const memberRows = members.map((member) => {
-    const entry = membersData[member.id];
-    if (!entry?.scored) return { ...member, scored: false, scores: {}, average: 0 };
-    const scores = entry.scores ?? {};
-    const keys = criterionKeys.length ? criterionKeys : Object.keys(scores);
-    const values = keys.map(k => Number(scores[k] ?? 0));
-    const avg = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-    return { ...member, scored: true, scores, average: parseFloat(avg.toFixed(2)), assessedAt: entry.assessedAt, enteredBy: entry.enteredBy };
+function buildCouncilAggregateFromMembers(members, scoreFields) {
+  const keys = scoreFields.map(f => f.key);
+
+  const memberRows = members.map((m) => {
+    if (!m.hasEvaluated || !m.evalDetail) {
+      return { ...m, scored: false, scores: {}, average: 0 };
+    }
+    const scores = mapEvalDetailToScores(m.evalDetail);
+    const vals   = keys.map(k => Number(scores[k] ?? 0));
+    const avg    = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    return { ...m, scored: true, scores, average: parseFloat(avg.toFixed(2)) };
   });
 
-  const scoredRows = memberRows.filter(r => r.scored);
+  const scoredRows  = memberRows.filter(r => r.scored);
   const scoredCount = scoredRows.length;
 
   const criterionAverages = {};
   if (scoredCount > 0) {
-    for (const key of criterionKeys) {
+    for (const key of keys) {
       const vals = scoredRows.map(r => Number(r.scores?.[key] ?? 0));
       criterionAverages[key] = parseFloat((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2));
     }
@@ -188,7 +184,6 @@ function ScoreStars({ value }) {
   );
 }
 
-// FIX 1: key={row.id ?? idx} thay vì key={row.id}
 function CouncilScoresTable({ memberRows, scoreFields, criterionAverages, councilAverage, scoredCount, activeMemberId }) {
   const [showDetail, setShowDetail] = useState(false);
   return (
@@ -324,116 +319,173 @@ export default function Eb() {
   const user = getSession();
 
   // ── Server state ──────────────────────────────────────────────────────────
-  const [pending, setPending] = useState([]);
-  const [members, setMembers] = useState([]);
-  const [evaluations, setEvaluations] = useState([]);
-  const [loadingQueue, setLoadingQueue] = useState(true);
-  const [loadingEval, setLoadingEval] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [pending, setPending]               = useState([]);
+  const [members, setMembers]               = useState([]);
+  const [loadingQueue, setLoadingQueue]     = useState(true);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [saving, setSaving]                 = useState(false);
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  const [selectedId, setSelectedId] = useState(null);
-  // FIX 2: init "" thay vì null để Select luôn controlled
+  const [selectedId, setSelectedId]         = useState(null);
   const [activeMemberId, setActiveMemberId] = useState("");
-  const [scoreType, setScoreType] = useState("color");
-  const [scores, setScores] = useState(buildInitialScores);
-  const [scoreErrors, setScoreErrors] = useState(buildInitialScores);
-  const [feedback, setFeedback] = useState("");
+  const [scores, setScores]                 = useState(buildInitialScores);
+  const [scoreErrors, setScoreErrors]       = useState(buildInitialScores);
+  const [feedback, setFeedback]             = useState("");
 
-  // ── Load danh sách thành viên HĐ từ /users/tantou-editors ──────────────────
-  useEffect(() => {
-    axiosClient.get("/users/tantou-editors")
-      .then(res => {
-        const list = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
-        if (!list.length) throw new Error("empty");
-        setMembers(list.map(u => ({
-          id: String(u.user_id),
-          name: u.full_name ?? u.username,
-          title: "Thành viên Hội đồng",
-        })));
-      })
-      .catch(() => {
-        toast.error("Không thể tải danh sách thành viên Hội đồng.");
-        setMembers([]);
-      });
-  }, []);
-
-  // ── Khởi tạo activeMemberId khi members load xong ────────────────────────
-  useEffect(() => {
-    if (members.length && !activeMemberId) setActiveMemberId(members[0].id);
-  }, [members]);
-
-  // ── Load hàng chờ ─────────────────────────────────────────────────────────
+  // ── Load hàng chờ EB ──────────────────────────────────────────────────────
+  // Strategy: thử /Submissions/eb trước. Nếu trả [] thì fallback về /Series
+  // và tự filter status EBReview ở FE — đảm bảo luôn có data kể cả khi
+  // backend endpoint /Submissions/eb chưa hoạt động đúng.
   const loadQueue = useCallback(async () => {
     setLoadingQueue(true);
     try {
-      const data = await getEbPendingSubmissions();
-      // Chỉ hiển thị series đã qua Tantou (UnderReview)
-      const filtered = data.filter(p =>
-        (p.status ?? p.Status ?? "").toLowerCase() === "underreview"
-      );
-      setPending(filtered);
-      if (filtered.length && !selectedId) {
-        setSelectedId(filtered[0].seriesid ?? filtered[0].series_id ?? filtered[0].id);
+      const [subRes, seriesRes] = await Promise.allSettled([
+        axiosClient.get("/Submissions/eb"),
+        axiosClient.get("/Series"),
+      ]);
+
+      // Lấy data từ /Submissions/eb
+      let ebData = [];
+      if (subRes.status === "fulfilled") {
+        const raw = subRes.value.data;
+        ebData = Array.isArray(raw) ? raw : (raw?.data ?? []);
+      }
+
+      // Nếu /Submissions/eb trả [] → fallback: lọc /Series theo EBReview
+      if (ebData.length === 0 && seriesRes.status === "fulfilled") {
+        const raw = seriesRes.value.data;
+        const all = Array.isArray(raw) ? raw : (raw?.data ?? []);
+        ebData = all.filter(s => isEbStatus(s.status));
+      }
+
+      // Normalize: đảm bảo mỗi item có field id nhất quán
+      const normalized = ebData.map(item => ({
+        ...item,
+        // Backend có thể dùng series_id, seriesid, hoặc id
+        _resolvedId: item.series_id ?? item.seriesid ?? item.id,
+      }));
+
+      setPending(normalized);
+
+      if (normalized.length && !selectedId) {
+        setSelectedId(normalized[0]._resolvedId);
       }
     } catch {
       toast.error("Không thể tải hàng chờ EB. Kiểm tra kết nối backend.");
     } finally {
       setLoadingQueue(false);
     }
-  }, []);
+  }, [selectedId]);
 
   useEffect(() => { loadQueue(); }, [loadQueue]);
 
-  // ── Load evaluations khi chọn series ─────────────────────────────────────
-  useEffect(() => {
-    if (!selectedId) { setEvaluations([]); return; }
-    setLoadingEval(true);
-    getSeriesEvaluations(selectedId)
-      .then(data => {
-        setEvaluations(Array.isArray(data) ? data : []);
-        const first = Array.isArray(data) ? data[0] : null;
-        if (first?.score_type) setScoreType(first.score_type);
-      })
-      .catch(() => setEvaluations([]))
-      .finally(() => setLoadingEval(false));
-  }, [selectedId]);
+  // ── Load evaluators + evaluations ────────────────────────────────────────
+  const loadEvaluatorsStatus = useCallback(async (seriesId) => {
+    if (!seriesId) { setMembers([]); return; }
+    setLoadingMembers(true);
+    try {
+      const [usersRes, evalsRes] = await Promise.allSettled([
+        axiosClient.get("/users/evaluators"),
+        axiosClient.get(`/Submissions/${seriesId}/evaluations`),
+      ]);
 
-  // ── Điền form khi đổi member hoặc evaluations ────────────────────────────
+      let userList = [];
+      if (usersRes.status === "fulfilled") {
+        const raw = usersRes.value.data?.data ?? usersRes.value.data ?? [];
+        userList = Array.isArray(raw) ? raw : [];
+      } else {
+        toast.error("Không thể tải danh sách thành viên Hội đồng.");
+      }
+
+      let evalList = [];
+      if (evalsRes.status === "fulfilled") {
+        const raw = evalsRes.value.data;
+        evalList = Array.isArray(raw) ? raw : (raw?.data ?? []);
+      }
+
+      const mapped = userList.map(u => {
+        const uid = String(u.userId ?? u.user_id ?? u.id ?? u.userid);
+        const myEval = evalList.find(e =>
+          String(e.ebId ?? e.eb_id ?? e.memberId ?? e.member_id ?? e.userid) === uid
+        );
+        return {
+          id:           uid,
+          name:         u.fullName ?? u.full_name ?? u.fullname ?? u.username,
+          title:        "Thành viên Hội đồng",
+          hasEvaluated: Boolean(myEval),
+          evalDetail:   myEval
+            ? {
+                storyScore:      myEval.storyScore      ?? myEval.story_score      ?? 0,
+                artScore:        myEval.artScore        ?? myEval.art_score        ?? 0,
+                characterScore:  myEval.characterScore  ?? myEval.character_score  ?? 0,
+                commercialScore: myEval.commercialScore ?? myEval.commercial_score ?? 0,
+                pacingScore:     myEval.pacingScore     ?? myEval.pacing_score     ?? 0,
+                feedback:        myEval.feedback        ?? "",
+              }
+            : null,
+        };
+      });
+
+      setMembers(mapped);
+      if (mapped.length) {
+        setActiveMemberId(prev => {
+          const stillExists = mapped.find(m => m.id === prev);
+          return stillExists ? prev : mapped[0].id;
+        });
+      } else {
+        setActiveMemberId("");
+      }
+    } catch {
+      toast.error("Không thể tải danh sách thành viên Hội đồng.");
+      setMembers([]);
+    } finally {
+      setLoadingMembers(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!activeMemberId || !evaluations.length) {
+    loadEvaluatorsStatus(selectedId);
+  }, [selectedId, loadEvaluatorsStatus]);
+
+  // ── Điền form khi đổi member ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!activeMemberId || !members.length) {
       setScores(buildInitialScores());
       setScoreErrors(buildInitialScores());
+      setFeedback("");
       return;
     }
-    const myEval = evaluations.find(e => String(e.member_id ?? e.memberId) === String(activeMemberId));
-    if (myEval?.scores) {
-      setScores(cur => ({ ...cur, ...Object.fromEntries(Object.entries(myEval.scores).map(([k, v]) => [k, Number(v).toFixed(1)])) }));
+    const member = members.find(m => m.id === activeMemberId);
+    if (!member) return;
+
+    if (member.hasEvaluated && member.evalDetail) {
+      setScores(mapEvalDetailToScores(member.evalDetail));
+      setFeedback(member.evalDetail.feedback ?? "");
     } else {
       setScores(buildInitialScores());
+      setFeedback("");
     }
     setScoreErrors(buildInitialScores());
-  }, [activeMemberId, evaluations]);
+  }, [activeMemberId, members]);
 
   // ── Derived ───────────────────────────────────────────────────────────────
-  const scoreFields = useMemo(() => buildScoreFields(scoreType), [scoreType]);
+  const scoreFields = useMemo(() => buildScoreFields(), []);
 
-  const councilRecord = useMemo(
-    () => buildCouncilRecordFromApi(evaluations, members),
-    [evaluations, members]
+  const councilAggregate = useMemo(
+    () => buildCouncilAggregateFromMembers(members, scoreFields),
+    [members, scoreFields]
   );
-
-  const councilAggregate = useMemo(() => {
-    const keys = scoreFields.map(f => f.key);
-    return buildCouncilAggregate(councilRecord, members, keys);
-  }, [councilRecord, members, scoreFields]);
 
   const councilClassification = getClassification(councilAggregate.councilAverage);
   const activeMember = members.find(m => m.id === activeMemberId);
 
-  const activeSubmission = pending.find(p => (p.seriesid ?? p.series_id ?? p.id) === selectedId);
+  const activeSubmission = pending.find(p => p._resolvedId === selectedId);
   const activeTitle = activeSubmission?.title ?? activeSubmission?.series_title ?? "";
-  const activeSeriesImage = activeSubmission?.coverimageurl ?? activeSubmission?.cover_image_url ?? activeSubmission?.manga_image_url ?? placeholderPageDataUrl(activeTitle || "Chưa chọn series");
+  const activeSeriesImage =
+    activeSubmission?.cover_image_url ??
+    activeSubmission?.coverimageurl ??
+    activeSubmission?.manga_image_url ??
+    placeholderPageDataUrl(activeTitle || "Chưa chọn series");
 
   const average = useMemo(() => {
     const total = scoreFields.reduce((sum, f) => sum + clampScore(scores[f.key]), 0);
@@ -457,49 +509,36 @@ export default function Eb() {
     setScoreErrors(cur => ({ ...cur, [key]: validateScore(next) }));
   }
 
-
   async function handleSaveAssessment() {
-    if (!selectedId) { toast.error("Chưa chọn series để chấm điểm."); return; }
+    if (!selectedId)     { toast.error("Chưa chọn series để chấm điểm."); return; }
     if (!activeMemberId) { toast.error("Chưa chọn thành viên Hội đồng."); return; }
 
-    const nextErrors = Object.fromEntries(scoreFields.map(f => [f.key, validateScore(scores[f.key])]));
+    const nextErrors = Object.fromEntries(
+      scoreFields.map(f => [f.key, validateScore(scores[f.key])])
+    );
     setScoreErrors(cur => ({ ...cur, ...nextErrors }));
     if (Object.values(nextErrors).some(Boolean)) {
       toast.error("Có tiêu chí chưa hợp lệ. Vui lòng kiểm tra lại điểm.");
       return;
     }
 
+    const scoreBody = {
+      ebId:            Number(activeMemberId),
+      storyScore:      clampScore(scores.plotDialogue),
+      artScore:        clampScore(scores.artDesign),
+      characterScore:  clampScore(scores.panelingCamera),
+      commercialScore: clampScore(scores.coloring),
+      pacingScore:     clampScore(scores.pacingHook),
+      feedback:        feedback.trim(),
+    };
+
     setSaving(true);
     try {
-      await upsertMemberEvaluation({
-        seriesId: selectedId,
-        memberId: activeMemberId,
-        assessment: {
-          scoreType,
-          scores: Object.fromEntries(scoreFields.map(f => [f.key, clampScore(scores[f.key])])),
-          average: parseFloat(average.toFixed(1)),
-          assessedAt: new Date().toISOString(),
-          enteredBy: user?.name ?? "Đại diện EB",
-        },
-        existingEvaluations: evaluations,
-      });
-
-      const updated = await getSeriesEvaluations(selectedId);
-      setEvaluations(Array.isArray(updated) ? updated : []);
-
-      const updatedRecord = buildCouncilRecordFromApi(updated, members);
-      const keys = scoreFields.map(f => f.key);
-      const aggregate = buildCouncilAggregate(updatedRecord, members, keys);
-      const cls = getClassification(aggregate.councilAverage);
-
-      if (aggregate.scoredCount === members.length) {
-        await patchSubmissionScore(selectedId, {
-          score: aggregate.councilAverage,
-          classification: cls.label,
-        });
-      }
-
-      toast.success(`Đã lưu điểm ${activeMember?.name ?? "thành viên"} · DTB HĐ ${aggregate.councilAverage.toFixed(1)} (${aggregate.scoredCount}/${members.length})`);
+      await axiosClient.patch(`/Submissions/${selectedId}/score`, scoreBody);
+      await loadEvaluatorsStatus(selectedId);
+      toast.success(
+        `Đã lưu điểm ${activeMember?.name ?? "thành viên"} · DTB cá nhân ${average.toFixed(1)}`
+      );
     } catch {
       // axiosClient interceptor đã toast lỗi
     } finally {
@@ -510,7 +549,8 @@ export default function Eb() {
   async function handleApprove(seriesId, title) {
     const assessment = getQueueAssessment(seriesId);
     const incomplete = assessment.scoredCount < members.length;
-    const failing = assessment.classification?.label === "KHÔNG ĐẠT";
+    const failing    = assessment.classification?.label === "KHÔNG ĐẠT";
+
     if (incomplete || failing) {
       const reason = failing
         ? `Series đang ở mức "${assessment.classification.label}".`
@@ -518,17 +558,19 @@ export default function Eb() {
       if (!window.confirm(`${reason} Bạn vẫn muốn chấp nhận?`)) return;
     }
     try {
-      await axiosClient.patch(`/Series/${seriesId}/status`, { Status: "Approved" });
-      toast.success(`Đã chấp nhận "${title}".`);
+      // Theo DB constraint: status hợp lệ là 'Publishing'
+      await axiosClient.patch(`/Series/${seriesId}/status`, { status: "Publishing" });
+      toast.success(`Đã chấp nhận "${title}" — chuyển sang phát hành.`);
       loadQueue();
     } catch { /* interceptor toast */ }
   }
 
   async function handleReject(seriesId, title) {
-    if (!window.confirm(`Từ chối "${title}"? Series sẽ bị loại khỏi hàng chờ duyệt.`)) return;
+    if (!window.confirm(`Từ chối "${title}"? Series sẽ bị trả về Mangaka chỉnh sửa.`)) return;
     try {
-      await axiosClient.patch(`/Series/${seriesId}/status`, { Status: "Rejected" });
-      toast.success(`Đã từ chối "${title}".`);
+      // Trả về Draft để Mangaka chỉnh lại
+      await axiosClient.patch(`/Series/${seriesId}/status`, { status: "Draft" });
+      toast.success(`Đã từ chối "${title}" — trả về Mangaka.`);
       loadQueue();
     } catch { /* interceptor toast */ }
   }
@@ -536,8 +578,8 @@ export default function Eb() {
   function getQueueAssessment(seriesId) {
     if (seriesId !== selectedId) return { scoredCount: 0, total: members.length, classification: null, councilAverage: 0 };
     return {
-      scoredCount: councilAggregate.scoredCount,
-      total: members.length,
+      scoredCount:    councilAggregate.scoredCount,
+      total:          members.length,
       classification: councilAggregate.scoredCount > 0 ? councilClassification : null,
       councilAverage: councilAggregate.councilAverage,
     };
@@ -568,75 +610,63 @@ export default function Eb() {
                 <p className="mt-1 text-xs text-muted-foreground">Chọn thành viên HĐ, nhập điểm thay họ, rồi lưu — có thể lần lượt nhập cho từng người trong cùng series.</p>
               </div>
 
-              {/* Series + loại truyện */}
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>Series đang chấm</Label>
-                  {loadingQueue
-                    ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Đang tải hàng chờ…</div>
-                    : (
-                      <Select
-                        value={selectedId != null ? String(selectedId) : ""}
-                        onValueChange={v => setSelectedId(Number(v) || v)}
-                        disabled={pending.length === 0}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder={pending.length ? "Chọn series trong hàng chờ" : "Chưa có series chờ EB duyệt"} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {pending.map((item, idx) => {
-                            const id = item.seriesid ?? item.series_id ?? item.id;
-                            const label = item.title ?? item.series_title ?? `Series #${id}`;
-                            return (
-                              <SelectItem key={id ?? idx} value={String(id)}>
-                                {label}
-                              </SelectItem>
-                            );
-                          })}
-                        </SelectContent>
-                      </Select>
-                    )}
-                </div>
-                <div className="space-y-2">
-                  <Label>Loại truyện</Label>
-                  <Select value={scoreType} onValueChange={setScoreType}>
-                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="color">Truyện màu</SelectItem>
-                      <SelectItem value="mono">Truyện không màu</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Thành viên */}
+              {/* Series */}
               <div className="space-y-2">
-                <Label>Thành viên đang nhập điểm</Label>
-                {members.length === 0
-                  ? <p className="text-sm text-muted-foreground">Không có thành viên Hội đồng nào.</p>
+                <Label>Series đang chấm</Label>
+                {loadingQueue
+                  ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Đang tải hàng chờ…</div>
                   : (
-                    // FIX 3: value="" thay vì value={null ?? undefined}
-                    // FIX 4: key={memberId} dùng fallback idx
-                    <Select value={activeMemberId} onValueChange={setActiveMemberId}>
+                    <Select
+                      value={selectedId != null ? String(selectedId) : ""}
+                      onValueChange={v => setSelectedId(Number(v) || v)}
+                      disabled={pending.length === 0}
+                    >
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Chọn thành viên Hội đồng" />
+                        <SelectValue placeholder={pending.length ? "Chọn series trong hàng chờ" : "Chưa có series chờ EB duyệt"} />
                       </SelectTrigger>
                       <SelectContent>
-                        {members.map((member, idx) => {
-                          const memberId = member.id ?? String(idx);
-                          const scored = councilAggregate.memberRows.find(r => r.id === member.id)?.scored;
+                        {pending.map((item, idx) => {
+                          const id    = item._resolvedId;
+                          const label = item.title ?? item.series_title ?? `Series #${id}`;
                           return (
-                            <SelectItem key={memberId} value={memberId}>
-                              {member.name}{scored ? " · đã chấm" : ""}
+                            <SelectItem key={id ?? idx} value={String(id)}>
+                              {label}
                             </SelectItem>
                           );
                         })}
                       </SelectContent>
                     </Select>
                   )}
+              </div>
+
+              {/* Thành viên */}
+              <div className="space-y-2">
+                <Label>Thành viên đang nhập điểm</Label>
+                {loadingMembers
+                  ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Đang tải danh sách Hội đồng…</div>
+                  : members.length === 0
+                    ? <p className="text-sm text-muted-foreground">Không có thành viên Hội đồng nào.</p>
+                    : (
+                      <Select value={activeMemberId} onValueChange={setActiveMemberId}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Chọn thành viên Hội đồng" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {members.map((member, idx) => (
+                            <SelectItem key={member.id ?? idx} value={member.id}>
+                              {member.name}{member.hasEvaluated ? " · đã chấm ✓" : " · chưa chấm"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                 {activeMember && (
                   <p className="text-xs text-muted-foreground">
-                    {activeMember.title} — DTB cá nhân tạm tính: <strong className="text-foreground">{average.toFixed(1)}</strong>
+                    {activeMember.title} — DTB cá nhân tạm tính:{" "}
+                    <strong className="text-foreground">{average.toFixed(1)}</strong>
+                    {activeMember.hasEvaluated && (
+                      <Badge variant="outline" className="ml-2 text-[10px] border-emerald-200 text-emerald-700">Đã chấm</Badge>
+                    )}
                   </p>
                 )}
               </div>
@@ -646,10 +676,10 @@ export default function Eb() {
                 <div>
                   <h3 className="text-sm font-semibold text-foreground">Điểm các thành viên Hội đồng</h3>
                   <p className="text-xs text-muted-foreground">
-                    {loadingEval ? "Đang tải điểm…" : "Hiển thị điểm đã lưu của từng thành viên và trung bình chung."}
+                    {loadingMembers ? "Đang tải điểm…" : "Hiển thị điểm đã lưu của từng thành viên và trung bình chung."}
                   </p>
                 </div>
-                {loadingEval
+                {loadingMembers
                   ? <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Đang tải…</div>
                   : (
                     <CouncilScoresTable
@@ -722,9 +752,13 @@ export default function Eb() {
                       <Badge variant="secondary" className={`border text-[10px] py-0 px-1.5 ${councilClassification.className}`}>{councilClassification.label}</Badge>
                     </p>
                   </div>
-                  <Button onClick={handleSaveAssessment} disabled={saving || !activeMemberId || !selectedId} className="shrink-0">
+                  <Button
+                    onClick={handleSaveAssessment}
+                    disabled={saving || !activeMemberId || !selectedId}
+                    className="shrink-0"
+                  >
                     {saving && <Loader2 className="size-4 animate-spin" />}
-                    Lưu điểm
+                    {activeMember?.hasEvaluated ? "Cập nhật điểm" : "Lưu điểm"}
                   </Button>
                 </div>
               </div>
@@ -748,10 +782,15 @@ export default function Eb() {
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="secondary">Tantou gửi sang EB</Badge>
-                  {activeSubmission?.chapter_num && <Badge variant="outline">Ch. {activeSubmission.chapter_num}</Badge>}
+                  {activeSubmission?.agerating && <Badge variant="outline">{activeSubmission.agerating}</Badge>}
+                  {activeSubmission?.publishformat && <Badge variant="outline">{activeSubmission.publishformat}</Badge>}
                 </div>
                 <p className="text-sm font-medium text-foreground">{activeTitle || "Chưa có series trong hàng chờ"}</p>
-                <p className="text-sm text-muted-foreground">{activeSubmission?.page_label ?? "Ảnh lấy từ submission Tantou hoặc ảnh thay thế nếu chưa có."}</p>
+                <p className="text-sm text-muted-foreground">
+                  {activeSubmission?.synopsis
+                    ? <span className="line-clamp-3">{activeSubmission.synopsis}</span>
+                    : "Ảnh lấy từ submission Tantou hoặc ảnh thay thế nếu chưa có."}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -760,24 +799,36 @@ export default function Eb() {
         {/* Hàng chờ duyệt */}
         <section className="space-y-4">
           <div>
-            <h2 className="flex items-center gap-2 text-xl font-semibold"><Gavel className="size-5 text-primary" />Hàng chờ duyệt</h2>
+            <h2 className="flex items-center gap-2 text-xl font-semibold">
+              <Gavel className="size-5 text-primary" />Hàng chờ duyệt EB
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Đồng bộ từ{" "}
-              <Link to="/mangaka" className="font-medium text-primary hover:underline">Mangaka</Link>{" / "}
-              <Link to="/tantou" className="font-medium text-primary hover:underline">Tantou</Link>
+              Series đang ở trạng thái EBReview — click để chọn và nhập điểm.
             </p>
           </div>
           {loadingQueue
-            ? <Card><CardContent className="flex items-center justify-center gap-2 py-16 text-muted-foreground"><Loader2 className="size-5 animate-spin" />Đang tải hàng chờ…</CardContent></Card>
+            ? (
+              <Card>
+                <CardContent className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+                  <Loader2 className="size-5 animate-spin" />Đang tải hàng chờ…
+                </CardContent>
+              </Card>
+            )
             : pending.length === 0
-              ? <Card><CardContent className="py-16 text-center text-muted-foreground">Không có series lần đầu trong hàng chờ.</CardContent></Card>
+              ? (
+                <Card>
+                  <CardContent className="py-16 text-center text-muted-foreground">
+                    Không có series trong hàng chờ EB duyệt.
+                  </CardContent>
+                </Card>
+              )
               : (
                 <div className="grid gap-4">
                   {pending.map((p, idx) => {
-                    const id = p.seriesid ?? p.series_id ?? p.id;
-                    const title = p.title ?? p.series_title ?? `Series #${id}`;
+                    const id         = p._resolvedId;
+                    const title      = p.title ?? p.series_title ?? `Series #${id}`;
                     const assessment = getQueueAssessment(id);
-                    const isActive = id === selectedId;
+                    const isActive   = id === selectedId;
                     return (
                       <Card
                         key={id ?? idx}
@@ -785,23 +836,41 @@ export default function Eb() {
                         className={`cursor-pointer transition-shadow hover:shadow-md ${isActive ? "ring-2 ring-primary" : ""}`}
                       >
                         <CardContent className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="space-y-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="font-semibold">{title}</h3>
-                              <Badge variant="secondary">✦ Lần đầu</Badge>
-                              {assessment.scoredCount > 0
-                                ? <Badge variant="secondary" className={`border text-[11px] ${assessment.classification.className}`}>{assessment.scoredCount}/{assessment.total} đã chấm · {assessment.classification.label}</Badge>
-                                : <Badge variant="outline" className="text-[11px] text-muted-foreground">Chưa có điểm</Badge>}
+                          <div className="flex gap-4">
+                            {/* Cover thumbnail */}
+                            {(p.coverimageurl || p.cover_image_url) && (
+                              <div className="size-14 shrink-0 overflow-hidden rounded-lg">
+                                <img
+                                  src={p.coverimageurl ?? p.cover_image_url}
+                                  alt=""
+                                  className="size-full object-cover"
+                                />
+                              </div>
+                            )}
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="font-semibold">{title}</h3>
+                                <Badge variant="secondary">✦ EBReview</Badge>
+                                {p.agerating && <Badge variant="outline" className="text-[11px]">{p.agerating}</Badge>}
+                                {assessment.scoredCount > 0
+                                  ? (
+                                    <Badge variant="secondary" className={`border text-[11px] ${assessment.classification.className}`}>
+                                      {assessment.scoredCount}/{assessment.total} đã chấm · {assessment.classification.label}
+                                    </Badge>
+                                  )
+                                  : <Badge variant="outline" className="text-[11px] text-muted-foreground">Chưa có điểm</Badge>}
+                              </div>
+                              <p className="text-sm text-muted-foreground line-clamp-2">
+                                {p.synopsis ?? ""}
+                              </p>
                             </div>
-                            <p className="text-sm text-muted-foreground">
-                              {[
-                                p.genres?.slice(0, 2).map(g => g?.genrename ?? g?.name ?? "").filter(Boolean).join(" · "),
-                                p.publishformat,
-                              ].filter(Boolean).join(" · ")}
-                            </p>
                           </div>
-                          <div className="flex gap-2" onClick={e => e.stopPropagation()}>
-                            <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => handleReject(id, title)}>
+                          <div className="flex gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                            <Button
+                              variant="outline"
+                              className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                              onClick={() => handleReject(id, title)}
+                            >
                               <XCircle className="size-4" />Từ chối
                             </Button>
                             <Button onClick={() => handleApprove(id, title)}>

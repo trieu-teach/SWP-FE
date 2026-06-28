@@ -4,11 +4,10 @@ import axiosClient from "./axiosClient";
 /**
  * Lấy danh sách series đang chờ EB duyệt
  * GET /api/Submissions/eb
- * @returns {Promise<Array>} danh sách submission
+ * @returns {Promise<Array>}
  */
 export async function getEbPendingSubmissions() {
   const res = await axiosClient.get("/Submissions/eb");
-  // normalizeKeys đã chạy trong axiosClient → trả về snake_case
   return Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
 }
 
