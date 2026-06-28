@@ -175,6 +175,14 @@ export default function LayerCanvas({
     }
   }, [])
 
+  // Attach non-passive wheel listener to avoid "Unable to preventDefault inside passive" warning
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
+  }, [handleWheel])
+
   const handleMouseDown = useCallback((e) => {
     if (e.button === 0) {
       panStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y }
@@ -221,7 +229,6 @@ export default function LayerCanvas({
         className,
       )}
       style={{ cursor: isPanning ? 'grabbing' : panMode ? 'grab' : 'default' }}
-      onWheel={handleWheel}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}

@@ -156,8 +156,8 @@ export const pagesService = {
 // ── PAGE LAYERS ────────────────────────────────────────────────────────────────
 export const pageLayersService = {
   getAll: (pageId) => {
-    console.log('[API] GET /PageLayers', { pageId })
-    return axios.get('/PageLayers', { params: pageId != null ? { pageId } : undefined })
+    console.log('[API] GET /PageLayers/:id', pageId)
+    return axios.get(`/PageLayers/${pageId}`)
   },
   getById: (id) => {
     console.log('[API] GET /PageLayers/:id', id)

@@ -279,19 +279,6 @@ export function usePageComposite() {
   })
 }
 
-/* ===========================
-   PAGE LAYERS HOOKS
-   =========================== */
-export function usePageLayers(pageId) {
-  return useQuery({
-    queryKey: ['pageLayers', pageId ? { pageId } : 'all'],
-    queryFn: async () => {
-      const res = await pageLayersService.getAll(pageId)
-      return unwrap(res) ?? []
-    },
-  })
-}
-
 export function usePageLayerById(id) {
   return useQuery({
     queryKey: ['pageLayers', id],

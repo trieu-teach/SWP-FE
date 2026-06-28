@@ -48,10 +48,10 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { getSession, logout } from '@/lib/auth.js'
+import { usePageLayers } from '@/hooks/usePageLayers.js'
 import {
   usePageById,
   usePages,
-  usePageLayers,
   useCreatePageLayer,
   useUpdatePageLayer,
   useDeletePageLayer,
@@ -580,7 +580,7 @@ export default function PageLayerWorkspace() {
 
     serverItems.forEach(l => {
       if (l.serverId) {
-        updateLayer.mutate({ id: l.serverId, data: { sortOrder: l.index } })
+        updateLayer.mutate({ id: l.serverId, data: { zIndex: l.index } })
       }
     })
 

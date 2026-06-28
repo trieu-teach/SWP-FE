@@ -6,7 +6,7 @@ function unwrap(res) {
 
 export const assistantLayersService = {
   list(pageId) {
-    return axios.get('/PageLayers', { params: { pageId } }).then(unwrap)
+    return axios.get(`/PageLayers/${pageId}`).then(unwrap)
   },
 
   // Backend nhan: layerFile (IFormFile), pageid, uploaderid, layername, zindex, opacity
@@ -25,7 +25,7 @@ export const assistantLayersService = {
     const fd = new FormData()
     if (patch.layerName !== undefined) fd.append('layername', patch.layerName)
     if (patch.zIndex !== undefined) fd.append('zindex', String(patch.zIndex))
-    if (patch.opacity !== undefined) fd.append('opacity', String(patch.opacity))
+    if (patch.opacity !== undefined) fd.append('opacity', Number(patch.opacity).toFixed(2))
     if (patch.versionNumber !== undefined) fd.append('versionnumber', String(patch.versionNumber))
     if (patch.file !== undefined) fd.append('layerFile', patch.file)
     return axios.put(`/PageLayers/${layerId}`, fd).then(unwrap)

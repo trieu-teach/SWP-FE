@@ -30,6 +30,7 @@ import { getSession, logout } from '@/lib/auth.js'
 import { useAssistantAssignments } from '@/hooks/useAssistantAssignments.js'
 import { useCollaborationRequests } from '@/hooks/useCollaborationRequests.js'
 import LayerEditor from '@/components/layer/LayerEditor.jsx'
+import CollaborationRequestsDialog from '@/components/CollaborationRequestsDialog.jsx'
 
 const NAV_LINKS = [{ to: '/', label: 'Trang chủ' }]
 
@@ -73,6 +74,7 @@ export default function Assistant() {
   const [selectedChapterId, setSelectedChapterId] = useState(null)
   const [taskFilter, setTaskFilter] = useState('all')
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [collabDialogOpen, setCollabDialogOpen] = useState(false)
 
   const selectedAssignment = useMemo(
     () => assignments.find(a => a.chapterId === selectedChapterId) ?? assignments[0] ?? null,
@@ -140,7 +142,12 @@ export default function Assistant() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <Header links={NAV_LINKS} onLogout={user ? handleLogout : undefined} />
+      <Header
+        links={NAV_LINKS}
+        onLogout={user ? handleLogout : undefined}
+        notificationCount={pendingCount}
+        onNotificationClick={() => setCollabDialogOpen(true)}
+      />
 
       <WorkspaceHero
         className="from-violet-950 to-zinc-950"
@@ -189,14 +196,17 @@ export default function Assistant() {
 
         {/* Banner: có yêu cầu hợp tác */}
         {pendingCount > 0 && (
-          <Card className="mb-6 border-violet-200 bg-gradient-to-br from-violet-500/5 via-background to-background">
+          <Card
+            className="mb-6 cursor-pointer border-violet-200 bg-gradient-to-br from-violet-500/5 via-background to-background transition-colors hover:border-violet-400 hover:bg-violet-500/10"
+            onClick={() => setCollabDialogOpen(true)}
+          >
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
                 <Handshake className="size-4 text-violet-600" />
                 {pendingCount} yêu cầu hợp tác mới
               </CardTitle>
               <CardDescription>
-                Vào mục Hợp tác để đồng ý hoặc từ chối.
+                Nhấn để xem chi tiết và phản hồi.
               </CardDescription>
             </CardHeader>
           </Card>
@@ -382,6 +392,8 @@ export default function Assistant() {
           </div>
         </div>
       </main>
+
+      <CollaborationRequestsDialog open={collabDialogOpen} onOpenChange={setCollabDialogOpen} />
 
       <Footer />
     </div>

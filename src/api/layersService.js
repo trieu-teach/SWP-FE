@@ -5,9 +5,9 @@ function unwrap(res) {
 }
 
 export const layersService = {
-  // GET /PageLayers?pageId=N → List<PageLayerDto>
+  // GET /PageLayers/{id} → PageLayerDto (single)
   list(pageId) {
-    return axios.get('/PageLayers', { params: { pageId } }).then(unwrap)
+    return axios.get(`/PageLayers/${pageId}`).then(unwrap)
   },
 
   // POST /PageLayers (multipart): layerFile + pageid + uploaderid + layername + zindex + opacity
@@ -18,7 +18,7 @@ export const layersService = {
     if (uploaderId != null) fd.append('uploaderid', String(uploaderId))
     if (layerName) fd.append('layername', layerName)
     if (index != null) fd.append('zindex', String(index))
-    fd.append('opacity', String(opacity))
+    fd.append('opacity', Number(opacity).toFixed(2))
     return axios.post('/PageLayers', fd).then(unwrap)
   },
 
@@ -27,7 +27,7 @@ export const layersService = {
     const fd = new FormData()
     if (patch.layerName !== undefined) fd.append('layername', patch.layerName)
     if (patch.zIndex !== undefined) fd.append('zindex', String(patch.zIndex))
-    if (patch.opacity !== undefined) fd.append('opacity', String(patch.opacity))
+    if (patch.opacity !== undefined) fd.append('opacity', Number(patch.opacity).toFixed(2))
     if (patch.versionNumber !== undefined) fd.append('versionnumber', String(patch.versionNumber))
     if (patch.file !== undefined) fd.append('layerFile', patch.file)
     return axios.put(`/PageLayers/${layerId}`, fd).then(unwrap)

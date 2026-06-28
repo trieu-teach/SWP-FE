@@ -10,14 +10,14 @@ function apiLayerToUi(raw) {
     return { id: '', name: '', imageUrl: '', visible: true, opacity: 100, blendMode: 'normal', index: 0 }
   }
   return {
-    id: String(raw.pageLayerId ?? raw.layerid ?? raw.Layerid ?? raw.id ?? raw._id ?? ''),
-    name: String(raw.layerName ?? raw.LayerName ?? raw.name ?? `Layer ${raw.zindex ?? raw.index ?? 0}`),
+    id: String(raw.layerid ?? raw.Layerid ?? raw.id ?? raw._id ?? ''),
+    name: String(raw.layername ?? raw.LayerName ?? raw.name ?? `Layer ${raw.index ?? 0}`),
     imageUrl: raw.fileurl ?? raw.Fileurl ?? raw.imageUrl ?? raw.url ?? '',
-    visible: raw.visible ?? raw.isVisible ?? raw.IsVisible ?? true,
+    visible: raw.isvisible ?? raw.isVisible ?? raw.IsVisible ?? true,
     opacity: Number(raw.opacity ?? raw.Opacity ?? 100),
     blendMode: BLEND_OPTIONS.includes(raw.blendMode) ? raw.blendMode : 'normal',
-    index: Number(raw.zindex ?? raw.index ?? raw.zIndex ?? 0),
-    currentVersionNo: raw.currentVersionNo ?? raw.versionNumber ?? 1,
+    index: Number(raw.index ?? raw.zIndex ?? 0),
+    currentVersionNo: raw.versionnumber ?? raw.versionNumber ?? raw.currentVersionNo ?? 1,
   }
 }
 
@@ -35,20 +35,9 @@ export function usePageLayers(pageId, { uploaderId } = {}) {
     setLoading(true)
     setError(null)
     try {
-      const [listRes, pageRes] = await Promise.allSettled([
-        layersService.list(pageId),
-        pagesService.getById(pageId),
-      ])
+      const pageRes = await pagesService.getById(pageId)
 
-      if (listRes.status === 'fulfilled') {
-        const raw = listRes.value
-        const list = Array.isArray(raw?.data) ? raw.data : Array.isArray(raw) ? raw : []
-        const mapped = list.map(apiLayerToUi)
-        mapped.sort((a, b) => a.index - b.index)
-        setLayers(mapped)
-      } else {
-        setLayers([])
-      }
+      setLayers([])
 
       if (pageRes.status === 'fulfilled') {
         const p = pageRes.value?.data ?? pageRes.value

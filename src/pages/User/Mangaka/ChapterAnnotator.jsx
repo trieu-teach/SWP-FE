@@ -194,7 +194,7 @@ export default function ChapterAnnotator({
 
   // Server-side data
   const { data: serverPages = [] } = usePages(serverChapterId)
-  const { data: serverPageIssues = [] } = usePageIssues(serverChapterId)
+  const { data: serverPageIssues = [] } = usePageIssues({ chapterId: serverChapterId })
 
   useEffect(() => {
     if (!isFullscreen) return undefined
