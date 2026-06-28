@@ -381,21 +381,21 @@ export function buildSeriesFromUploadTitle(title, { id, authorName, colorIndex =
  */
 export function mapApiSeriesToLocal(raw, index = 0) {
   if (!raw) return null
-  const id = raw.series_id ?? raw.id ?? index + 1
+  const id = raw.seriesid ?? raw.series_id ?? raw.seriesId ?? raw.id ?? index + 1
   const title = String(raw.title ?? '').trim() || `Series ${id}`
   const status = String(raw.status ?? 'draft').toLowerCase()
-  const agerating = String(raw.age_rating ?? 'G').toUpperCase()
+  const agerating = String(raw.agerating ?? raw.age_rating ?? raw.ageRating ?? 'G').toUpperCase()
   const validRatings = ['G', 'PG-13', 'R-16', 'R-18']
   const safeRating = validRatings.includes(agerating) ? agerating : 'G'
-  const pubFormat = String(raw.publish_format ?? 'continuing')
+  const pubFormat = String(raw.publishformat ?? raw.publish_format ?? raw.publishFormat ?? 'continuing')
   return normalizeSeries({
     id,
     seriesid: id,
     title,
     altTitle: title,
     synopsis: String(raw.synopsis ?? '').trim(),
-    coverImage: raw.cover_image_url ?? null,
-    proposalFileUrl: raw.proposal_file_url ?? null,
+    coverImage: raw.coverimageurl ?? raw.cover_image_url ?? raw.coverImageUrl ?? null,
+    proposalFileUrl: raw.proposalfileurl ?? raw.proposal_file_url ?? raw.proposalFileUrl ?? null,
     genres: Array.isArray(raw.genres)
       ? raw.genres.map(g => {
           const v = g.genre_name ?? g.genreName ?? null
@@ -419,16 +419,16 @@ export function mapApiSeriesToLocal(raw, index = 0) {
     publishType: pubFormat,
     needsFullDebutPipeline: pubFormat.toLowerCase() === 'debut',
     authorName: 'Mangaka',
-    mangakaid: raw.mangaka_id ?? raw.mangakaid,
-    tantoueditorid: raw.tantou_editor_id ?? raw.tantoueditorid,
+    mangakaid: raw.mangakaid ?? raw.mangaka_id ?? raw.mangakaId,
+    tantoueditorid: raw.tantoueditorid ?? raw.tantou_editor_id ?? raw.tantouEditorId,
     chapters: 0,
     marks: 0,
     status: status === 'approved' ? 'done' : status === 'pending' ? 'review' : 'draft',
     updated: 'Cập nhật từ server',
     progress: 0,
     metadataComplete: Boolean(String(raw.synopsis ?? '').trim()),
-    createdat: raw.created_at ?? raw.createdat,
-    approvedat: raw.approved_at ?? raw.approvedat,
+    createdat: raw.createdat ?? raw.created_at ?? raw.createdAt,
+    approvedat: raw.approvedat ?? raw.approved_at ?? raw.approvedAt,
   })
 }
 
