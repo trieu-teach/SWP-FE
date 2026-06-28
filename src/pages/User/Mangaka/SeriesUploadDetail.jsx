@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -33,13 +33,8 @@ import {
   mapApiSeriesToLocal,
   slugifySeriesTitle,
 } from '@/utils/seriesModel.js'
-import {
-  readMangakaWorkspace,
-  resolveAnnotatorChapter,
-  updateSeriesInWorkspace,
-} from '@/utils/mangakaWorkspaceReader.js'
 import { LABEL_EDITOR_BOARD } from '@/constants/roleTerminology.js'
-import { useChapters, usePages, usePageIssues, useSeriesByMangaka } from '@/api/hooks'
+import { useChapters, usePages, usePageIssues, useSeriesByMangaka, useUpdateSeries } from '@/api/hooks'
 import AddSeriesModal from './AddSeriesModal.jsx'
 import './ChapterReader.css'
 import '@/styles/mangaPage.css'
@@ -64,13 +59,6 @@ function mapChapterStatus(s) {
   if (v === 'assistant' || v === 'drawing') return 'assistant'
   if (v === 'tantou' || v === 'editing') return 'tantou'
   return 'draft'
-}
-
-function findSeriesBySlug(seriesList, slug) {
-  if (!slug) return null
-  return seriesList.find(s => s.slug === slug)
-    ?? seriesList.find(s => slugifySeriesTitle(s.title) === slug)
-    ?? null
 }
 
 function seriesPath(series) {
@@ -393,8 +381,8 @@ export default function SeriesUploadDetail() {
   const navigate = useNavigate()
   const session = getSession()
   const mangakaId = session?.id ?? session?.userid ?? null
-  const [workspace, setWorkspace] = useState(() => readMangakaWorkspace())
   const [editSeriesOpen, setEditSeriesOpen] = useState(false)
+  const updateSeries = useUpdateSeries()
 
   function handleLogout() {
     logout()
@@ -407,34 +395,19 @@ export default function SeriesUploadDetail() {
     navigate(`${basePath}/chapter/${chapterId}/page/${pageId}`)
   }
 
-  useEffect(() => {
-    const refresh = () => setWorkspace(readMangakaWorkspace())
-    window.addEventListener('storage', refresh)
-    window.addEventListener('mk-workspace-update', refresh)
-    return () => {
-      window.removeEventListener('storage', refresh)
-      window.removeEventListener('mk-workspace-update', refresh)
-    }
-  }, [])
-
-  useEffect(() => {
-    setWorkspace(readMangakaWorkspace())
-  }, [seriesSlug, chapterId])
-
-  // Fetch series từ API theo mangakaId để có ID chuẩn từ DB (không phải ID local)
+  // Fetch series từ API theo mangakaId để có ID chuẩn từ DB
   const { data: apiSeriesRaw = [] } = useSeriesByMangaka(mangakaId)
   const apiSeries = useMemo(
     () => (Array.isArray(apiSeriesRaw) ? apiSeriesRaw.map((s, i) => mapApiSeriesToLocal(s, i)).filter(Boolean) : []),
     [apiSeriesRaw],
   )
 
-  // Ưu tiên series từ API (có ID chuẩn từ DB); fallback local workspace
   const series = useMemo(() => {
-    const fromApi = apiSeries.find(s => s.slug === seriesSlug)
+    if (!seriesSlug) return null
+    return apiSeries.find(s => s.slug === seriesSlug)
       ?? apiSeries.find(s => slugifySeriesTitle(s.title) === seriesSlug)
-    if (fromApi) return fromApi
-    return findSeriesBySlug(workspace.seriesList, seriesSlug)
-  }, [apiSeries, workspace.seriesList, seriesSlug])
+      ?? null
+  }, [apiSeries, seriesSlug])
 
   const serverSeriesId = series?.seriesid ?? series?.id
   const { data: serverChapters = [] } = useChapters(serverSeriesId)
@@ -445,62 +418,43 @@ export default function SeriesUploadDetail() {
   const seriesTitle = series?.title ?? ''
 
   const chapterRows = useMemo(() => {
-    // Ưu tiên local chapters (từ workspace) nếu có
     if (!seriesTitle) return []
-    const localRows = workspace.chapterRows.filter(r => r.series === seriesTitle)
-    // Nếu backend có chapters → merge server data
-    if (serverChapters.length > 0) {
-      const localIds = new Set(localRows.map(r => String(r.id)))
-      const serverRows = serverChapters.map(ch => ({
-        id: ch.chapterid ?? ch.Chapterid ?? ch.id,
-        series: seriesTitle,
-        num: ch.chapternumber ?? ch.ChapterNumber ?? ch.chapterNumber ?? ch.number ?? 1,
-        type: 'IMAGE',
-        pages: ch.pagecount ?? ch.pageCount ?? ch.totalPages ?? 0,
-        status: mapChapterStatus(ch.status ?? ch.Status ?? 'draft'),
-        date: ch.createdat ?? ch.Createdat ?? new Date().toLocaleDateString('vi-VN'),
-        apiChapterId: ch.chapterid ?? ch.Chapterid ?? ch.id,
-        localPageId: `srv-${ch.chapterid ?? ch.Chapterid ?? ch.id}`,
-      }))
-      // Giữ local rows + thêm server rows chưa có trong local
-      const merged = [...localRows]
-      serverRows.forEach(sr => {
-        if (!localIds.has(String(sr.id))) {
-          merged.push(sr)
-        }
-      })
-      return merged
-    }
-    return localRows
-  }, [workspace.chapterRows, seriesTitle, serverChapters])
+    return serverChapters.map(ch => ({
+      id: ch.chapterid ?? ch.Chapterid ?? ch.id,
+      series: seriesTitle,
+      num: ch.chapternumber ?? ch.ChapterNumber ?? ch.chapterNumber ?? ch.number ?? 1,
+      type: 'IMAGE',
+      pages: ch.pagecount ?? ch.pageCount ?? ch.totalPages ?? 0,
+      status: mapChapterStatus(ch.status ?? ch.Status ?? 'draft'),
+      date: ch.createdat ?? ch.Createdat ?? new Date().toLocaleDateString('vi-VN'),
+      apiChapterId: ch.chapterid ?? ch.Chapterid ?? ch.id,
+      localPageId: `srv-${ch.chapterid ?? ch.Chapterid ?? ch.id}`,
+    }))
+  }, [seriesTitle, serverChapters])
 
   const activeRow = useMemo(
     () => (chapterId ? chapterRows.find(r => String(r.id) === String(chapterId) || String(r.apiChapterId) === String(chapterId)) : null),
     [chapterRows, chapterId],
   )
 
-  const activeAnnotator = useMemo(
-    () => (activeRow ? resolveAnnotatorChapter(activeRow, workspace.annotatorChapters) : null),
-    [activeRow, workspace.annotatorChapters],
-  )
-
   function handleEditSeriesSubmit(form) {
     if (!series) return
-    const next = updateSeriesInWorkspace(series.id, form)
-    setWorkspace(next)
-    setEditSeriesOpen(false)
-    const updated = next.seriesList.find(s => s.id === series.id)
-    if (updated) {
-      const newSlug = updated.slug ?? slugifySeriesTitle(updated.title)
-      if (newSlug !== seriesSlug) {
-        navigate(`/mangaka/series/${newSlug}`, { replace: true })
-      }
-    }
+    const seriesId = series.seriesid ?? series.id
+    updateSeries.mutate(
+      { id: seriesId, data: form },
+      {
+        onSuccess: () => {
+          setEditSeriesOpen(false)
+          const newSlug = form.slug ?? slugifySeriesTitle(form.title ?? series.title)
+          if (newSlug !== seriesSlug) {
+            navigate(`/mangaka/series/${newSlug}`, { replace: true })
+          }
+        },
+      },
+    )
   }
 
   const chapterCards = useMemo(() => chapterRows.map(row => {
-    const annot = resolveAnnotatorChapter(row, workspace.annotatorChapters)
-    // Server pages: lọc theo chapter tương ứng của mỗi row
     const rowChapterId = row.apiChapterId ?? null
     const rowServerPages = rawServerPages.filter(p => {
       const pid = p.pageid ?? p.Pageid ?? p.id
@@ -509,14 +463,12 @@ export default function SeriesUploadDetail() {
     const serverPageCover = rowServerPages.length > 0 && rowServerPages[0]?.pageImageUrl
       ? { url: rowServerPages[0].pageImageUrl, name: 'cover' }
       : null
-    const cover = annot?.cover?.url
-      ? { url: annot.cover.url, name: annot.cover.name ?? 'cover' }
-      : serverPageCover
-      ? serverPageCover
-      : annot?.pages?.find(p => p?.url) ?? annot?.pages?.[0]
-    const uploaded = annot?.pages?.length ?? row.pages ?? rowServerPages.length ?? 0
-    return { row, annot, cover, uploaded, serverPages: rowServerPages }
-  }), [chapterRows, workspace.annotatorChapters, rawServerPages])
+    const cover = serverPageCover
+      ?? rowServerPages.find(p => p?.pageImageUrl ?? p?.compositeImageUrl ?? p?.imageUrl)
+      ?? null
+    const uploaded = row.pages ?? rowServerPages.length ?? 0
+    return { row, cover, uploaded, serverPages: rowServerPages }
+  }), [chapterRows, rawServerPages])
 
   if (!series) {
     return (
@@ -554,9 +506,7 @@ export default function SeriesUploadDetail() {
         }))
       : []
 
-    const pages = serverPageList.length > 0
-      ? serverPageList
-      : (activeAnnotator?.pages ?? [])
+    const pages = serverPageList
     const pagesWithMedia = pages.filter(p => p?.url)
     const staleOnly = pages.length > 0 && pagesWithMedia.length === 0
     const progressPct = pages.length > 0 ? Math.min(100, pages.length * 4) : null
@@ -743,7 +693,7 @@ export default function SeriesUploadDetail() {
               <Card>
                 <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
                   <FileImage className="size-10 text-muted-foreground/60" />
-                  <p>Chưa có chapter — bắt đầu upload từ workspace.</p>
+                  <p>Chưa có chapter — bắt đầu upload từ trang Mangaka Workspace.</p>
                   <Button asChild>
                     <Link to="/mangaka" state={{ tab: 'annotate', series: series.title }}>
                       <Upload className="size-4" />
@@ -822,7 +772,7 @@ export default function SeriesUploadDetail() {
         onClose={() => setEditSeriesOpen(false)}
         onSubmit={handleEditSeriesSubmit}
         authorName={series.authorName}
-        existingTitles={workspace.seriesList.map(s => s.title)}
+        existingTitles={apiSeries.map(s => s.title).filter(Boolean)}
       />
     </DetailShell>
   )
