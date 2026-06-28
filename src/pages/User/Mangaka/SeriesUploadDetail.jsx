@@ -30,6 +30,7 @@ import {
   formatSeriesCardLine,
   formatSeriesCatalogLine,
   formatSeriesRating,
+  mapApiSeriesToLocal,
   slugifySeriesTitle,
 } from '@/utils/seriesModel.js'
 import {
@@ -38,7 +39,7 @@ import {
   updateSeriesInWorkspace,
 } from '@/utils/mangakaWorkspaceReader.js'
 import { LABEL_EDITOR_BOARD } from '@/constants/roleTerminology.js'
-import { useChapters, usePages, usePageIssues } from '@/api/hooks'
+import { useChapters, usePages, usePageIssues, useSeriesByMangaka } from '@/api/hooks'
 import AddSeriesModal from './AddSeriesModal.jsx'
 import './ChapterReader.css'
 import '@/styles/mangaPage.css'
@@ -390,6 +391,8 @@ function ChapterReader({ series, activeRow, pages, staleOnly, progressPct, statu
 export default function SeriesUploadDetail() {
   const { seriesSlug, chapterId } = useParams()
   const navigate = useNavigate()
+  const session = getSession()
+  const mangakaId = session?.id ?? session?.userid ?? null
   const [workspace, setWorkspace] = useState(() => readMangakaWorkspace())
   const [editSeriesOpen, setEditSeriesOpen] = useState(false)
 
@@ -418,10 +421,20 @@ export default function SeriesUploadDetail() {
     setWorkspace(readMangakaWorkspace())
   }, [seriesSlug, chapterId])
 
-  const series = useMemo(
-    () => findSeriesBySlug(workspace.seriesList, seriesSlug),
-    [workspace.seriesList, seriesSlug],
+  // Fetch series từ API theo mangakaId để có ID chuẩn từ DB (không phải ID local)
+  const { data: apiSeriesRaw = [] } = useSeriesByMangaka(mangakaId)
+  const apiSeries = useMemo(
+    () => (Array.isArray(apiSeriesRaw) ? apiSeriesRaw.map((s, i) => mapApiSeriesToLocal(s, i)).filter(Boolean) : []),
+    [apiSeriesRaw],
   )
+
+  // Ưu tiên series từ API (có ID chuẩn từ DB); fallback local workspace
+  const series = useMemo(() => {
+    const fromApi = apiSeries.find(s => s.slug === seriesSlug)
+      ?? apiSeries.find(s => slugifySeriesTitle(s.title) === seriesSlug)
+    if (fromApi) return fromApi
+    return findSeriesBySlug(workspace.seriesList, seriesSlug)
+  }, [apiSeries, workspace.seriesList, seriesSlug])
 
   const serverSeriesId = series?.seriesid ?? series?.id
   const { data: serverChapters = [] } = useChapters(serverSeriesId)
