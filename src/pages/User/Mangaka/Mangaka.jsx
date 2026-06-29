@@ -1101,8 +1101,10 @@ export default function Mangaka() {
                 createPage.mutate(fd, {
                   onSuccess: (res) => {
                     console.log('[Mangaka] POST /Pages OK trang', idx + 1, '→ response:', JSON.stringify(res?.data))
-                    // Backend tra ve wrapped: {succeeded, message, errors, data, statusCode}
-                    // -> page that that nam trong res.data.data.*
+                    // Backend BE POST /Pages trả về page ở root.id (không phải data.id).
+                    // Ví dụ response thật:
+                    //   { message: "Created successfully", id: 1, data: { chapterid, pagenumber }, pageimageurl }
+                    // Sau transformResponse keys đã là snake_case, nên root.id là page ID.
                     const pageResponseData = res?.data
                     const pageSucceeded = pageResponseData?.succeeded ?? true
                     if (pageSucceeded === false) {
@@ -1111,7 +1113,8 @@ export default function Mangaka() {
                     }
                     const pagePayload = pageResponseData?.data ?? pageResponseData
                     const pageId =
-                      pagePayload?.pageid
+                      pageResponseData?.id
+                      ?? pagePayload?.pageid
                       ?? pagePayload?.Pageid
                       ?? pagePayload?.pageId
                       ?? pagePayload?.id
