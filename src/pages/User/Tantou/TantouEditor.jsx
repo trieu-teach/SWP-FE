@@ -87,6 +87,8 @@ function handleCoverImgError(e) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 function CoverThumb({ url, sizeClass = 'size-16 sm:size-20' }) {
+    console.log("url =", url); // <-- Dán ở đây
+
   return (
     <div className={`flex ${sizeClass} shrink-0 overflow-hidden rounded-lg bg-muted`}>
       {url ? (
