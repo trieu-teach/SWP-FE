@@ -554,6 +554,16 @@ export default function Mangaka() {
     [seriesList, annotateSeries],
   )
 
+  // Memoize seriesOptions de ChapterAnnotator Select khong bi re-render loop do ref thay doi.
+  const seriesOptionsMemo = useMemo(
+    () => seriesList.map(s => ({
+      id: s.id,
+      title: s.title,
+      needsFullDebutPipeline: !!s.needsFullDebutPipeline,
+    })),
+    [seriesList],
+  )
+
   const pendingDeliverableSlim = useMemo(
     () => getPendingDeliverableForMangaka(),
     [deliverableTick, chapterRows],
@@ -1588,11 +1598,7 @@ export default function Mangaka() {
                   selectedSeriesTitle={annotateSeries}
                   selectedSeriesId={annotateSeriesId}
                   onSelectedSeriesTitleChange={setAnnotateSeries}
-                  seriesOptions={seriesList.map(s => ({
-                    id: s.id,
-                    title: s.title,
-                    needsFullDebutPipeline: !!s.needsFullDebutPipeline,
-                  }))}
+                  seriesOptions={seriesOptionsMemo}
                   chapterNum={annotatorChapterNum}
                   onChapterNumChange={setAnnotatorChapterNum}
                   chapterNumHint={annotateChapterHint}

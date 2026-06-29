@@ -1254,7 +1254,7 @@ export default function ChapterAnnotator({
           <div className="space-y-2">
             <Label>Series (draft)</Label>
             <Select
-              value={seriesOptions.some(s => s.title === selectedSeriesTitle) ? selectedSeriesTitle : ''}
+              value={selectedSeriesTitle}
               onValueChange={(v) => onSelectedSeriesTitleChange(v)}
               disabled={seriesOptions.length === 0}
             >
