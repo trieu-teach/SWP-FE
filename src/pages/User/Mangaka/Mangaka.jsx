@@ -1020,129 +1020,102 @@ export default function Mangaka() {
       seriesListIds: seriesList.map(s => ({ id: s.id, title: s.title })),
     })
     if (isNewChapter && mangakaId && serverSeriesId) {
-      const chData = {
-        seriesid: serverSeriesId,
-        chapternumber: Number(displayNum),
-        title: String(chapterTitle ?? `Chapter ${displayNum}`).trim(),
-        deadline: chapterDeadline
-          ? new Date(chapterDeadline).toISOString()
-          : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-      }
-      createChapter.mutate(chData, {
-        onSuccess: (createdChapter) => {
-          // Backend tra ve wrapped response: {succeeded, message, errors, data, statusCode}
-          // data that that nam trong createdChapter.data.data.*
-          const responseData = createdChapter?.data
-          const succeeded = responseData?.succeeded ?? true
-          if (succeeded === false) {
-            toast.error(responseData?.message ?? `Không tạo được Ch. ${displayNum} trên server.`)
-            return
-          }
-          toast.success(`Đã tạo Ch. ${displayNum} trên server!`)
+      // Idempotent check: neu chapter cung (series, num) da duoc Save BE truoc do (co chapterid),
+      // khong goi POST /Chapters lan nua — chi dung real chapterid do de upload pages.
+      // Day chinh la fix duplicate Ch.2: bam "Tao chapter" da POST lan 1, upload anh lan 2
+      // se vo tinh POST them mot Ch.2 moi tren BE.
+      // Check theo (series, num) thay vi rowId de an toan khi rowId local (uid-xxx) da duoc
+      // patch thanh realChapterId sau luot POST truoc.
+      const existingRow = chapterRows.find(r =>
+        String(r.series) === String(title)
+        && Number(r.num) === Number(displayNum)
+        && r.chapterid != null
+      )
+      const existingChapterId = existingRow?.chapterid ?? null
 
-          // Lay real chapterId tu backend (ho tro ca wrapped va unwrapped)
-          const payloadData = responseData?.data ?? responseData
-          const realChapterId =
-            payloadData?.chapterid
-            ?? payloadData?.Chapterid
-            ?? payloadData?.chapterId
-            ?? payloadData?.id
-
-          if (realChapterId == null) {
-            toast.error('Server không trả về chapter ID — không thể upload trang.')
-            console.error('[Mangaka] createChapter response thiếu ID:', responseData)
-            return
-          }
-
-          // 1) Cap nhat chapterRows & annotatorChapters voi real ID
-          setLocalChapterRows(prev => prev.map(r =>
-            String(r.id) === String(rowId)
-              ? { ...r, id: realChapterId, apiChapterId: realChapterId }
-              : r
-          ))
-          setAnnotatorChapters(prev => {
-            const updated = prev.map(ch =>
-              String(ch.id) === String(rowId)
-                ? { ...ch, id: realChapterId }
-                : ch
-            )
-            // 2) Flush workspace NGAY sau khi state da co real ID
-            void persistMangakaWorkspaceStateNow({
-              ...workspaceSnapshot,
-              ...snapshotForCallback,
-              chapterRows: snapshotForCallback.chapterRows.map(r =>
-                String(r.id) === String(rowId)
-                  ? { ...r, id: realChapterId, apiChapterId: realChapterId }
-                  : r
-              ),
-              annotatorChapters: updated,
-            })
-            return updated
+      // Helper: patch state + flush workspace sau khi co real chapterid.
+      const applyRealChapterId = (realChapterId, opts = {}) => {
+        if (realChapterId == null) return
+        setLocalChapterRows(prev => prev.map(r =>
+          String(r.id) === String(rowId) || String(r.id) === String(realChapterId)
+            ? { ...r, id: realChapterId, apiChapterId: realChapterId, chapterid: realChapterId }
+            : r
+        ))
+        setAnnotatorChapters(prev => {
+          const updated = prev.map(ch =>
+            String(ch.id) === String(rowId)
+              ? { ...ch, id: realChapterId }
+              : ch
+          )
+          void persistMangakaWorkspaceStateNow({
+            ...workspaceSnapshot,
+            ...snapshotForCallback,
+            chapterRows: snapshotForCallback.chapterRows.map(r =>
+              String(r.id) === String(rowId)
+                ? { ...r, id: realChapterId, apiChapterId: realChapterId, chapterid: realChapterId }
+                : r
+            ),
+            annotatorChapters: updated,
           })
-          if (String(annotatorActiveChapterId) === String(rowId)) {
-            setAnnotatorActiveChapterId(realChapterId)
-          }
+          return updated
+        })
+        if (String(annotatorActiveChapterId) === String(rowId)) {
+          setAnnotatorActiveChapterId(realChapterId)
+        }
+        // Upload pages (neu co) vao realChapterId — dung chung block cho ca 2 nhanh
+        if (!opts.skipPageUpload) {
+          uploadPagesToServer({
+            chaptersList: nextAnnotatorChapters,
+            rowId,
+            realChapterId,
+          })
+        }
+      }
 
-          // 3) Upload tung trang (pages) len server
-          if (realChapterId != null) {
-            const srcChapter = Array.isArray(nextAnnotatorChapters)
-              ? nextAnnotatorChapters.find(c => String(c.id) === String(rowId))
-              : null
-            if (srcChapter?.pages?.length) {
-              srcChapter.pages.forEach((pg, idx) => {
-                if (!pg?.url) return
-                const file = dataUrlToFile(pg.url, pg.name ?? `page_${idx + 1}`)
-                if (!file) return
-                const fd = new FormData()
-                fd.append('chapterid', String(realChapterId))
-                fd.append('pagenumber', String(idx + 1))
-                fd.append('pageFile', file)
-                console.log('[Mangaka] POST /Pages trang', idx + 1, 'chapterId:', realChapterId)
-                createPage.mutate(fd, {
-                  onSuccess: (res) => {
-                    console.log('[Mangaka] POST /Pages OK trang', idx + 1, '→ response:', JSON.stringify(res?.data))
-                    // Backend BE POST /Pages trả về page ở root.id (không phải data.id).
-                    // Ví dụ response thật:
-                    //   { message: "Created successfully", id: 1, data: { chapterid, pagenumber }, pageimageurl }
-                    // Sau transformResponse keys đã là snake_case, nên root.id là page ID.
-                    const pageResponseData = res?.data
-                    const pageSucceeded = pageResponseData?.succeeded ?? true
-                    if (pageSucceeded === false) {
-                      toast.error(`Upload trang ${idx + 1} thất bại: ${pageResponseData?.message ?? 'server trả về lỗi'}`)
-                      return
-                    }
-                    const pagePayload = pageResponseData?.data ?? pageResponseData
-                    const pageId =
-                      pageResponseData?.id
-                      ?? pagePayload?.pageid
-                      ?? pagePayload?.Pageid
-                      ?? pagePayload?.pageId
-                      ?? pagePayload?.id
-                    if (pageId) {
-                      toast.success(`Đã upload trang ${idx + 1} (ID: ${pageId})`)
-                      // Patch the page in annotatorChapters with its server ID
-                      setAnnotatorChapters(prev => prev.map(ch => {
-                        if (String(ch.id) !== String(realChapterId)) return ch
-                        return {
-                          ...ch,
-                          pages: ch.pages.map((p, pi) =>
-                            pi === idx ? { ...p, apiPageId: pageId } : p
-                          ),
-                        }
-                      }))
-                    } else {
-                      console.warn('[Mangaka] page response thiếu pageId:', pageResponseData)
-                    }
-                  },
-                  onError: (err) =>
-                    toast.error(`Upload trang ${idx + 1} thất bại: ${err?.response?.data?.message ?? err.message}`),
-                })
-              })
+      if (existingChapterId != null) {
+        console.log('[handleUploadComplete] idempotent skip POST /Chapters → dùng existing chapterid:', existingChapterId)
+        toast.success(`Ch. ${displayNum} đã có trên server — upload trang vào chapter cũ.`)
+        applyRealChapterId(existingChapterId)
+      } else {
+        const chData = {
+          seriesid: serverSeriesId,
+          chapternumber: Number(displayNum),
+          title: String(chapterTitle ?? `Chapter ${displayNum}`).trim(),
+          deadline: chapterDeadline
+            ? new Date(chapterDeadline).toISOString()
+            : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        }
+        createChapter.mutate(chData, {
+          onSuccess: (createdChapter) => {
+            // Backend tra ve wrapped response: {succeeded, message, errors, data, statusCode}
+            // data that that nam trong createdChapter.data.data.*
+            const responseData = createdChapter?.data
+            const succeeded = responseData?.succeeded ?? true
+            if (succeeded === false) {
+              toast.error(responseData?.message ?? `Không tạo được Ch. ${displayNum} trên server.`)
+              return
             }
-          }
-        },
-        onError: (err) => toast.error(err?.response?.data?.message ?? `Không tạo được Ch. ${displayNum} trên server.`),
-      })
+            toast.success(`Đã tạo Ch. ${displayNum} trên server!`)
+
+            // Lay real chapterId tu backend (ho tro ca wrapped va unwrapped)
+            const payloadData = responseData?.data ?? responseData
+            const realChapterId =
+              payloadData?.chapterid
+              ?? payloadData?.Chapterid
+              ?? payloadData?.chapterId
+              ?? payloadData?.id
+
+            if (realChapterId == null) {
+              toast.error('Server không trả về chapter ID — không thể upload trang.')
+              console.error('[Mangaka] createChapter response thiếu ID:', responseData)
+              return
+            }
+
+            applyRealChapterId(realChapterId)
+          },
+          onError: (err) => toast.error(err?.response?.data?.message ?? `Không tạo được Ch. ${displayNum} trên server.`),
+        })
+      }
     } else {
       // Chapter cu: chi persist workspace, khong goi API
       void persistMangakaWorkspaceStateNow({
@@ -1150,6 +1123,59 @@ export default function Mangaka() {
         ...snapshotForCallback,
       })
     }
+  }
+
+  // Upload tung trang (pages) cua 1 chapter (theo rowId local) len server, gan vao realChapterId.
+  // Dung chung cho ca nhanh createChapter thanh cong va nhanh idempotent (existing chapterid).
+  function uploadPagesToServer({ chaptersList, rowId, realChapterId }) {
+    const srcChapter = Array.isArray(chaptersList)
+      ? chaptersList.find(c => String(c.id) === String(rowId))
+      : null
+    if (!srcChapter?.pages?.length) return
+    srcChapter.pages.forEach((pg, idx) => {
+      if (!pg?.url) return
+      const file = dataUrlToFile(pg.url, pg.name ?? `page_${idx + 1}`)
+      if (!file) return
+      const fd = new FormData()
+      fd.append('chapterid', String(realChapterId))
+      fd.append('pagenumber', String(idx + 1))
+      fd.append('pageFile', file)
+      console.log('[Mangaka] POST /Pages trang', idx + 1, 'chapterId:', realChapterId)
+      createPage.mutate(fd, {
+        onSuccess: (res) => {
+          console.log('[Mangaka] POST /Pages OK trang', idx + 1, '→ response:', JSON.stringify(res?.data))
+          const pageResponseData = res?.data
+          const pageSucceeded = pageResponseData?.succeeded ?? true
+          if (pageSucceeded === false) {
+            toast.error(`Upload trang ${idx + 1} thất bại: ${pageResponseData?.message ?? 'server trả về lỗi'}`)
+            return
+          }
+          const pagePayload = pageResponseData?.data ?? pageResponseData
+          const pageId =
+            pageResponseData?.id
+            ?? pagePayload?.pageid
+            ?? pagePayload?.Pageid
+            ?? pagePayload?.pageId
+            ?? pagePayload?.id
+          if (pageId) {
+            toast.success(`Đã upload trang ${idx + 1} (ID: ${pageId})`)
+            setAnnotatorChapters(prev => prev.map(ch => {
+              if (String(ch.id) !== String(realChapterId)) return ch
+              return {
+                ...ch,
+                pages: ch.pages.map((p, pi) =>
+                  pi === idx ? { ...p, apiPageId: pageId } : p
+                ),
+              }
+            }))
+          } else {
+            console.warn('[Mangaka] page response thiếu pageId:', pageResponseData)
+          }
+        },
+        onError: (err) =>
+          toast.error(`Upload trang ${idx + 1} thất bại: ${err?.response?.data?.message ?? err.message}`),
+      })
+    })
   }
 
   useEffect(() => {
