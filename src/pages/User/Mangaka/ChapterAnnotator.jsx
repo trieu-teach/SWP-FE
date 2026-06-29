@@ -251,15 +251,28 @@ export default function ChapterAnnotator({
     const localForSeries = chapters.filter(c => c.series === trimmedTitle)
     const apiServerIds = new Set(apiChapterShape.map(c => String(c.serverChapterId)))
 
-    // Bỏ local chapter đã có trên server (tránh duplicate cùng chapterid)
-    const localUnique = localForSeries.filter(c => {
+    // Build map serverId -> local chapter (local có pages mới upload override API chapter)
+    const localByServerId = new Map()
+    for (const c of localForSeries) {
+      const sid = c.serverChapterId ?? (Number.isFinite(Number(c.id)) ? Number(c.id) : null)
+      if (sid != null) localByServerId.set(String(sid), c)
+    }
+
+    // Sắp xếp API chapters theo chapternumber tăng dần
+    const sortedApi = [...apiChapterShape].sort((a, b) => (a.num ?? 0) - (b.num ?? 0))
+
+    // API chapter nào có local override -> dùng local (giữ pages mới upload)
+    const merged = sortedApi.map(apiCh =>
+      localByServerId.get(String(apiCh.serverChapterId)) ?? apiCh,
+    )
+
+    // Local chapter CHƯA có trên server (không có serverChapterId) -> thêm cuối list
+    const localOnly = localForSeries.filter(c => {
       const sid = c.serverChapterId ?? (Number.isFinite(Number(c.id)) ? Number(c.id) : null)
       return sid == null || !apiServerIds.has(String(sid))
     })
 
-    // Sắp xếp API chapters theo chapternumber tăng dần
-    const sortedApi = [...apiChapterShape].sort((a, b) => (a.num ?? 0) - (b.num ?? 0))
-    return [...sortedApi, ...localUnique]
+    return [...merged, ...localOnly]
   }, [chapters, apiChapterShape, trimmedTitle])
 
   // activeChapter lookup từ seriesChapters (gồm cả local + API)
@@ -278,9 +291,22 @@ export default function ChapterAnnotator({
 
   // Ưu tiên pages local (FE mới upload), fallback serverPages cho chapter từ API.
   const pages = useMemo(() => {
-    if (localPages.length > 0) return localPages
+    // Dedup localPages trước (trường hợp data bị duplicate id do hydrate/rehydrate).
+    const dedupeById = (arr) => {
+      const seen = new Set()
+      const out = []
+      for (const p of arr) {
+        if (!p || !p.id) continue
+        if (seen.has(p.id)) continue
+        seen.add(p.id)
+        out.push(p)
+      }
+      return out
+    }
+
+    if (localPages.length > 0) return dedupeById(localPages)
     if (!Array.isArray(serverPages)) return []
-    return serverPages
+    const mapped = serverPages
       .filter(p => p && (p.pageimageurl ?? p.Pageimageurl))
       .map((p, i) => ({
         id: String(p.pageid ?? p.Pageid ?? `srv-page-${i}`),
@@ -288,6 +314,7 @@ export default function ChapterAnnotator({
         url: p.pageimageurl ?? p.Pageimageurl,
         serverPageId: p.pageid ?? p.Pageid,
       }))
+    return dedupeById(mapped)
   }, [localPages, serverPages])
   const pageKey = activeChapter ? `${activeChapterId}-${pageIndex}` : ''
   const pageNotes = notes[pageKey] ?? []
