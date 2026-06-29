@@ -364,11 +364,26 @@ export default function Mangaka() {
   const [tab, setTab] = useState(() => hydrated.tab)
   // annotateSeries must read from location.state first (navigation carries the correct series),
   // then fall back to persisted workspace value — otherwise navigating from series detail
-  // with "Upload chapter" shows the wrong series in the dropdown
+  // with "Upload chapter" shows the wrong series in the dropdown. Prefer seriesId over title
+  // so we don't depend on title-string matching (server may normalize whitespace/case).
   const locationState = location.state
+
+  // Resolve series từ nav state: ưu tiên seriesId (lookup ngược từ seriesList), fallback về title string.
+  // Trả về string title hoặc '' nếu không resolve được.
+  function resolveSeriesFromNavState(state, seriesListRef) {
+    const sid = state?.seriesId
+    if (sid != null && Array.isArray(seriesListRef) && seriesListRef.length) {
+      const found = seriesListRef.find(s => String(s.seriesid ?? s.id) === String(sid))
+      if (found?.title) return found.title
+    }
+    const title = state?.series
+    if (typeof title === 'string' && title.trim()) return title.trim()
+    return ''
+  }
+
   const [annotateSeries, setAnnotateSeries] = useState(() => {
-    const fromNav = locationState?.series
-    if (typeof fromNav === 'string' && fromNav.trim()) return fromNav.trim()
+    const fromNav = resolveSeriesFromNavState(locationState, [])
+    if (fromNav) return fromNav
     return hydrated.annotateSeries
   })
 
@@ -855,13 +870,22 @@ export default function Mangaka() {
 
   useEffect(() => {
     if (seriesList.length === 0) {
-      setAnnotateSeries('')
+      // Đợi API load — không reset annotateSeries ở đây để tránh ghi đè nav state.
       return
     }
-    if (!annotateSeries || !seriesList.some(s => s.title === annotateSeries)) {
+    if (!annotateSeries) {
+      setAnnotateSeries(seriesList[0].title)
+      return
+    }
+    // Nếu user vừa navigate từ series detail với seriesId, KHÔNG fallback kể cả khi title
+    // chưa khớp (có thể là do chuỗi title server normalize khác local). Ưu tiên nav state.
+    if (locationState?.seriesId || (typeof locationState?.series === 'string' && locationState.series.trim())) {
+      return
+    }
+    if (!seriesList.some(s => s.title === annotateSeries)) {
       setAnnotateSeries(seriesList[0].title)
     }
-  }, [seriesList, annotateSeries])
+  }, [seriesList, annotateSeries, locationState])
 
   useEffect(() => {
     const marksBySeries = {}
@@ -1333,14 +1357,17 @@ export default function Mangaka() {
     const st = location.state
     if (!st || typeof st !== 'object') return
     if (st.tab === 'chapters' || st.tab === 'annotate' || st.tab === 'series' || st.tab === 'assistants') setTab(st.tab)
-    if (typeof st.series === 'string' && st.series.trim()) setAnnotateSeries(st.series.trim())
+    // Prefer seriesId (resolved via seriesList) over raw title string — avoids race when
+    // user navigates before seriesList has loaded from API.
+    const resolvedSeries = resolveSeriesFromNavState(st, seriesList)
+    if (resolvedSeries) setAnnotateSeries(resolvedSeries)
     if (typeof st.chapterId === 'string' && st.chapterId) {
       setAnnotatorActiveChapterId(st.chapterId)
       setAnnotatorPageIndex(0)
     }
     // Force re-render so that tab/annotateSeries changes from navigation state are reflected
     setLocationKey(k => k + 1)
-  }, [location.state])
+  }, [location.state, seriesList])
 
   function openAnnotate(seriesTitle, chapterLocalId) {
     setAnnotateSeries(seriesTitle)
@@ -1536,6 +1563,7 @@ export default function Mangaka() {
                 <ChapterAnnotator
                   key={`annotate-${tab}-${annotateSeries}`}
                   selectedSeriesTitle={annotateSeries}
+                  selectedSeriesId={annotateSeriesId}
                   onSelectedSeriesTitleChange={setAnnotateSeries}
                   seriesOptions={seriesList.map(s => ({
                     id: s.id,

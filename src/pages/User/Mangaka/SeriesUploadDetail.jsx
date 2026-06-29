@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -629,13 +629,13 @@ export default function SeriesUploadDetail() {
                 Chỉnh sửa hồ sơ
               </Button>
               <Button asChild className="w-full">
-                <Link to="/mangaka" state={{ tab: 'annotate', series: series.title }}>
+                <Link to="/mangaka" state={{ tab: 'annotate', series: series.title, seriesId: series.seriesid ?? series.id }}>
                   <Upload className="size-4" />
                   Upload chapter
                 </Link>
               </Button>
               <Button asChild variant="ghost" className="w-full">
-                <Link to="/mangaka" state={{ tab: 'annotate', series: series.title }}>
+                <Link to="/mangaka" state={{ tab: 'annotate', series: series.title, seriesId: series.seriesid ?? series.id }}>
                   <PenSquare className="size-4" />
                   Ghi chú trang
                 </Link>
@@ -695,7 +695,7 @@ export default function SeriesUploadDetail() {
                   <FileImage className="size-10 text-muted-foreground/60" />
                   <p>Chưa có chapter — bắt đầu upload từ trang Mangaka Workspace.</p>
                   <Button asChild>
-                    <Link to="/mangaka" state={{ tab: 'annotate', series: series.title }}>
+                    <Link to="/mangaka" state={{ tab: 'annotate', series: series.title, seriesId: series.seriesid ?? series.id }}>
                       <Upload className="size-4" />
                       Upload chapter đầu tiên
                     </Link>
