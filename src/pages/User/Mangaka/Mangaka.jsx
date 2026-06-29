@@ -294,7 +294,7 @@ function SeriesCard({ series, ebApproved, uploadPct, onOpenAnnotate, onOpenEdit,
           <Button size="sm" variant="ghost" onClick={onOpenEdit}>
             Chỉnh sửa
           </Button>
-          {series.status === 'draft' ? (
+          {series.status === 'Draft' ? (
             <Button size="sm" variant="ghost" onClick={onOpenAnnotate}>
               Đánh dấu vùng
             </Button>
@@ -509,8 +509,8 @@ export default function Mangaka() {
   }, [mangakaId, rosterTick])
 
   const statValues = useMemo(() => {
-    const pendingAssistant = chapterRows.filter(c => c.status === 'assistant').length
-    const pendingComposite = chapterRows.filter(c => c.status === 'review').length
+  const pendingAssistant = chapterRows.filter(c => c.status === 'InProduction').length
+  const pendingComposite = chapterRows.filter(c => c.status === 'Ready').length
     return [
       { value: String(seriesList.length), trend: 'Hồ sơ trong workspace' },
       { value: String(chapterRows.length), trend: `${chapterRows.length} dòng trong bảng Chapter` },
@@ -581,10 +581,10 @@ export default function Mangaka() {
         id: head.chapterId,
         series: head.seriesTitle,
         num: head.chapterNum,
-        status: 'assistant',
+        status: 'InProduction',
       }
     }
-    return chapterRows.find(r => r.status === 'assistant' || r.status === 'review')
+    return chapterRows.find(r => r.status === 'InProduction' || r.status === 'Ready')
   }, [chapterRows, pendingDeliverable, pendingDeliverableSlim])
 
   // Rankings section removed — no demo data fallback
@@ -648,22 +648,14 @@ export default function Mangaka() {
     setLocalChapterRows(prev =>
       prev.map(r =>
         r.series === chapter.series && String(r.num) === String(chapter.num)
-          ? { ...r, status: 'assistant', statusLabel: 'Chờ Assistant' }
+          ? { ...r, status: 'InProduction', statusLabel: 'Chờ Assistant' }
           : r,
       ),
     )
 
-    // Cap nhat trang thai chapter tren server: Drafting -> StudioWorking
-    const serverChapterId = Number(chapter.id)
-    if (Number.isFinite(serverChapterId)) {
-      updateChapterStatus.mutate(
-        { id: serverChapterId, status: 'StudioWorking' },
-        {
-          onError: (err) =>
-            toast.error(`Cập nhật trạng thái chapter thất bại: ${err?.response?.data?.message ?? err.message}`),
-        },
-      )
-    }
+    // Chapter vẫn giữ 'InProduction' khi Assistant đang làm — Assistant chỉ tạo PageIssue,
+    // KHÔNG đổi status chapter. Status chỉ chuyển sang 'Ready' khi Mangaka bấm "Hoàn tất chapter".
+    // (Enum BE: InProduction → Ready → Published; không có 'StudioWorking'/'SubmittedToEditor'.)
 
     toast.success(`Đã gửi ${submission.pageLabel} (${notes.length} ô) cho ${assistant?.label ?? 'Assistant'}.`)
   }
@@ -694,16 +686,16 @@ export default function Mangaka() {
     setLocalChapterRows(prev =>
       prev.map(r =>
         r.series === chapter.series && String(r.num) === String(chapter.num)
-          ? { ...r, status: 'tantou', statusLabel: `Chờ ${LABEL_TANTOU_EDITOR}` }
+          ? { ...r, status: 'Ready', statusLabel: `Chờ ${LABEL_TANTOU_EDITOR}` }
           : r,
       ),
     )
 
-    // Cap nhat trang thai chapter tren server: EditorReviewing -> ReadyForPrint
+    // Cap nhat trang thai chapter tren server: InProduction -> Ready (theo enum BE ChapterService)
     const serverChapterId = Number(chapter.id)
     if (Number.isFinite(serverChapterId)) {
       updateChapterStatus.mutate(
-        { id: serverChapterId, status: 'ReadyForPrint' },
+        { id: serverChapterId, status: 'Ready' },
         {
           onError: (err) =>
             toast.error(`Cập nhật trạng thái chapter thất bại: ${err?.response?.data?.message ?? err.message}`),
@@ -770,20 +762,22 @@ export default function Mangaka() {
     setLocalChapterRows(prev => prev.map(r => {
       if (r.id !== pendingCompositeReview.id) return r
       if (decision === 'approve') {
-        return { ...r, status: 'done', statusLabel: 'Đã duyệt bản tổng hợp' }
+        // Mangaka đã duyệt bản tổng hợp → chapter sẵn sàng nộp cho Tantou (Ready)
+        return { ...r, status: 'Ready', statusLabel: 'Đã duyệt bản tổng hợp' }
       }
-      return { ...r, status: 'review', statusLabel: 'Yêu cầu chỉnh sửa' }
+      // Yêu cầu sửa → đẩy Assistant/ Mangaka về lại giai đoạn InProduction
+      return { ...r, status: 'InProduction', statusLabel: 'Yêu cầu chỉnh sửa' }
     }))
   }
 
   function acceptAssistantChapter(chapter) {
     if (!chapter?.id) return
-    // Gọi API update status → SubmittedToEditor (BE sẽ gán Tantou mặc định của series ở Prompt 4).
-    // FE fallback dùng PATCH /api/chapters/{id}/status cho tới khi BE làm xong Prompt 4.
+    // Gọi API update status → Ready (theo enum BE ChapterService: InProduction → Ready).
+    // Assistant không được đổi status chapter; chỉ Mangaka xác nhận thì mới Ready.
     updateChapterStatus.mutate(
-      { id: chapter.id, status: 'SubmittedToEditor' },
+      { id: chapter.id, status: 'Ready' },
       {
-        onSuccess: () => toast.success('Đã chấp nhận, chuyển sang Tantou.'),
+        onSuccess: () => toast.success('Đã chấp nhận, chuyển cho Tantou Editor.'),
         onError: (err) => toast.error(`Lỗi: ${err?.message ?? 'không xác định'}`),
       },
     )
@@ -802,9 +796,9 @@ export default function Mangaka() {
       toast.error('Vui lòng nhập lý do từ chối.')
       return
     }
-    // Update status → MangakaRejected; lý do đính kèm qua custom field nếu BE hỗ trợ.
+    // Update status → InProduction; truyền reason qua endpoint riêng nếu BE hỗ trợ (Note/Comment).
     updateChapterStatus.mutate(
-      { id: rejectChapterId, status: 'MangakaRejected', mangakaRejectionReason: rejectReason.trim() },
+      { id: rejectChapterId, status: 'InProduction', mangakaRejectionReason: rejectReason.trim() },
       {
         onSuccess: () => {
           toast.success('Đã từ chối, Assistant sẽ sửa lại.')
@@ -983,7 +977,7 @@ export default function Mangaka() {
       }
       return [{
         id: rowId, series: title, num: displayNum, type: 'PNG', pages,
-        status: 'draft', date: dateStr,
+        status: 'InProduction', date: dateStr,
       }, ...chapterRows]
     })()
 
@@ -1009,8 +1003,8 @@ export default function Mangaka() {
           chapters: nextCount,
           progress: Math.min(99, (s.progress ?? 0) + (isNewChapter ? bump : Math.min(8, bump))),
           updated: 'Vừa upload',
-          statusLabel: s.status === 'assistant' ? s.statusLabel : 'Đã có upload',
-          ...(s.status !== 'assistant' && s.status !== 'review' ? { status: 'draft' } : {}),
+          statusLabel: s.status === 'InProduction' ? s.statusLabel : 'Đã có upload',
+          ...(s.status !== 'InProduction' && s.status !== 'Ready' ? { status: 'InProduction' } : {}),
         }
       })
     })
@@ -1279,7 +1273,7 @@ export default function Mangaka() {
         ? {
           ...s,
           needsFullDebutPipeline: false,
-          statusLabel: s.status === 'draft' ? `Luồng ngắn (chỉ ${LABEL_TANTOU_EDITOR})` : s.statusLabel,
+          statusLabel: s.status === 'InProduction' ? `Luồng ngắn (chỉ ${LABEL_TANTOU_EDITOR})` : s.statusLabel,
           updated: 'Đã chuyển sang luồng lần 2',
         }
         : s
@@ -1765,12 +1759,12 @@ export default function Mangaka() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <Badge
-                    className={pendingCompositeReview.status === 'assistant'
+                    className={pendingCompositeReview.status === 'InProduction'
                       ? STATUS_BADGE.assistant.className
                       : STATUS_BADGE.review.className}
                     variant="secondary"
                   >
-                    {pendingCompositeReview.status === 'assistant' ? 'Chờ duyệt' : 'Chờ bạn phản hồi'}
+                    {pendingCompositeReview.status === 'InProduction' ? 'Chờ bạn phản hồi' : 'Chờ Assistant vẽ'}
                   </Badge>
 
                   <div className="overflow-hidden rounded-lg border bg-muted">

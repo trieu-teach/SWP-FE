@@ -421,7 +421,11 @@ export default function PageLayerWorkspace() {
   // Server-side page issues (notes from Mangaka)
   const { data: pageIssues = [] } = usePageIssues({ pageId: serverPageId ? Number(serverPageId) : null })
   const activeIssues = useMemo(
-    () => (pageIssues || []).filter(i => (i.status ?? '').toLowerCase() !== 'closed'),
+    () => (pageIssues || []).filter(i => {
+      // Loại bỏ các issue đã đóng (Completed / Cancelled theo enum BE PageIssueService)
+      const s = String(i.status ?? '').toLowerCase()
+      return s !== 'completed' && s !== 'cancelled'
+    }),
     [pageIssues],
   )
 
@@ -619,8 +623,10 @@ export default function PageLayerWorkspace() {
     if (!note) return
     const id = note.id ?? note.issueId
     if (!id) return
+    // Enum BE PageIssueService không có 'Closed'. Hành động "Bỏ note" của Assistant
+    // map sang 'Cancelled' — transition Resolved → Cancelled hợp lệ theo BE.
     updateIssueStatus.mutate(
-      { id, status: 'Closed' },
+      { id, status: 'Cancelled' },
       {
         onSuccess: () => {
           toast.success('Đã bỏ note.')
@@ -650,8 +656,9 @@ export default function PageLayerWorkspace() {
       if (allLayers.length > 0) {
         try { await pagesService.composite(serverPageId) } catch { /* ignore, có thể đã composite trước đó */ }
       }
-      // Bước 2: set chapter status → SendingToMangaka
-      await updateChapterStatus.mutateAsync({ id: chapterId, status: 'SendingToMangaka' })
+      // Bước 2: Assistant gửi bản tổng hợp cho Mangaka — KHÔNG đổi status chapter
+      // (Enum BE ChapterService không có 'SendingToMangaka'; chapter chỉ chuyển trạng thái
+      //  khi Mangaka bấm Duyệt/Yêu cầu sửa. Assistant chỉ làm PageIssue.)
       toast.success('Đã gửi cho Mangaka duyệt.')
     } catch (err) {
       const msg = err?.response?.data?.message ?? err?.message ?? 'Lỗi khi gửi Mangaka.'
@@ -839,8 +846,8 @@ export default function PageLayerWorkspace() {
                   const y = Number(issue.boxY ?? issue.BoxY ?? issue.y ?? 0)
                   const w = Number(issue.boxW ?? issue.BoxW ?? issue.width ?? issue.w ?? 10)
                   const h = Number(issue.boxH ?? issue.BoxH ?? issue.height ?? issue.h ?? 10)
-                  const status = String(issue.status ?? 'Open').toLowerCase()
-                  const color = status === 'resolved' ? 'emerald' : status === 'inprogress' ? 'amber' : 'rose'
+                  const status = String(issue.status ?? 'Reported').toLowerCase()
+                  const color = status === 'resolved' ? 'emerald' : status === 'inprogress' ? 'amber' : status === 'completed' ? 'emerald' : status === 'cancelled' ? 'zinc' : 'rose'
                   return (
                     <button
                       type="button"

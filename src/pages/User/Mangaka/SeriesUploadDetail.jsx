@@ -46,19 +46,32 @@ const NAV_LINKS = [
 
 const STATUS_BADGE = {
   draft: { label: 'Nháp', className: 'bg-zinc-100 text-zinc-700 hover:bg-zinc-100 dark:bg-zinc-500/15 dark:text-zinc-400' },
-  assistant: { label: 'Assistant', className: 'bg-violet-100 text-violet-700 hover:bg-violet-100 dark:bg-violet-500/15 dark:text-violet-400' },
-  review: { label: 'Chờ duyệt', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400' },
-  tantou: { label: 'Tantou', className: 'bg-sky-100 text-sky-700 hover:bg-sky-100 dark:bg-sky-500/15 dark:text-sky-400' },
+  inProduction: { label: 'Chờ Assistant', className: 'bg-violet-100 text-violet-700 hover:bg-violet-100 dark:bg-violet-500/15 dark:text-violet-400' },
+  ready: { label: 'Chờ duyệt', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400' },
   done: { label: 'Hoàn tất', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400' },
+  delayed: { label: 'Hoãn', className: 'bg-orange-100 text-orange-700 hover:bg-orange-100 dark:bg-orange-500/15 dark:text-orange-400' },
+  cancelled: { label: 'Hủy', className: 'bg-rose-100 text-rose-700 hover:bg-rose-100 dark:bg-rose-500/15 dark:text-rose-400' },
+  // Legacy local labels — fallback nếu nơi nào còn dùng
+  assistant: { label: 'Chờ Assistant', className: 'bg-violet-100 text-violet-700 hover:bg-violet-100 dark:bg-violet-500/15 dark:text-violet-400' },
+  review: { label: 'Chờ duyệt', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400' },
+  tantou: { label: 'Chờ duyệt', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400' },
 }
 
 function mapChapterStatus(s) {
-  const v = String(s ?? '').toLowerCase()
-  if (v === 'approved' || v === 'published' || v === 'done') return 'done'
-  if (v === 'pending' || v === 'review') return 'review'
-  if (v === 'assistant' || v === 'drawing') return 'assistant'
-  if (v === 'tantou' || v === 'editing') return 'tantou'
-  return 'draft'
+  // Enum BE ChapterService: InProduction / Ready / Published / Delayed / Cancelled
+  const v = String(s ?? '')
+  if (v === 'Published') return 'done'
+  if (v === 'Ready') return 'ready'
+  if (v === 'Delayed') return 'delayed'
+  if (v === 'Cancelled') return 'cancelled'
+  if (v === 'InProduction') return 'inProduction'
+  // Fallback cho các demo / local: map xuống 1 trong 5 nhóm trên
+  const lower = v.toLowerCase()
+  if (lower === 'approved' || lower === 'published' || lower === 'done') return 'done'
+  if (lower === 'tantou' || lower === 'editing') return 'ready'
+  if (lower === 'review') return 'ready'
+  if (lower === 'assistant' || lower === 'drawing' || lower === 'pending') return 'inProduction'
+  return 'inProduction'
 }
 
 function seriesPath(series) {

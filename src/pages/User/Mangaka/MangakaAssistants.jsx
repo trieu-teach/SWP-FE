@@ -199,18 +199,20 @@ export default function MangakaAssistants({ mangakaId, mangakaName }) {
   // API: create contract (hire request)
   const createContract = useCreateContract()
 
-  // Compute roster (accepted) from API contracts
+  // Compute roster (accepted) from API contracts.
+  // Enum BE Mangaka_Assistants.status: Pending / Active / Suspended / Inactive.
+  // FE availability flag: 'available' | 'mine' | 'pending' — chỉ là UI local.
   const rosterFromApi = useMemo(() => {
     const accepted = contractsRaw
       .filter(c => {
         const status = (c.status ?? '').toLowerCase()
-        return status === 'accepted' || status === 'active'
+        return status === 'active'
       })
     console.log('[MangakaAssistants] rosterFromApi:', accepted)
     return accepted
       .filter(c => {
         const status = (c.status ?? '').toLowerCase()
-        return status === 'accepted' || status === 'active'
+        return status === 'active'
       })
       .map(c => ({
         assistantId: c.assistant_id ?? c.assistantid ?? c.user_id ?? c.userId,
@@ -222,11 +224,12 @@ export default function MangakaAssistants({ mangakaId, mangakaName }) {
       }))
   }, [contractsRaw])
 
-  // Compute pending requests from API contracts
+  // Compute pending requests from API contracts.
+  // Enum BE: Mangaka_Assistants.status = 'Pending' (chờ Assistant accept).
   const pendingFromApi = useMemo(() => {
     return contractsRaw.filter(c => {
       const status = (c.status ?? '').toLowerCase()
-      return status === 'pending' || status === 'waiting'
+      return status === 'pending'
     })
   }, [contractsRaw])
 

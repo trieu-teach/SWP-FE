@@ -183,11 +183,12 @@ export default function ChapterAnnotator({
   // API: fetch available assistants (for name lookup)
   const { data: assistantProfilesRaw = [] } = useAvailableAssistantProfiles()
 
-  // Map accepted contracts -> assistant options (cung format voi MangakaAssistants)
+  // Map accepted contracts -> assistant options (cùng format với MangakaAssistants).
+  // Enum BE Mangaka_Assistants.status: chỉ 'active' khi đang trong đội (đã được Assistant accept).
   const contractsAssistants = useMemo(() => {
     const accepted = contractsRaw.filter(c => {
       const status = (c.status ?? '').toLowerCase()
-      return status === 'accepted' || status === 'active'
+      return status === 'active'
     })
 
     // Build assistantId -> profile map from available profiles
@@ -1078,11 +1079,11 @@ export default function ChapterAnnotator({
       const realChapterId = activeChapter.serverChapterId ?? activeChapter.id
       if (!realChapterId) return
       try {
-        // BE sẽ gán Tantou mặc định của series (Series.EditorId) hoặc dùng selectedTantouId nếu có
-        // Prompt 4 BE: status SubmittedToEditor + EditorId
+        // BE enum ChapterService: InProduction → Ready → Published. Khi Mangaka gửi sang
+        // Tantou thì chapter chuyển sang 'Ready'. Tantou Editor sẽ tự publish sau khi duyệt.
         await updateChapterStatus.mutateAsync({
           id: realChapterId,
-          status: 'SubmittedToEditor',
+          status: 'Ready',
         })
         toast.success(`Đã gửi thẳng cho ${LABEL_TANTOU_EDITOR}.`)
         setTantouDialogOpen(false)
