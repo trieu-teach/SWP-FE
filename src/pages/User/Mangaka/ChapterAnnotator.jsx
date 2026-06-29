@@ -90,6 +90,25 @@ function mapApiChapterToLocal(raw, seriesTitle) {
   }
 }
 
+// Chapter workflow enum BE (ChapterStatus):
+//   InProduction (đang làm) → Ready (chờ duyệt) → Published (đã đăng)
+// Local draft chưa push lên server không có status → return null.
+const CHAPTER_STATUS_LABELS = {
+  InProduction: 'Đang làm',
+  Ready: 'Chờ duyệt',
+  Published: 'Đã đăng',
+}
+function chapterStatusLabel(status) {
+  if (!status) return null
+  return CHAPTER_STATUS_LABELS[status] ?? status
+}
+function chapterStatusBadgeClass(status) {
+  if (status === 'Published') return 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30'
+  if (status === 'Ready') return 'bg-amber-500/15 text-amber-700 border-amber-500/30'
+  if (status === 'InProduction') return 'bg-sky-500/15 text-sky-700 border-sky-500/30'
+  return ''
+}
+
 function countChapterNotes(chapterId, pageList, notesMap) {
   return pageList.reduce(
     (sum, _, i) => sum + (notesMap[`${chapterId}-${i}`]?.length ?? 0),
@@ -1329,18 +1348,29 @@ export default function ChapterAnnotator({
                                 <ImageIcon className="size-4 text-muted-foreground" />
                               )}
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate font-semibold">Ch. {ch.num}</p>
-                              <p className="text-[11px] text-muted-foreground">
-                                {pageTotal} trang{ch.cover ? ' · có bìa' : ''}
-                                {ch.isApi ? ' · server' : ''}
-                              </p>
+                            <div className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-semibold">Ch. {ch.num}</p>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {pageTotal} trang{ch.cover ? ' · có bìa' : ''}
+                                  {ch.isApi ? ' · server' : ''}
+                                </p>
+                              </div>
+                              {chapterStatusLabel(ch.apiStatus) ? (
+                                <Badge
+                                  variant="outline"
+                                  className={cn('shrink-0 border px-1.5 py-0 text-[10px] font-medium', chapterStatusBadgeClass(ch.apiStatus))}
+                                  title={`Trạng thái chapter trên server: ${ch.apiStatus}`}
+                                >
+                                  {chapterStatusLabel(ch.apiStatus)}
+                                </Badge>
+                              ) : null}
+                              {noteCount > 0 ? (
+                                <Badge variant="secondary" className="shrink-0 text-[10px]">
+                                  {noteCount} ô
+                                </Badge>
+                              ) : null}
                             </div>
-                            {noteCount > 0 ? (
-                              <Badge variant="secondary" className="text-[10px]">
-                                {noteCount} ô
-                              </Badge>
-                            ) : null}
                           </button>
                           <Button
                             size="xs"

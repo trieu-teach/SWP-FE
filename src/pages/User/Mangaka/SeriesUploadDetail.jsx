@@ -426,7 +426,7 @@ export default function SeriesUploadDetail() {
   const { data: serverChapters = [] } = useChapters(serverSeriesId)
   // Dùng chapterId (URL param) để fetch server pages — hook phải gọi trước activeRow useMemo
   const { data: rawServerPages = [] } = usePages(chapterId)
-  const { data: serverPageIssues = [] } = usePageIssues(chapterId)
+  const { data: serverPageIssues = [] } = usePageIssues({ chapterId: chapterId ? Number(chapterId) : undefined })
 
   const seriesTitle = series?.title ?? ''
 
