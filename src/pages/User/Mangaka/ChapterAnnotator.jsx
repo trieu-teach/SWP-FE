@@ -217,6 +217,32 @@ export default function ChapterAnnotator({
     return hiredAssistants ?? []
   }, [contractsAssistants, localHiredAssistants, hiredAssistants])
 
+  // Chapter hiển thị: lấy từ API (DB) làm nguồn chính, merge với local state
+  // để chapter vừa tạo (chưa refetch) vẫn hiện ngay.
+  const trimmedTitle = selectedSeriesTitle.trim()
+  const apiChapterShape = useMemo(() => {
+    if (!trimmedTitle) return []
+    return (serverChapters || [])
+      .map(c => mapApiChapterToLocal(c, trimmedTitle))
+      .filter(Boolean)
+  }, [serverChapters, trimmedTitle])
+
+  const seriesChapters = useMemo(() => {
+    if (!trimmedTitle) return []
+    const localForSeries = chapters.filter(c => c.series === trimmedTitle)
+    const apiServerIds = new Set(apiChapterShape.map(c => String(c.serverChapterId)))
+
+    // Bỏ local chapter đã có trên server (tránh duplicate cùng chapterid)
+    const localUnique = localForSeries.filter(c => {
+      const sid = c.serverChapterId ?? (Number.isFinite(Number(c.id)) ? Number(c.id) : null)
+      return sid == null || !apiServerIds.has(String(sid))
+    })
+
+    // Sắp xếp API chapters theo chapternumber tăng dần
+    const sortedApi = [...apiChapterShape].sort((a, b) => (a.num ?? 0) - (b.num ?? 0))
+    return [...sortedApi, ...localUnique]
+  }, [chapters, apiChapterShape, trimmedTitle])
+
   // activeChapter lookup từ seriesChapters (gồm cả local + API)
   const activeChapter = seriesChapters.find(c => c.id === activeChapterId) ?? null
   const localPages = activeChapter?.pages ?? []
@@ -312,32 +338,6 @@ export default function ChapterAnnotator({
       void persistNoteById(stableKey)
     }, 1500)
   }, [persistNoteById])
-
-  // Chapter hiển thị: lấy từ API (DB) làm nguồn chính, merge với local state
-  // để chapter vừa tạo (chưa refetch) vẫn hiện ngay.
-  const trimmedTitle = selectedSeriesTitle.trim()
-  const apiChapterShape = useMemo(() => {
-    if (!trimmedTitle) return []
-    return (serverChapters || [])
-      .map(c => mapApiChapterToLocal(c, trimmedTitle))
-      .filter(Boolean)
-  }, [serverChapters, trimmedTitle])
-
-  const seriesChapters = useMemo(() => {
-    if (!trimmedTitle) return []
-    const localForSeries = chapters.filter(c => c.series === trimmedTitle)
-    const apiServerIds = new Set(apiChapterShape.map(c => String(c.serverChapterId)))
-
-    // Bỏ local chapter đã có trên server (tránh duplicate cùng chapterid)
-    const localUnique = localForSeries.filter(c => {
-      const sid = c.serverChapterId ?? (Number.isFinite(Number(c.id)) ? Number(c.id) : null)
-      return sid == null || !apiServerIds.has(String(sid))
-    })
-
-    // Sắp xếp API chapters theo chapternumber tăng dần
-    const sortedApi = [...apiChapterShape].sort((a, b) => (a.num ?? 0) - (b.num ?? 0))
-    return [...sortedApi, ...localUnique]
-  }, [chapters, apiChapterShape, trimmedTitle])
 
   const uploadTargetChapter = useMemo(
     () => seriesChapters.find(c => c.id === activeChapterId) ?? null,
