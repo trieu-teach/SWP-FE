@@ -17,7 +17,7 @@ import { NOTE_TASK_TYPES, noteTaskLabel } from '@/constants/workspaceTasks.js'
 import { fileToStorableDataUrl } from '@/utils/mangakaWorkspaceStorage.js'
 import { getActiveAssigneesForMangaka } from '@/utils/assistantRosterStorage.js'
 import { getSession } from '@/lib/auth.js'
-import { usePages, usePageIssues, useContracts, useAvailableAssistantProfiles, useAvailableTantouEditors, useUpdateChapterStatus, useChapters } from '@/api/hooks'
+import { usePages, usePageIssues, usePageLayers, useContracts, useAvailableAssistantProfiles, useAvailableTantouEditors, useUpdateChapterStatus, useChapters } from '@/api/hooks'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -289,6 +289,35 @@ export default function ChapterAnnotator({
   const { data: serverPages = [] } = usePages(effectiveServerChapterId)
   const { data: serverPageIssues = [] } = usePageIssues({ chapterId: effectiveServerChapterId })
 
+  // Server-side PageLayer fallback: trường hợp BE trả về page có pageimageurl rỗng
+  // (URL thực tế nằm ở PageLayer default). Fetch layer cho page đang xem để lấy URL.
+  const currentPageServerId = useMemo(() => {
+    const localP = (activeChapter?.pages ?? [])[pageIndex]
+    if (localP?.serverPageId ?? localP?.apiPageId) return localP.serverPageId ?? localP.apiPageId
+    const localServerId = localP?.serverPageId ?? localP?.apiPageId
+    if (localServerId != null) return localServerId
+    // serverPages: tìm theo thứ tự pageIndex
+    const sp = Array.isArray(serverPages) ? serverPages[pageIndex] : null
+    const sid = sp?.pageid ?? sp?.Pageid
+    return sid != null ? Number(sid) : null
+  }, [activeChapter, pageIndex, serverPages])
+  const { data: currentPageLayers = [] } = usePageLayers(currentPageServerId)
+  const fallbackLayerUrl = useMemo(() => {
+    // Lấy URL của layer đầu tiên visible (Zindex thấp nhất hoặc layername = 'Default').
+    if (!Array.isArray(currentPageLayers)) return null
+    const visible = currentPageLayers.filter(l => l && (l.Isvisible ?? l.isvisible ?? true) && !(l.Isdeleted ?? l.isdeleted ?? false))
+    if (!visible.length) return currentPageLayers[0]?.Fileurl ?? currentPageLayers[0]?.fileurl ?? null
+    const sorted = [...visible].sort((a, b) => {
+      const az = a.Zindex ?? a.zindex ?? 999
+      const bz = b.Zindex ?? b.zindex ?? 999
+      if (az !== bz) return az - bz
+      const aid = a.Layerid ?? a.layerid ?? 0
+      const bid = b.Layerid ?? b.layerid ?? 0
+      return aid - bid
+    })
+    return sorted[0]?.Fileurl ?? sorted[0]?.fileurl ?? null
+  }, [currentPageLayers])
+
   // Ưu tiên pages local (FE mới upload), fallback serverPages cho chapter từ API.
   const pages = useMemo(() => {
     // Dedup localPages trước (trường hợp data bị duplicate id do hydrate/rehydrate).
@@ -306,16 +335,35 @@ export default function ChapterAnnotator({
 
     if (localPages.length > 0) return dedupeById(localPages)
     if (!Array.isArray(serverPages)) return []
+    // Không filter bỏ page rỗng URL nữa — giữ page nếu có serverPageId để có thể
+    // render fallback URL từ PageLayer khi user chọn page đó.
     const mapped = serverPages
-      .filter(p => p && (p.pageimageurl ?? p.Pageimageurl))
-      .map((p, i) => ({
-        id: String(p.pageid ?? p.Pageid ?? `srv-page-${i}`),
-        name: `Page ${p.pagenumber ?? p.Pagenumber ?? i + 1}`,
-        url: p.pageimageurl ?? p.Pageimageurl,
-        serverPageId: p.pageid ?? p.Pageid,
-      }))
+      .filter(p => p && (p.pageid ?? p.Pageid ?? p.pageimageurl ?? p.Pageimageurl))
+      .map((p, i) => {
+        const directUrl = p.pageimageurl ?? p.Pageimageurl ?? null
+        const sid = p.pageid ?? p.Pageid ?? null
+        return {
+          id: String(sid ?? `srv-page-${i}`),
+          name: `Page ${p.pagenumber ?? p.Pagenumber ?? i + 1}`,
+          url: directUrl && String(directUrl).trim() !== '' ? directUrl : null,
+          serverPageId: sid,
+        }
+      })
     return dedupeById(mapped)
   }, [localPages, serverPages])
+
+  // Nếu page hiện tại không có url trực tiếp nhưng có layer thì dùng URL layer.
+  const effectiveCurrentPageUrl = useMemo(() => {
+    const p = pages[pageIndex]
+    if (!p) return null
+    if (p.url && String(p.url).trim() !== '') return p.url
+    const pServerId = p.serverPageId
+    const curId = currentPageServerId
+    if (pServerId != null && curId != null && Number(pServerId) === Number(curId)) {
+      return fallbackLayerUrl
+    }
+    return null
+  }, [pages, pageIndex, fallbackLayerUrl, currentPageServerId])
   const pageKey = activeChapter ? `${activeChapterId}-${pageIndex}` : ''
   const pageNotes = notes[pageKey] ?? []
 
@@ -872,9 +920,9 @@ export default function ChapterAnnotator({
         onMouseUp={onBoardMouseUp}
         onMouseLeave={onBoardMouseUp}
       >
-        {pages[pageIndex]?.url ? (
+        {effectiveCurrentPageUrl ? (
           <img
-            src={pages[pageIndex].url}
+            src={effectiveCurrentPageUrl}
             alt=""
             className="mk-board__img manga-page__media"
             draggable={false}
@@ -921,29 +969,42 @@ export default function ChapterAnnotator({
         )})}
 
         {/* Server-side PageIssue overlays from Assistant/Editor */}
-        {serverPageIssues.map((issue, idx) => {
-          const boxX = issue.boxX ?? issue.Boxx ?? issue.boxx ?? 0
-          const boxY = issue.boxY ?? issue.Boxy ?? issue.boxy ?? 0
-          const boxW = issue.boxWidth ?? issue.Boxwidth ?? 0
-          const boxH = issue.boxHeight ?? issue.Boxheight ?? 0
-          return (
-            <div
-              key={issue.issueid ?? issue.Issueid ?? `srv-issue-${idx}`}
-              className="mk-issue-overlay"
-              style={{
-                left: `${boxX}%`,
-                top: `${boxY}%`,
-                width: `${boxW}%`,
-                height: `${boxH}%`,
-              }}
-              title={`[${issue.issueType ?? issue.Issuetype ?? 'Issue'}] ${issue.description ?? ''}`}
-            >
-              <span className="mk-issue-overlay__type">
-                {issue.issueType ?? issue.Issuetype ?? '?'}
-              </span>
-            </div>
-          )
-        })}
+        {(() => {
+          // Filter issues theo page đang xem (BE trả về tất cả issues của chapter).
+          // Nếu page hiện tại chưa có serverPageId (mới upload, chưa sync lên BE),
+          // thì tạm thời không hiển thị server issue nào (issue chỉ tồn tại trên server).
+          const currentPageServerId = pages[pageIndex]?.serverPageId ?? pages[pageIndex]?.apiPageId
+          const currentPageIdNum = currentPageServerId != null ? Number(currentPageServerId) : null
+          const issuesForCurrentPage = (currentPageIdNum != null && Number.isFinite(currentPageIdNum))
+            ? serverPageIssues.filter(issue => {
+                const issuePageId = issue.pageId ?? issue.Pageid
+                return issuePageId != null && Number(issuePageId) === currentPageIdNum
+              })
+            : []
+          return issuesForCurrentPage.map((issue, idx) => {
+            const boxX = issue.boxX ?? issue.Boxx ?? issue.boxx ?? 0
+            const boxY = issue.boxY ?? issue.Boxy ?? issue.boxy ?? 0
+            const boxW = issue.boxWidth ?? issue.Boxwidth ?? 0
+            const boxH = issue.boxHeight ?? issue.Boxheight ?? 0
+            return (
+              <div
+                key={issue.issueid ?? issue.Issueid ?? `srv-issue-${idx}`}
+                className="mk-issue-overlay"
+                style={{
+                  left: `${boxX}%`,
+                  top: `${boxY}%`,
+                  width: `${boxW}%`,
+                  height: `${boxH}%`,
+                }}
+                title={`[${issue.issueType ?? issue.Issuetype ?? 'Issue'}] ${issue.description ?? ''}`}
+              >
+                <span className="mk-issue-overlay__type">
+                  {issue.issueType ?? issue.Issuetype ?? '?'}
+                </span>
+              </div>
+            )
+          })
+        })()}
 
         {draftRect ? (
           <div

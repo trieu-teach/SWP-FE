@@ -279,6 +279,20 @@ export function usePageComposite() {
   })
 }
 
+export function usePageLayers(pageId) {
+  const numericId = pageId != null ? Number(pageId) : null
+  const isServerId = numericId != null && Number.isFinite(numericId) && numericId > 0
+  return useQuery({
+    queryKey: ['pageLayers', 'byPage', numericId],
+    queryFn: async () => {
+      const res = await pageLayersService.getAll(numericId)
+      const data = unwrap(res)
+      return Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : [])
+    },
+    enabled: isServerId,
+  })
+}
+
 export function usePageLayerById(id) {
   return useQuery({
     queryKey: ['pageLayers', id],
