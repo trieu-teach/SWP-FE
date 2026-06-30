@@ -331,6 +331,8 @@ function SeriesCard({ series, ebApproved, uploadPct, onOpenAnnotate, onOpenEdit,
 export default function Mangaka() {
   const navigate = useNavigate()
   const location = useLocation()
+  // locationKey không còn cần thiết để force re-render (effect location.state đã được sửa
+  // để chỉ chạy 1 lần / mỗi state object), nhưng giữ lại phòng khi có chỗ khác dùng key này.
   const [locationKey, setLocationKey] = useState(0)
   // Dùng useAuth() thay vì getSession() trực tiếp để component reactive với auth state —
   // nếu không, khi token hết hạn hoặc user bị xóa, component vẫn giữ user cũ → render với state lệch → crash
@@ -489,11 +491,26 @@ export default function Mangaka() {
   const [tantouSendReady, setTantouSendReady] = useState(null)
   const [rosterTick, setRosterTick] = useState(0)
 
-  // Use API data merged with optimistic local changes; deduplicate by id to avoid React key collisions
-  const seriesList = Object.values(
-    [...apiSeries, ...localSeriesList].reduce((acc, s) => ({ ...acc, [s.id]: s }), {}),
+  // Use API data merged with optimistic local changes; deduplicate by id to avoid React key collisions.
+  //
+  // QUAN TRỌNG: phải useMemo ở đây. Nếu để là biểu thức thường (tính lại mỗi render), mảng này
+  // sẽ có IDENTITY MỚI ở MỌI lần render — kể cả khi nội dung không đổi. Vì nhiều useEffect/useMemo
+  // bên dưới (vd. effect xử lý location.state, workspaceSnapshot, chapterRowsBySeries...) đều
+  // phụ thuộc trực tiếp vào seriesList/chapterRows, identity-mới-mỗi-render khiến các effect đó
+  // chạy lại liên tục. Nếu effect nào trong số đó gọi setState KHÔNG điều kiện (như effect
+  // location.state từng gọi setLocationKey vô điều kiện), sẽ tạo vòng lặp:
+  //   render → seriesList mới → effect chạy → setState → re-render → seriesList lại mới → ...
+  // → React throw "Maximum update depth exceeded" → ErrorBoundary hiện trang trắng báo lỗi.
+  const seriesList = useMemo(
+    () => Object.values(
+      [...apiSeries, ...localSeriesList].reduce((acc, s) => ({ ...acc, [s.id]: s }), {}),
+    ),
+    [apiSeries, localSeriesList],
   )
-  const chapterRows = [...apiChapters, ...localChapterRows]
+  const chapterRows = useMemo(
+    () => [...apiChapters, ...localChapterRows],
+    [apiChapters, localChapterRows],
+  )
 
   // Real chapter ID on backend for the currently active annotator chapter
   const annotatorServerChapterId = useMemo(() => {
@@ -509,8 +526,8 @@ export default function Mangaka() {
   }, [mangakaId, rosterTick])
 
   const statValues = useMemo(() => {
-  const pendingAssistant = chapterRows.filter(c => c.status === 'InProduction').length
-  const pendingComposite = chapterRows.filter(c => c.status === 'Ready').length
+    const pendingAssistant = chapterRows.filter(c => c.status === 'InProduction').length
+    const pendingComposite = chapterRows.filter(c => c.status === 'Ready').length
     return [
       { value: String(seriesList.length), trend: 'Hồ sơ trong workspace' },
       { value: String(chapterRows.length), trend: `${chapterRows.length} dòng trong bảng Chapter` },
@@ -555,12 +572,8 @@ export default function Mangaka() {
   )
 
   // Memoize seriesOptions de ChapterAnnotator Select khong bi re-render loop do ref thay doi.
-  const seriesOptionsMemo = useMemo(
-    () => seriesList.map(s => ({
-      id: s.id,
-      title: s.title,
-      needsFullDebutPipeline: !!s.needsFullDebutPipeline,
-    })),
+  const seriesOptions = useMemo(
+    () => seriesList.map(s => ({ id: s.id, title: s.title })),
     [seriesList],
   )
 
@@ -636,10 +649,10 @@ export default function Mangaka() {
         const issueType = note.taskType === 'revision' ? 'Revision' : note.taskType === 'production' ? 'Production' : 'Revision'
         const workCategory = note.taskType === 'background' ? 'Background'
           : note.taskType === 'dialog' ? 'Dialog'
-          : note.taskType === 'ink' ? 'Inking'
-          : note.taskType === 'fx' ? 'Effects'
-          : note.taskType === 'shading' ? 'Shading'
-          : 'Content'
+            : note.taskType === 'ink' ? 'Inking'
+              : note.taskType === 'fx' ? 'Effects'
+                : note.taskType === 'shading' ? 'Shading'
+                  : 'Content'
         pageIssuesService.create({
           pageId: activePage.apiPageId,
           createdById: user.id,
@@ -1386,9 +1399,21 @@ export default function Mangaka() {
     setAnnotateSeries((cur) => (cur !== title ? cur : remainingSeries[0]?.title ?? ''))
   }
 
+  // FIX VÒNG LẶP VÔ HẠN ("Maximum update depth exceeded"):
+  // Trước đây effect này phụ thuộc trực tiếp vào `seriesList` (luôn có identity mới mỗi render
+  // trước khi useMemo ở trên) và LUÔN LUÔN gọi setLocationKey ở cuối — không có điều kiện chặn.
+  // → render → seriesList mới → effect chạy → setLocationKey → re-render → lặp vô hạn.
+  //
+  // Cách sửa: chỉ xử lý MỘT LẦN cho mỗi object location.state cụ thể (dùng ref so sánh identity),
+  // và không còn cần setLocationKey để "force re-render" — state thay đổi (setTab/setAnnotateSeries...)
+  // đã tự kích hoạt re-render đúng cách rồi.
+  const processedNavStateRef = useRef(null)
   useEffect(() => {
     const st = location.state
     if (!st || typeof st !== 'object') return
+    if (processedNavStateRef.current === st) return
+    processedNavStateRef.current = st
+
     if (st.tab === 'chapters' || st.tab === 'annotate' || st.tab === 'series' || st.tab === 'assistants') setTab(st.tab)
     // Prefer seriesId (resolved via seriesList) over raw title string — avoids race when
     // user navigates before seriesList has loaded from API.
@@ -1398,8 +1423,6 @@ export default function Mangaka() {
       setAnnotatorActiveChapterId(st.chapterId)
       setAnnotatorPageIndex(0)
     }
-    // Force re-render so that tab/annotateSeries changes from navigation state are reflected
-    setLocationKey(k => k + 1)
   }, [location.state, seriesList])
 
   function openAnnotate(seriesTitle, chapterLocalId) {
@@ -1594,11 +1617,10 @@ export default function Mangaka() {
 
               <TabsContent value="annotate">
                 <ChapterAnnotator
-                  key={`annotate-${tab}-${annotateSeries}`}
+                  key="annotate-tab"
                   selectedSeriesTitle={annotateSeries}
-                  selectedSeriesId={annotateSeriesId}
                   onSelectedSeriesTitleChange={setAnnotateSeries}
-                  seriesOptions={seriesOptionsMemo}
+                  seriesOptions={seriesOptions}
                   chapterNum={annotatorChapterNum}
                   onChapterNumChange={setAnnotatorChapterNum}
                   chapterNumHint={annotateChapterHint}

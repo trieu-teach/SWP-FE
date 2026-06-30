@@ -53,8 +53,8 @@ function uid() {
   return `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
-function noteStableKey(note) {
-  return note?.clientKey ?? note?.id ?? ''
+function noteStableKey(note, idx = 0) {
+  return note?.clientKey ?? note?.id ?? `note-idx-${idx}`
 }
 
 function displayChapterNum(baseStr, index) {
@@ -166,6 +166,8 @@ export default function ChapterAnnotator({
   // BE flow: gửi thẳng tới Tantou qua API (đã bỏ qua Assistant)
   const updateChapterStatus = useUpdateChapterStatus()
   const { data: tantouEditorsRaw = [] } = useAvailableTantouEditors()
+  console.log('[ChapterAnnotator] tantouEditorsRaw RAW:', JSON.stringify(tantouEditorsRaw, null, 2))
+
 
   // API: lấy tất cả chapter của series đang annotate từ DB.
   // selectedSeriesId có thể null khi user vừa chuyển series (chưa resolve xong id).
@@ -241,9 +243,22 @@ export default function ChapterAnnotator({
   const trimmedTitle = selectedSeriesTitle.trim()
   const apiChapterShape = useMemo(() => {
     if (!trimmedTitle) return []
-    return (serverChapters || [])
+    const mapped = (serverChapters || [])
       .map(c => mapApiChapterToLocal(c, trimmedTitle))
       .filter(Boolean)
+
+    // Backend đôi khi trả duplicate rows cho cùng 1 chapterid (do join) — chặn ở đây.
+    const seen = new Set()
+    const out = []
+    for (const ch of mapped) {
+      if (seen.has(ch.id)) {
+        console.warn('[ChapterAnnotator] dropped duplicate chapter id from API:', ch.id, ch)
+        continue
+      }
+      seen.add(ch.id)
+      out.push(ch)
+    }
+    return out
   }, [serverChapters, trimmedTitle])
 
   const seriesChapters = useMemo(() => {
@@ -251,28 +266,41 @@ export default function ChapterAnnotator({
     const localForSeries = chapters.filter(c => c.series === trimmedTitle)
     const apiServerIds = new Set(apiChapterShape.map(c => String(c.serverChapterId)))
 
-    // Build map serverId -> local chapter (local có pages mới upload override API chapter)
     const localByServerId = new Map()
     for (const c of localForSeries) {
       const sid = c.serverChapterId ?? (Number.isFinite(Number(c.id)) ? Number(c.id) : null)
       if (sid != null) localByServerId.set(String(sid), c)
     }
 
-    // Sắp xếp API chapters theo chapternumber tăng dần
     const sortedApi = [...apiChapterShape].sort((a, b) => (a.num ?? 0) - (b.num ?? 0))
+    const merged = sortedApi.map(apiCh => {
+      const localMatch = localByServerId.get(String(apiCh.serverChapterId))
+      if (localMatch) {
+        // Ép id/serverChapterId theo dữ liệu API — local object có thể mang id cũ/sai
+        return { ...localMatch, id: apiCh.id, serverChapterId: apiCh.serverChapterId }
+      }
+      return apiCh
+    })
 
-    // API chapter nào có local override -> dùng local (giữ pages mới upload)
-    const merged = sortedApi.map(apiCh =>
-      localByServerId.get(String(apiCh.serverChapterId)) ?? apiCh,
-    )
-
-    // Local chapter CHƯA có trên server (không có serverChapterId) -> thêm cuối list
     const localOnly = localForSeries.filter(c => {
       const sid = c.serverChapterId ?? (Number.isFinite(Number(c.id)) ? Number(c.id) : null)
       return sid == null || !apiServerIds.has(String(sid))
     })
+    const combined = [...merged, ...localOnly]
 
-    return [...merged, ...localOnly]
+    // ✅ Dedupe cuối cùng theo id — phòng trường hợp 1 chapter lọt vào cả 2 nhóm
+    const seen = new Set()
+    const deduped = []
+    for (const c of combined) {
+      const key = String(c.id)
+      if (seen.has(key)) {
+        console.warn('[ChapterAnnotator] DUPLICATE chapter id caught at final dedupe:', key, c)
+        continue
+      }
+      seen.add(key)
+      deduped.push(c)
+    }
+    return deduped
   }, [chapters, apiChapterShape, trimmedTitle])
 
   // activeChapter lookup từ seriesChapters (gồm cả local + API)
@@ -326,7 +354,10 @@ export default function ChapterAnnotator({
       const out = []
       for (const p of arr) {
         if (!p || !p.id) continue
-        if (seen.has(p.id)) continue
+        if (seen.has(p.id)) {
+          console.warn('[ChapterAnnotator] dropped duplicate page id:', p.id, p)
+          continue
+        }
         seen.add(p.id)
         out.push(p)
       }
@@ -438,21 +469,31 @@ export default function ChapterAnnotator({
     [seriesChapters, activeChapterId],
   )
 
+  // Dùng chuỗi id ổn định làm dependency — seriesChapters là array mới mỗi render
+  // (vì `chapters` prop từ Mangaka.jsx luôn là array mới identity), nên không thể
+  // dùng thẳng seriesChapters làm dep / không thể đọc activeChapterId trực tiếp trong
+  // effect — cả hai cách đều có thể gây setState lặp vô hạn nếu identity dao động.
+  const seriesChapterIdsKey = useMemo(
+    () => seriesChapters.map(c => c.id).join(','),
+    [seriesChapters],
+  )
+
   useEffect(() => {
     const trimmed = selectedSeriesTitle.trim()
     if (!trimmed) return
     const forSeries = seriesChapters
     if (!forSeries.length) {
-      if (activeChapterId) setActiveChapterId(null)
+      setActiveChapterId(prev => (prev ? null : prev))
       return
     }
-    if (!forSeries.some(c => c.id === activeChapterId)) {
-      setActiveChapterId(forSeries[0].id)
+    setActiveChapterId(prev => {
+      if (forSeries.some(c => c.id === prev)) return prev
       setPageIndex(0)
       setSelectedNoteId(null)
-    }
-  }, [selectedSeriesTitle, seriesChapters, activeChapterId, setActiveChapterId, setPageIndex])
-
+      return forSeries[0].id
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSeriesTitle, seriesChapterIdsKey, setActiveChapterId, setPageIndex])
   const activateChapter = useCallback((ch, pageIdx = 0) => {
     setActiveChapterId(ch.id)
     setPageIndex(pageIdx)
@@ -875,7 +916,7 @@ export default function ChapterAnnotator({
           const badge = notes[`${activeChapterId}-${i}`]?.length ?? 0
           return (
             <button
-              key={pg.id}
+              key={`${pg.id}-${i}`}
               type="button"
               onClick={() => { setPageIndex(i); setSelectedNoteId(null) }}
               title={pg.name}
@@ -906,6 +947,7 @@ export default function ChapterAnnotator({
   }
 
   function CanvasBoard({ refEl, fs = false }) {
+    console.log('[ChapterAnnotator] pages:', pages, 'serverPageIssues:', serverPageIssues)
     return (
       <div
         ref={refEl}
@@ -937,36 +979,37 @@ export default function ChapterAnnotator({
         )}
 
         {pageNotes.map((n, idx) => {
-          const stableKey = noteStableKey(n)
+          const stableKey = noteStableKey(n, idx)
           return (
-          <div
-            key={stableKey}
-            className={cn(
-              'mk-note-box',
-              selectedNoteId === stableKey && 'selected',
-              tool === 'delete' && 'mk-note-box--target',
-            )}
-            style={{ left: `${n.x}%`, top: `${n.y}%`, width: `${n.w}%`, height: `${n.h}%` }}
-            onClick={e => onNoteClick(e, stableKey)}
-          >
-            <span className="mk-note-box__num">{idx + 1}</span>
-            {n.taskType ? (
-              <span className="mk-note-box__task" title={n.assignee ? `Giao: ${n.assignee}` : undefined}>
-                {noteTaskLabel(n.taskType)}
-              </span>
-            ) : null}
-            {(selectedNoteId === stableKey || tool === 'delete') ? (
-              <button
-                type="button"
-                className="mk-note-box__delete"
-                onClick={e => { e.stopPropagation(); deleteNote(stableKey) }}
-                aria-label={`Gỡ ô ghi chú ${idx + 1}`}
-              >
-                ×
-              </button>
-            ) : null}
-          </div>
-        )})}
+            <div
+              key={stableKey}
+              className={cn(
+                'mk-note-box',
+                selectedNoteId === stableKey && 'selected',
+                tool === 'delete' && 'mk-note-box--target',
+              )}
+              style={{ left: `${n.x}%`, top: `${n.y}%`, width: `${n.w}%`, height: `${n.h}%` }}
+              onClick={e => onNoteClick(e, stableKey)}
+            >
+              <span className="mk-note-box__num">{idx + 1}</span>
+              {n.taskType ? (
+                <span className="mk-note-box__task" title={n.assignee ? `Giao: ${n.assignee}` : undefined}>
+                  {noteTaskLabel(n.taskType)}
+                </span>
+              ) : null}
+              {(selectedNoteId === stableKey || tool === 'delete') ? (
+                <button
+                  type="button"
+                  className="mk-note-box__delete"
+                  onClick={e => { e.stopPropagation(); deleteNote(stableKey) }}
+                  aria-label={`Gỡ ô ghi chú ${idx + 1}`}
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+          )
+        })}
 
         {/* Server-side PageIssue overlays from Assistant/Editor */}
         {(() => {
@@ -977,9 +1020,9 @@ export default function ChapterAnnotator({
           const currentPageIdNum = currentPageServerId != null ? Number(currentPageServerId) : null
           const issuesForCurrentPage = (currentPageIdNum != null && Number.isFinite(currentPageIdNum))
             ? serverPageIssues.filter(issue => {
-                const issuePageId = issue.pageId ?? issue.Pageid
-                return issuePageId != null && Number(issuePageId) === currentPageIdNum
-              })
+              const issuePageId = issue.pageId ?? issue.Pageid
+              return issuePageId != null && Number(issuePageId) === currentPageIdNum
+            })
             : []
           return issuesForCurrentPage.map((issue, idx) => {
             const boxX = issue.boxX ?? issue.Boxx ?? issue.boxx ?? 0
@@ -1025,7 +1068,7 @@ export default function ChapterAnnotator({
     note, index, selectedNoteId, hiredAssistants,
     onDelete, onSelect, onUpdate, textareaRefMap,
   }) {
-    const stableKey = noteStableKey(note)
+    const stableKey = noteStableKey(note, index)
     return (
       <li
         className={cn(
@@ -1130,7 +1173,7 @@ export default function ChapterAnnotator({
               <ul className="space-y-3">
                 {pageNotes.map((n, idx) => (
                   <NoteItem
-                    key={noteStableKey(n)}
+                    key={noteStableKey(n, idx)}
                     note={n}
                     index={idx}
                     selectedNoteId={selectedNoteId}
@@ -1207,121 +1250,121 @@ export default function ChapterAnnotator({
 
     return (
       <>
-      <Card
-        className={cn(
-          'border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background',
-          compact && 'border-white/10 bg-zinc-900/80 text-white shadow-xl backdrop-blur',
-        )}
-      >
-        <CardContent className={cn('flex flex-wrap items-center gap-3', compact ? 'p-3' : 'p-4')}>
-          <div className="min-w-0 flex-1">
-            <p className={cn('text-sm font-semibold', compact && 'text-white')}>
-              Sẵn sàng bàn giao Trang {pageIndex + 1}
-            </p>
-            <p className={cn('text-xs', compact ? 'text-zinc-300' : 'text-muted-foreground')}>
-              {pageNotes.length > 0
-                ? `${pageNotes.length} ô ghi chú trên trang này · ${totalNotes} ô toàn chapter`
-                : `Chưa ghi chú nào trên trang · ${totalNotes} ô toàn chapter`}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {onSendToTantou ? (
+        <Card
+          className={cn(
+            'border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background',
+            compact && 'border-white/10 bg-zinc-900/80 text-white shadow-xl backdrop-blur',
+          )}
+        >
+          <CardContent className={cn('flex flex-wrap items-center gap-3', compact ? 'p-3' : 'p-4')}>
+            <div className="min-w-0 flex-1">
+              <p className={cn('text-sm font-semibold', compact && 'text-white')}>
+                Sẵn sàng bàn giao Trang {pageIndex + 1}
+              </p>
+              <p className={cn('text-xs', compact ? 'text-zinc-300' : 'text-muted-foreground')}>
+                {pageNotes.length > 0
+                  ? `${pageNotes.length} ô ghi chú trên trang này · ${totalNotes} ô toàn chapter`
+                  : `Chưa ghi chú nào trên trang · ${totalNotes} ô toàn chapter`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {onSendToTantou ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!activeChapter || pages.length === 0}
+                  title={`Gửi bản thảo sang ${LABEL_TANTOU_EDITOR}`}
+                  onClick={handleTantou}
+                  className={cn(compact && 'border-white/20 bg-transparent text-white hover:bg-white/10')}
+                >
+                  Gửi {LABEL_TANTOU_EDITOR}
+                </Button>
+              ) : null}
+              <Select
+                value={selectedAssistantId ?? ''}
+                onValueChange={v => setSelectedAssistantId(v || null)}
+              >
+                <SelectTrigger className={cn('w-48', compact && 'border-white/20 bg-white/10 text-white')}>
+                  <SelectValue placeholder="-- Chọn Assistant --" />
+                </SelectTrigger>
+                <SelectContent>
+                  {effectiveHiredAssistants.length === 0 ? (
+                    <SelectItem value="__none__" disabled>
+                      Chưa có Assistant nào
+                    </SelectItem>
+                  ) : (
+                    effectiveHiredAssistants.map(a => (
+                      <SelectItem key={a.assistantId} value={String(a.assistantId)}>
+                        {a.label}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
               <Button
                 size="sm"
-                variant="outline"
-                disabled={!activeChapter || pages.length === 0}
-                title={`Gửi bản thảo sang ${LABEL_TANTOU_EDITOR}`}
-                onClick={handleTantou}
-                className={cn(compact && 'border-white/20 bg-transparent text-white hover:bg-white/10')}
+                disabled={
+                  !activeChapter
+                  || pages.length === 0
+                  || pageNotes.length === 0
+                  || !selectedAssistantId
+                }
+                onClick={handleAssistant}
               >
-                Gửi {LABEL_TANTOU_EDITOR}
+                <Send className="size-3.5" />
+                Gửi ({totalNotes} ô)
               </Button>
-            ) : null}
-            <Select
-              value={selectedAssistantId ?? ''}
-              onValueChange={v => setSelectedAssistantId(v || null)}
-            >
-              <SelectTrigger className={cn('w-48', compact && 'border-white/20 bg-white/10 text-white')}>
-                <SelectValue placeholder="-- Chọn Assistant --" />
-              </SelectTrigger>
-              <SelectContent>
-                {effectiveHiredAssistants.length === 0 ? (
-                  <SelectItem value="__none__" disabled>
-                    Chưa có Assistant nào
-                  </SelectItem>
-                ) : (
-                  effectiveHiredAssistants.map(a => (
-                    <SelectItem key={a.assistantId} value={String(a.assistantId)}>
-                      {a.label}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-            <Button
-              size="sm"
-              disabled={
-                !activeChapter
-                || pages.length === 0
-                || pageNotes.length === 0
-                || !selectedAssistantId
-              }
-              onClick={handleAssistant}
-            >
-              <Send className="size-3.5" />
-              Gửi ({totalNotes} ô)
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
 
-      <Dialog open={tantouDialogOpen} onOpenChange={setTantouDialogOpen}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle>Gửi thẳng cho {LABEL_TANTOU_EDITOR}</DialogTitle>
-            <DialogDescription>
-              Chọn 1 {LABEL_TANTOU_EDITOR} để nhận chapter này. Nếu bỏ trống, hệ thống sẽ dùng {LABEL_TANTOU_EDITOR} mặc định của series.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 max-h-[300px] overflow-y-auto">
-            {(tantouEditorsRaw ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Chưa có {LABEL_TANTOU_EDITOR} nào khả dụng trong hệ thống.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {tantouEditorsRaw.map((t) => {
-                  const tid = String(t.id ?? t.user_id ?? t.userId ?? '')
-                  const tname = t.fullName ?? t.fullname ?? t.name ?? t.username ?? 'Tantou'
-                  const checked = selectedTantouId === tid
-                  return (
-                    <li
-                      key={tid}
-                      className={cn(
-                        'flex items-center gap-2 rounded-md border p-2 cursor-pointer hover:bg-muted/50',
-                        checked && 'border-primary bg-primary/5',
-                      )}
-                      onClick={() => setSelectedTantouId(checked ? null : tid)}
-                    >
-                      <input type="radio" name="tantou" checked={checked} onChange={() => setSelectedTantouId(tid)} />
-                      <span className="text-sm">{tname}</span>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setTantouDialogOpen(false)}>Hủy</Button>
-            <Button
-              onClick={confirmSendTantou}
-              disabled={updateChapterStatus.isPending}
-            >
-              {updateChapterStatus.isPending ? 'Đang gửi...' : 'Xác nhận gửi'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <Dialog open={tantouDialogOpen} onOpenChange={setTantouDialogOpen}>
+          <DialogContent className="sm:max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle>Gửi thẳng cho {LABEL_TANTOU_EDITOR}</DialogTitle>
+              <DialogDescription>
+                Chọn 1 {LABEL_TANTOU_EDITOR} để nhận chapter này. Nếu bỏ trống, hệ thống sẽ dùng {LABEL_TANTOU_EDITOR} mặc định của series.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {(tantouEditorsRaw ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Chưa có {LABEL_TANTOU_EDITOR} nào khả dụng trong hệ thống.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {tantouEditorsRaw.map((t) => {
+                    const tid = String(t.user_id ?? t.userid ?? t.id ?? '')
+                    const tname = t.full_name ?? t.fullname ?? t.fullName ?? t.name ?? t.username ?? 'Tantou'
+                    const checked = selectedTantouId === tid
+                    return (
+                      <li
+                        key={tid}
+                        className={cn(
+                          'flex items-center gap-2 rounded-md border p-2 cursor-pointer hover:bg-muted/50',
+                          checked && 'border-primary bg-primary/5',
+                        )}
+                        onClick={() => setSelectedTantouId(checked ? null : tid)}
+                      >
+                        <input type="radio" name="tantou" checked={checked} onChange={() => setSelectedTantouId(tid)} />
+                        <span className="text-sm">{tname}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setTantouDialogOpen(false)}>Hủy</Button>
+              <Button
+                onClick={confirmSendTantou}
+                disabled={updateChapterStatus.isPending}
+              >
+                {updateChapterStatus.isPending ? 'Đang gửi...' : 'Xác nhận gửi'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </>
     )
   }
@@ -1342,7 +1385,7 @@ export default function ChapterAnnotator({
           <div className="space-y-2">
             <Label>Series (draft)</Label>
             <Select
-              value={selectedSeriesTitle}
+              value={selectedSeriesTitle || undefined}
               onValueChange={(v) => onSelectedSeriesTitleChange(v)}
               disabled={seriesOptions.length === 0}
             >
@@ -1350,9 +1393,11 @@ export default function ChapterAnnotator({
                 <SelectValue placeholder="— Chọn series —" />
               </SelectTrigger>
               <SelectContent>
-                {seriesOptions.map(s => (
-                  <SelectItem key={s.id} value={s.title}>{s.title}</SelectItem>
-                ))}
+                {seriesOptions
+                  .filter(s => s.title) // chặn luôn SelectItem value="" gây cùng 1 bug
+                  .map(s => (
+                    <SelectItem key={s.id} value={s.title}>{s.title}</SelectItem>
+                  ))}
               </SelectContent>
             </Select>
             {chapterNumHint ? <p className="text-xs text-muted-foreground">{chapterNumHint}</p> : null}
@@ -1395,15 +1440,15 @@ export default function ChapterAnnotator({
                     onChange={e => setNewChapterDeadline(e.target.value)}
                   />
                 </div>
-              <Button
-          size="sm"
-          className="w-full"
-          disabled={!selectedSeriesTitle.trim()}
-          onClick={createNewChapter}
-        >
-          <Plus className="size-3.5" />
-          Tạo Chapter {nextChapterNum}
-        </Button>
+                <Button
+                  size="sm"
+                  className="w-full"
+                  disabled={!selectedSeriesTitle.trim()}
+                  onClick={createNewChapter}
+                >
+                  <Plus className="size-3.5" />
+                  Tạo Chapter {nextChapterNum}
+                </Button>
               </div>
 
               {seriesChapters.length === 0 ? (
@@ -1696,7 +1741,7 @@ export default function ChapterAnnotator({
           <div className="flex shrink-0 gap-2 overflow-x-auto border-t border-white/10 bg-zinc-900 p-2">
             {pages.map((pg, i) => (
               <button
-                key={pg.id}
+                key={`${pg.id}-${i}`}
                 type="button"
                 onClick={() => { setPageIndex(i); setSelectedNoteId(null) }}
                 title={pg.name}
