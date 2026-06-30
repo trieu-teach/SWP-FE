@@ -35,15 +35,19 @@ export function usePageLayers(pageId, { uploaderId } = {}) {
     setLoading(true)
     setError(null)
     try {
-      const pageRes = await pagesService.getById(pageId)
+      const [pageRes, layersRes] = await Promise.all([
+        pagesService.getById(pageId),
+        layersService.list(pageId),
+      ])
 
-      setLayers([])
-
-      if (pageRes.status === 'fulfilled') {
+      if (pageRes?.status === 'fulfilled') {
         const p = pageRes.value?.data ?? pageRes.value
         setOriginalImage(p?.pageimageurl ?? p?.Pageimageurl ?? null)
         setResultImage(p?.pageimageurl ?? p?.Pageimageurl ?? null)
       }
+
+      const rawLayers = Array.isArray(layersRes) ? layersRes : []
+      setLayers(rawLayers.map(apiLayerToUi))
     } catch (err) {
       setError(err?.message ?? 'Lỗi không xác định')
     } finally {

@@ -29,7 +29,6 @@ export function useCollaborationRequests() {
       })
       console.log('[useCollaborationRequests] Pending contracts:', pending)
       setPendingRequests(pending)
-      setPendingRequests(pending)
     } catch {
       setPendingRequests([])
     } finally {

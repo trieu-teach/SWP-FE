@@ -398,11 +398,11 @@ export default function Mangaka() {
   )
   const { data: annotateChaptersRaw = [] } = useChapters(annotateSeriesId || undefined)
 
-  // Chapter chờ Mangaka duyệt (status = SendingToMangaka)
+  // Chapter chờ Mangaka duyệt (status = MangakaReview khi Assistant gửi bản ghép về)
   const pendingFromAssistant = useMemo(
     () => (annotateChaptersRaw || []).filter(c => {
       const s = String(c.status ?? c.Status ?? '').toLowerCase().replace(/[\s_-]/g, '')
-      return s === 'sendingtomangaka'
+      return s === 'mangakareview'
     }),
     [annotateChaptersRaw],
   )
@@ -680,8 +680,8 @@ export default function Mangaka() {
         genres: series?.genres ?? [],
         formatLabel: series?.formatLabel ?? 'Manga',
         authorName: user?.name ?? 'Mangaka',
-        qualityScore: rank ? 74 : 70,
-        popularityScore: rank ? 68 : 62,
+        qualityScore: 70,
+        popularityScore: 62,
         needsFullDebutPipeline: series?.needsFullDebutPipeline,
       },
       chapterId: chapter.id,
