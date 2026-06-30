@@ -501,12 +501,19 @@ export default function Mangaka() {
   // location.state từng gọi setLocationKey vô điều kiện), sẽ tạo vòng lặp:
   //   render → seriesList mới → effect chạy → setState → re-render → seriesList lại mới → ...
   // → React throw "Maximum update depth exceeded" → ErrorBoundary hiện trang trắng báo lỗi.
-  const seriesList = useMemo(
-    () => Object.values(
-      [...apiSeries, ...localSeriesList].reduce((acc, s) => ({ ...acc, [s.id]: s }), {}),
-    ),
-    [apiSeries, localSeriesList],
-  )
+  const seriesList = useMemo(() => {
+    const map = new Map()
+    // API là nguồn dữ liệu chuẩn — ưu tiên add trước
+    for (const s of apiSeries) map.set(String(s.id), s)
+    // Chỉ giữ optimistic local entry nếu CHƯA có entry API nào trùng id HOẶC trùng title
+    for (const s of localSeriesList) {
+      const idKey = String(s.id)
+      const dupById = map.has(idKey)
+      const dupByTitle = Array.from(map.values()).some(v => v.title === s.title)
+      if (!dupById && !dupByTitle) map.set(idKey, s)
+    }
+    return Array.from(map.values())
+  }, [apiSeries, localSeriesList])
   const chapterRows = useMemo(
     () => [...apiChapters, ...localChapterRows],
     [apiChapters, localChapterRows],
@@ -1619,6 +1626,7 @@ export default function Mangaka() {
                 <ChapterAnnotator
                   key="annotate-tab"
                   selectedSeriesTitle={annotateSeries}
+                  selectedSeriesId={annotateSeriesId}
                   onSelectedSeriesTitleChange={setAnnotateSeries}
                   seriesOptions={seriesOptions}
                   chapterNum={annotatorChapterNum}
