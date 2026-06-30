@@ -468,37 +468,67 @@ export default function ChapterAnnotator({
     return nums.length === 0 ? 1 : Math.max(...nums) + 1
   }, [selectedSeriesTitle, seriesChapters])
 
+  // Chặn double-submit khi bấm liên tiếp trước khi state/re-render kịp cập nhật
+  // (vd. double click, hoặc bấm lại trong lúc network đang xử lý).
+  const isCreatingChapterRef = useRef(false)
+
   const createNewChapter = useCallback(() => {
     const trimmedSeries = selectedSeriesTitle.trim()
     if (!trimmedSeries) return
-
-    const num = nextChapterNum
-    const numKey = String(num)
-    const existing = chapters.find(c => c.series === trimmedSeries && String(c.num) === numKey)
-    if (existing) {
-      activateChapter(existing, 0)
-      return
-    }
+    if (isCreatingChapterRef.current) return
+    isCreatingChapterRef.current = true
 
     const createdAt = new Date().toLocaleDateString('vi-VN')
-    const title = newChapterTitle.trim() || `Chapter ${num}`
+    const titleInput = newChapterTitle.trim()
     const deadline = newChapterDeadline ? new Date(newChapterDeadline).toISOString() : null
-    const ch = { id: uid(), series: trimmedSeries, num, title, pages: [], createdAt, deadline, deadlineRaw: newChapterDeadline }
-    setChapters(prev => [ch, ...prev])
-    setActiveChapterId(ch.id)
-    setPageIndex(0)
-    setSelectedNoteId(null)
-    setUploadRejectMessage(null)
 
-    // Notify parent to persist / call API
-    onUploadComplete?.({ series: trimmedSeries, num, title, pages: 0, chapterLocalId: ch.id, isNewChapter: true })
+    // QUAN TRỌNG: toàn bộ logic tính num + check trùng phải nằm TRONG functional updater
+    // của setChapters, để luôn đọc `prev` mới nhất — không dùng biến `chapters`/`nextChapterNum`
+    // từ closure (có thể stale nếu hàm này bị gọi 2 lần liên tiếp trước khi re-render xong,
+    // gây tạo trùng nhiều "Ch. N" với cùng num nhưng id khác nhau — đây chính là bug bạn gặp).
+    let resultChapter = null
+    let wasExisting = false
+    setChapters(prev => {
+      const seriesChaptersPrev = prev.filter(c => c.series === trimmedSeries)
+      const nums = seriesChaptersPrev
+        .map(c => parseInt(String(c.num), 10))
+        .filter(Number.isFinite)
+      const num = nums.length === 0 ? 1 : Math.max(...nums) + 1
+      const numKey = String(num)
+      const existing = seriesChaptersPrev.find(c => String(c.num) === numKey)
+      if (existing) {
+        wasExisting = true
+        resultChapter = existing
+        return prev
+      }
+      const title = titleInput || `Chapter ${num}`
+      const ch = { id: uid(), series: trimmedSeries, num, title, pages: [], createdAt, deadline, deadlineRaw: newChapterDeadline }
+      resultChapter = ch
+      return [ch, ...prev]
+    })
 
-    setNewChapterTitle('')
-    setNewChapterDeadline('')
-    onChapterNumChange?.(String(num + 1))
+    if (resultChapter) {
+      setActiveChapterId(resultChapter.id)
+      setPageIndex(0)
+      setSelectedNoteId(null)
+      setUploadRejectMessage(null)
+
+      if (!wasExisting) {
+        const num = resultChapter.num
+        onUploadComplete?.({
+          series: trimmedSeries, num, title: resultChapter.title,
+          pages: 0, chapterLocalId: resultChapter.id, isNewChapter: true,
+        })
+        onChapterNumChange?.(String(num + 1))
+        setNewChapterTitle('')
+        setNewChapterDeadline('')
+      }
+    }
+
+    window.setTimeout(() => { isCreatingChapterRef.current = false }, 0)
   }, [
-    selectedSeriesTitle, nextChapterNum, chapters, setChapters,
-    setActiveChapterId, setPageIndex, onChapterNumChange, activateChapter,
+    selectedSeriesTitle, setChapters,
+    setActiveChapterId, setPageIndex, onChapterNumChange,
     newChapterTitle, newChapterDeadline, onUploadComplete,
   ])
 
@@ -939,34 +969,35 @@ export default function ChapterAnnotator({
         {pageNotes.map((n, idx) => {
           const stableKey = noteStableKey(n)
           return (
-          <div
-            key={stableKey}
-            className={cn(
-              'mk-note-box',
-              selectedNoteId === stableKey && 'selected',
-              tool === 'delete' && 'mk-note-box--target',
-            )}
-            style={{ left: `${n.x}%`, top: `${n.y}%`, width: `${n.w}%`, height: `${n.h}%` }}
-            onClick={e => onNoteClick(e, stableKey)}
-          >
-            <span className="mk-note-box__num">{idx + 1}</span>
-            {n.taskType ? (
-              <span className="mk-note-box__task" title={n.assignee ? `Giao: ${n.assignee}` : undefined}>
-                {noteTaskLabel(n.taskType)}
-              </span>
-            ) : null}
-            {(selectedNoteId === stableKey || tool === 'delete') ? (
-              <button
-                type="button"
-                className="mk-note-box__delete"
-                onClick={e => { e.stopPropagation(); deleteNote(stableKey) }}
-                aria-label={`Gỡ ô ghi chú ${idx + 1}`}
-              >
-                ×
-              </button>
-            ) : null}
-          </div>
-        )})}
+            <div
+              key={stableKey}
+              className={cn(
+                'mk-note-box',
+                selectedNoteId === stableKey && 'selected',
+                tool === 'delete' && 'mk-note-box--target',
+              )}
+              style={{ left: `${n.x}%`, top: `${n.y}%`, width: `${n.w}%`, height: `${n.h}%` }}
+              onClick={e => onNoteClick(e, stableKey)}
+            >
+              <span className="mk-note-box__num">{idx + 1}</span>
+              {n.taskType ? (
+                <span className="mk-note-box__task" title={n.assignee ? `Giao: ${n.assignee}` : undefined}>
+                  {noteTaskLabel(n.taskType)}
+                </span>
+              ) : null}
+              {(selectedNoteId === stableKey || tool === 'delete') ? (
+                <button
+                  type="button"
+                  className="mk-note-box__delete"
+                  onClick={e => { e.stopPropagation(); deleteNote(stableKey) }}
+                  aria-label={`Gỡ ô ghi chú ${idx + 1}`}
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+          )
+        })}
 
         {/* Server-side PageIssue overlays from Assistant/Editor */}
         {(() => {
@@ -1207,121 +1238,121 @@ export default function ChapterAnnotator({
 
     return (
       <>
-      <Card
-        className={cn(
-          'border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background',
-          compact && 'border-white/10 bg-zinc-900/80 text-white shadow-xl backdrop-blur',
-        )}
-      >
-        <CardContent className={cn('flex flex-wrap items-center gap-3', compact ? 'p-3' : 'p-4')}>
-          <div className="min-w-0 flex-1">
-            <p className={cn('text-sm font-semibold', compact && 'text-white')}>
-              Sẵn sàng bàn giao Trang {pageIndex + 1}
-            </p>
-            <p className={cn('text-xs', compact ? 'text-zinc-300' : 'text-muted-foreground')}>
-              {pageNotes.length > 0
-                ? `${pageNotes.length} ô ghi chú trên trang này · ${totalNotes} ô toàn chapter`
-                : `Chưa ghi chú nào trên trang · ${totalNotes} ô toàn chapter`}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {onSendToTantou ? (
+        <Card
+          className={cn(
+            'border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background',
+            compact && 'border-white/10 bg-zinc-900/80 text-white shadow-xl backdrop-blur',
+          )}
+        >
+          <CardContent className={cn('flex flex-wrap items-center gap-3', compact ? 'p-3' : 'p-4')}>
+            <div className="min-w-0 flex-1">
+              <p className={cn('text-sm font-semibold', compact && 'text-white')}>
+                Sẵn sàng bàn giao Trang {pageIndex + 1}
+              </p>
+              <p className={cn('text-xs', compact ? 'text-zinc-300' : 'text-muted-foreground')}>
+                {pageNotes.length > 0
+                  ? `${pageNotes.length} ô ghi chú trên trang này · ${totalNotes} ô toàn chapter`
+                  : `Chưa ghi chú nào trên trang · ${totalNotes} ô toàn chapter`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {onSendToTantou ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!activeChapter || pages.length === 0}
+                  title={`Gửi bản thảo sang ${LABEL_TANTOU_EDITOR}`}
+                  onClick={handleTantou}
+                  className={cn(compact && 'border-white/20 bg-transparent text-white hover:bg-white/10')}
+                >
+                  Gửi {LABEL_TANTOU_EDITOR}
+                </Button>
+              ) : null}
+              <Select
+                value={selectedAssistantId ?? ''}
+                onValueChange={v => setSelectedAssistantId(v || null)}
+              >
+                <SelectTrigger className={cn('w-48', compact && 'border-white/20 bg-white/10 text-white')}>
+                  <SelectValue placeholder="-- Chọn Assistant --" />
+                </SelectTrigger>
+                <SelectContent>
+                  {effectiveHiredAssistants.length === 0 ? (
+                    <SelectItem value="__none__" disabled>
+                      Chưa có Assistant nào
+                    </SelectItem>
+                  ) : (
+                    effectiveHiredAssistants.map(a => (
+                      <SelectItem key={a.assistantId} value={String(a.assistantId)}>
+                        {a.label}
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
               <Button
                 size="sm"
-                variant="outline"
-                disabled={!activeChapter || pages.length === 0}
-                title={`Gửi bản thảo sang ${LABEL_TANTOU_EDITOR}`}
-                onClick={handleTantou}
-                className={cn(compact && 'border-white/20 bg-transparent text-white hover:bg-white/10')}
+                disabled={
+                  !activeChapter
+                  || pages.length === 0
+                  || pageNotes.length === 0
+                  || !selectedAssistantId
+                }
+                onClick={handleAssistant}
               >
-                Gửi {LABEL_TANTOU_EDITOR}
+                <Send className="size-3.5" />
+                Gửi ({totalNotes} ô)
               </Button>
-            ) : null}
-            <Select
-              value={selectedAssistantId ?? ''}
-              onValueChange={v => setSelectedAssistantId(v || null)}
-            >
-              <SelectTrigger className={cn('w-48', compact && 'border-white/20 bg-white/10 text-white')}>
-                <SelectValue placeholder="-- Chọn Assistant --" />
-              </SelectTrigger>
-              <SelectContent>
-                {effectiveHiredAssistants.length === 0 ? (
-                  <SelectItem value="__none__" disabled>
-                    Chưa có Assistant nào
-                  </SelectItem>
-                ) : (
-                  effectiveHiredAssistants.map(a => (
-                    <SelectItem key={a.assistantId} value={String(a.assistantId)}>
-                      {a.label}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-            <Button
-              size="sm"
-              disabled={
-                !activeChapter
-                || pages.length === 0
-                || pageNotes.length === 0
-                || !selectedAssistantId
-              }
-              onClick={handleAssistant}
-            >
-              <Send className="size-3.5" />
-              Gửi ({totalNotes} ô)
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+          </CardContent>
+        </Card>
 
-      <Dialog open={tantouDialogOpen} onOpenChange={setTantouDialogOpen}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle>Gửi thẳng cho {LABEL_TANTOU_EDITOR}</DialogTitle>
-            <DialogDescription>
-              Chọn 1 {LABEL_TANTOU_EDITOR} để nhận chapter này. Nếu bỏ trống, hệ thống sẽ dùng {LABEL_TANTOU_EDITOR} mặc định của series.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 max-h-[300px] overflow-y-auto">
-            {(tantouEditorsRaw ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Chưa có {LABEL_TANTOU_EDITOR} nào khả dụng trong hệ thống.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {tantouEditorsRaw.map((t) => {
-                  const tid = String(t.id ?? t.user_id ?? t.userId ?? '')
-                  const tname = t.fullName ?? t.fullname ?? t.name ?? t.username ?? 'Tantou'
-                  const checked = selectedTantouId === tid
-                  return (
-                    <li
-                      key={tid}
-                      className={cn(
-                        'flex items-center gap-2 rounded-md border p-2 cursor-pointer hover:bg-muted/50',
-                        checked && 'border-primary bg-primary/5',
-                      )}
-                      onClick={() => setSelectedTantouId(checked ? null : tid)}
-                    >
-                      <input type="radio" name="tantou" checked={checked} onChange={() => setSelectedTantouId(tid)} />
-                      <span className="text-sm">{tname}</span>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setTantouDialogOpen(false)}>Hủy</Button>
-            <Button
-              onClick={confirmSendTantou}
-              disabled={updateChapterStatus.isPending}
-            >
-              {updateChapterStatus.isPending ? 'Đang gửi...' : 'Xác nhận gửi'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <Dialog open={tantouDialogOpen} onOpenChange={setTantouDialogOpen}>
+          <DialogContent className="sm:max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle>Gửi thẳng cho {LABEL_TANTOU_EDITOR}</DialogTitle>
+              <DialogDescription>
+                Chọn 1 {LABEL_TANTOU_EDITOR} để nhận chapter này. Nếu bỏ trống, hệ thống sẽ dùng {LABEL_TANTOU_EDITOR} mặc định của series.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {(tantouEditorsRaw ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Chưa có {LABEL_TANTOU_EDITOR} nào khả dụng trong hệ thống.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {tantouEditorsRaw.map((t) => {
+                    const tid = String(t.id ?? t.user_id ?? t.userId ?? '')
+                    const tname = t.fullName ?? t.fullname ?? t.name ?? t.username ?? 'Tantou'
+                    const checked = selectedTantouId === tid
+                    return (
+                      <li
+                        key={tid}
+                        className={cn(
+                          'flex items-center gap-2 rounded-md border p-2 cursor-pointer hover:bg-muted/50',
+                          checked && 'border-primary bg-primary/5',
+                        )}
+                        onClick={() => setSelectedTantouId(checked ? null : tid)}
+                      >
+                        <input type="radio" name="tantou" checked={checked} onChange={() => setSelectedTantouId(tid)} />
+                        <span className="text-sm">{tname}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setTantouDialogOpen(false)}>Hủy</Button>
+              <Button
+                onClick={confirmSendTantou}
+                disabled={updateChapterStatus.isPending}
+              >
+                {updateChapterStatus.isPending ? 'Đang gửi...' : 'Xác nhận gửi'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </>
     )
   }
@@ -1395,15 +1426,15 @@ export default function ChapterAnnotator({
                     onChange={e => setNewChapterDeadline(e.target.value)}
                   />
                 </div>
-              <Button
-          size="sm"
-          className="w-full"
-          disabled={!selectedSeriesTitle.trim()}
-          onClick={createNewChapter}
-        >
-          <Plus className="size-3.5" />
-          Tạo Chapter {nextChapterNum}
-        </Button>
+                <Button
+                  size="sm"
+                  className="w-full"
+                  disabled={!selectedSeriesTitle.trim()}
+                  onClick={createNewChapter}
+                >
+                  <Plus className="size-3.5" />
+                  Tạo Chapter {nextChapterNum}
+                </Button>
               </div>
 
               {seriesChapters.length === 0 ? (
