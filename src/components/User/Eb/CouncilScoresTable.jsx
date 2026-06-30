@@ -6,6 +6,15 @@ import { ScoreStars } from "@/components/User/Eb/ScoreStars.jsx";
 
 export function CouncilScoresTable({ memberRows, scoreFields, criterionAverages, councilAverage, scoredCount, activeMemberId }) {
   const [showDetail, setShowDetail] = useState(false);
+
+  // Hàm lấy className border + bg theo average
+  const getRowBgClass = (average) => {
+    if (average < 2.5) return "border-l-4 border-red-400 bg-red-50/40";
+    if (average < 3.5) return "border-l-4 border-amber-400 bg-amber-50/40";
+    if (average < 4.25) return "border-l-4 border-sky-400 bg-sky-50/40";
+    return "border-l-4 border-emerald-400 bg-emerald-50/40";
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -34,8 +43,12 @@ export function CouncilScoresTable({ memberRows, scoreFields, criterionAverages,
           <tbody className="divide-y divide-border/70">
             {memberRows.map((row, idx) => {
               const isActive = row.id === activeMemberId;
+              // Xác định màu nền dựa trên average (nếu đã chấm)
+              const bgClass = row.scored ? getRowBgClass(row.average) : "";
+              const finalClass = isActive ? "bg-primary/5" : bgClass;
+              
               return (
-                <tr key={row.id ?? idx} className={isActive ? "bg-primary/5" : undefined}>
+                <tr key={row.id ?? idx} className={finalClass}>
                   <td className="px-3 py-2.5">
                     <p className="font-medium text-foreground">{row.name}</p>
                     <p className="text-xs text-muted-foreground">{row.title}</p>
@@ -55,7 +68,11 @@ export function CouncilScoresTable({ memberRows, scoreFields, criterionAverages,
                   ))}
                   <td className="px-3 py-2.5 text-right font-semibold tabular-nums">
                     {row.scored
-                      ? <span className={row.average >= 2.5 ? "text-emerald-700" : "text-red-600"}>{row.average.toFixed(1)}</span>
+                      ? (
+                        <span className={row.average >= 2.5 ? "text-emerald-700" : "text-red-600"}>
+                          {row.average.toFixed(1)}
+                        </span>
+                      )
                       : <span className="text-muted-foreground">—</span>}
                   </td>
                 </tr>

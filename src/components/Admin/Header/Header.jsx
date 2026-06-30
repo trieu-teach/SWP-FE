@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Bell, ChevronDown, LogOut, Search, Settings, User } from 'lucide-react'
+import { Bell, ChevronDown, LogOut, Settings, User } from 'lucide-react'
 import { api } from '@/api/index.js'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -22,18 +21,20 @@ export default function Header({ onNavigate }) {
   }, [])
 
   function handleLogout() {
+    // axiosClient.js lưu session ở nhiều nơi: localStorage (token, refreshToken,
+    // role) và sessionStorage (auth_user). Trước đây chỉ xoá token/role nên
+    // refreshToken và auth_user còn sót lại — có thể khiến app tự refresh lại
+    // session hoặc ProtectedRoute vẫn coi là đã đăng nhập.
     localStorage.removeItem('token')
+    localStorage.removeItem('refreshToken')
     localStorage.removeItem('role')
+    sessionStorage.removeItem('auth_user')
+    window.dispatchEvent(new Event('auth-session-change'))
     window.location.href = '/login'
   }
 
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b bg-card/80 px-6 backdrop-blur">
-      <div className="relative flex-1 max-w-md">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input placeholder="Tìm kiếm trong admin..." className="h-9 pl-9" />
-      </div>
-
       <div className="ml-auto flex items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

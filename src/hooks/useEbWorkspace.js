@@ -18,6 +18,9 @@ import {
  * - quản lý form nhập điểm (theo từng thành viên, từng series)
  * - lưu điểm, chấp nhận / từ chối series
  */
+// Số thành viên Hội đồng bắt buộc phải chấm đủ trước khi được Chấp nhận/Từ chối
+const REQUIRED_COUNCIL_MEMBERS = 5;
+
 export function useEbWorkspace() {
   // ── Server state ──────────────────────────────────────────────────────────
   const [pending, setPending] = useState([]);
@@ -270,40 +273,43 @@ export function useEbWorkspace() {
     }
   }
 
+  // assessment chỉ thực sự chính xác cho series đang được chọn (selectedId),
+  // vì members/councilAggregate được load theo selectedId. Series khác trong
+  // list trả về scoredCount=0 → nút Approve/Reject sẽ bị disable cho tới khi
+  // được click chọn (đúng ý: bắt buộc chọn + xem bảng điểm trước khi duyệt).
   function getQueueAssessment(seriesId) {
     if (String(seriesId) !== String(selectedId)) {
-      return { scoredCount: 0, total: members.length, classification: null, councilAverage: 0 };
+      return { scoredCount: 0, total: REQUIRED_COUNCIL_MEMBERS, classification: null, councilAverage: 0, isSelected: false };
     }
     return {
       scoredCount: councilAggregate.scoredCount,
-      total: members.length,
+      total: REQUIRED_COUNCIL_MEMBERS,
       classification: councilAggregate.scoredCount > 0 ? councilClassification : null,
       councilAverage: councilAggregate.councilAverage,
+      isSelected: true,
     };
   }
 
   async function handleApprove(seriesId, title) {
     const assessment = getQueueAssessment(seriesId);
-    const failing = assessment.classification?.label === "KHÔNG ĐẠT";
-    const incomplete = assessment.scoredCount < members.length;
 
-    // Chặn cứng nếu KHÔNG ĐẠT
+    if (!assessment.isSelected) {
+      toast.error("Hãy chọn series này trước (click vào thẻ) để xem bảng điểm Hội đồng.");
+      return;
+    }
+
+    const incomplete = assessment.scoredCount < assessment.total;
+    if (incomplete) {
+      toast.error(`Hội đồng mới chấm ${assessment.scoredCount}/${assessment.total} thành viên. Cần chấm đủ điểm trước khi chấp nhận.`);
+      return;
+    }
+
+    const failing = assessment.classification?.label === "KHÔNG ĐẠT";
     if (failing) {
       toast.error(`Không thể chấp nhận — series đang ở mức KHÔNG ĐẠT (DTB ${assessment.councilAverage.toFixed(1)}). Cần đạt tối thiểu 2.5 điểm.`);
       return;
     }
 
-    // Cảnh báo nếu chưa đủ thành viên chấm
-    if (incomplete) {
-      const confirmed = await new Promise((resolve) => {
-        setConfirmDialog({
-          message: `Series mới có ${assessment.scoredCount}/${assessment.total} thành viên Hội đồng chấm điểm. Bạn vẫn muốn chấp nhận?`,
-          onConfirm: () => { setConfirmDialog(null); resolve(true); },
-          onCancel: () => { setConfirmDialog(null); resolve(false); },
-        });
-      });
-      if (!confirmed) return;
-    }
     try {
       await axiosClient.patch(`/Series/${seriesId}/status`, { status: "Publishing" });
 
@@ -331,6 +337,19 @@ export function useEbWorkspace() {
   }
 
   async function handleReject(seriesId, title) {
+    const assessment = getQueueAssessment(seriesId);
+
+    if (!assessment.isSelected) {
+      toast.error("Hãy chọn series này trước (click vào thẻ) để xem bảng điểm Hội đồng.");
+      return;
+    }
+
+    const incomplete = assessment.scoredCount < assessment.total;
+    if (incomplete) {
+      toast.error(`Hội đồng mới chấm ${assessment.scoredCount}/${assessment.total} thành viên. Cần chấm đủ điểm trước khi từ chối.`);
+      return;
+    }
+
     const confirmed = await new Promise((resolve) => {
       setConfirmDialog({
         message: `Từ chối "${title}"? Series sẽ bị trả về Mangaka chỉnh sửa.`,
@@ -342,27 +361,6 @@ export function useEbWorkspace() {
     if (!confirmed) return;
     try {
       await axiosClient.patch(`/Series/${seriesId}/status`, { status: "Cancelled" });
-
-      // Gửi thông báo từ chối kèm feedback cho Mangaka
-      const submission = pending.find(p => p._resolvedId === String(seriesId));
-      const mangakaId = submission?.mangakaid ?? submission?.manga_ka_id ?? submission?.mangaka_id;
-      if (mangakaId) {
-        const evalFeedback = councilAggregate.memberRows
-          .filter(r => r.scored)
-          .map(r => `${r.name} (DTB ${r.average.toFixed(1)})`)
-          .join(", ");
-        const feedbackText = members
-          .filter(m => m.hasEvaluated && m.evalDetail?.feedback)
-          .map(m => `${m.name}: ${m.evalDetail.feedback}`)
-          .join(" | ") || "Không có nhận xét cụ thể.";
-
-        await axiosClient.post("/Notifications/send", {
-          userId: Number(mangakaId),
-          title: "Tác phẩm bị từ chối EB",
-          message: `Tác phẩm "${title}" đã bị Hội đồng từ chối. DTB Hội đồng: ${councilAggregate.councilAverage.toFixed(1)}/5. Điểm thành viên: ${evalFeedback || "N/A"}. Nhận xét: ${feedbackText}`,
-          seriesId: Number(seriesId),
-        }).catch(() => {}); // không block nếu notification fail
-      }
 
       toast.success(`Đã từ chối "${title}" — trả về Mangaka.`);
       setSelectedId(null);

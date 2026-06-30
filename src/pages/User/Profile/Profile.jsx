@@ -29,7 +29,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useProfile, useUpdateProfile } from '@/api'
+import { useProfile, useUpdateProfile, isProfileEditable } from '@/api'
 import { ROLE_KEY_TO_ID, clearSession, getSession } from '@/lib/auth'
 import { cn } from '@/lib/utils'
 
@@ -76,6 +76,11 @@ export default function Profile() {
   const roleConfig = ROLE_CONFIG[roleKey] ?? ROLE_CONFIG.MANGAKA
   const RoleIcon = roleConfig.icon
 
+  // Tantou / Editor Board / Admin chưa có bảng profile riêng ở backend
+  // (xem UsersController.GetProfile) → không cho chỉnh sửa qua trang này,
+  // chỉ hiển thị thông tin cơ bản lấy từ session lúc đăng nhập.
+  const editable = isProfileEditable(roleKey)
+
   useEffect(() => {
     if (!profile) return
     setForm({
@@ -106,6 +111,7 @@ export default function Profile() {
   }
 
   function handleSave() {
+    if (!editable) return // an toàn hai lớp — UI đã ẩn nút nhưng vẫn chặn ở handler
     if (!form.fullName?.trim()) {
       toast.error('Họ tên không được để trống.')
       return
@@ -189,9 +195,11 @@ export default function Profile() {
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <button className="absolute bottom-0 right-0 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110">
-                  <Camera className="size-4" />
-                </button>
+                {editable && (
+                  <button className="absolute bottom-0 right-0 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-110">
+                    <Camera className="size-4" />
+                  </button>
+                )}
               </div>
 
               {/* Info */}
@@ -205,23 +213,25 @@ export default function Profile() {
                 </div>
                 <p className="mt-2 text-muted-foreground">{profile?.email}</p>
 
-                {/* Stats */}
-                <div className="mt-6 flex flex-wrap justify-center gap-6 md:justify-start">
-                  {STATS.map(s => {
-                    const Icon = s.icon
-                    return (
-                      <div key={s.label} className="flex items-center gap-2">
-                        <div className="flex size-10 items-center justify-center rounded-xl bg-background/80 shadow-sm">
-                          <Icon className="size-4 text-primary" />
+                {/* Stats — chỉ có ý nghĩa với Mangaka/Assistant (số liệu sáng tác) */}
+                {editable && (
+                  <div className="mt-6 flex flex-wrap justify-center gap-6 md:justify-start">
+                    {STATS.map(s => {
+                      const Icon = s.icon
+                      return (
+                        <div key={s.label} className="flex items-center gap-2">
+                          <div className="flex size-10 items-center justify-center rounded-xl bg-background/80 shadow-sm">
+                            <Icon className="size-4 text-primary" />
+                          </div>
+                          <div>
+                            <div className="text-xl font-bold">{s.value}</div>
+                            <div className="text-xs text-muted-foreground">{s.label}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-xl font-bold">{s.value}</div>
-                          <div className="text-xs text-muted-foreground">{s.label}</div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Actions */}
@@ -230,25 +240,29 @@ export default function Profile() {
                   <LogOut className="size-4" />
                   Đăng xuất
                 </Button>
-                <Button onClick={() => setEditing(true)} className="gap-2">
-                  <Edit2 className="size-4" />
-                  Chỉnh sửa
-                </Button>
+                {editable && (
+                  <Button onClick={() => setEditing(true)} className="gap-2">
+                    <Edit2 className="size-4" />
+                    Chỉnh sửa
+                  </Button>
+                )}
               </div>
             </div>
           </div>
 
           {/* Tabs */}
           <Tabs defaultValue="profile" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className={cn('grid w-full', editable ? 'grid-cols-3' : 'grid-cols-2')}>
               <TabsTrigger value="profile" className="gap-2">
                 <User className="size-4" />
                 Hồ sơ
               </TabsTrigger>
-              <TabsTrigger value="activity" className="gap-2">
-                <BookOpen className="size-4" />
-                Hoạt động
-              </TabsTrigger>
+              {editable && (
+                <TabsTrigger value="activity" className="gap-2">
+                  <BookOpen className="size-4" />
+                  Hoạt động
+                </TabsTrigger>
+              )}
               <TabsTrigger value="settings" className="gap-2">
                 <Shield className="size-4" />
                 Cài đặt
@@ -260,10 +274,60 @@ export default function Profile() {
               <Card>
                 <CardHeader>
                   <CardTitle>Thông tin cá nhân</CardTitle>
-                  <CardDescription>Cập nhật thông tin hồ sơ của bạn</CardDescription>
+                  <CardDescription>
+                    {editable
+                      ? 'Cập nhật thông tin hồ sơ của bạn'
+                      : 'Thông tin tài khoản — vai trò này chưa hỗ trợ chỉnh sửa hồ sơ qua trang web.'}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  {editing ? (
+                  {!editable ? (
+                    // ── Role không có bảng profile riêng (Tantou / EB / Admin) ──
+                    // Chỉ hiển thị thông tin cơ bản từ session, không có form chỉnh sửa,
+                    // không có bút danh / portfolio / kỹ năng / thông tin thanh toán
+                    // (những field này thuộc bảng profile riêng của Mangaka/Assistant).
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="flex items-center gap-3 rounded-lg border p-4">
+                        <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+                          <User className="size-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Họ và tên</p>
+                          <p className="font-medium">{profile?.fullname || 'Chưa cập nhật'}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 rounded-lg border p-4">
+                        <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+                          <Mail className="size-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Email</p>
+                          <p className="font-medium">{profile?.email || 'Chưa cập nhật'}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 rounded-lg border p-4">
+                        <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+                          <User className="size-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Tên đăng nhập</p>
+                          <p className="font-medium">{profile?.username || 'Chưa cập nhật'}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 rounded-lg border p-4">
+                        <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10">
+                          <Shield className="size-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Vai trò</p>
+                          <p className="font-medium">{roleConfig.label}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : editing ? (
                       <div className="space-y-4">
                         <div className="grid gap-4 sm:grid-cols-2">
                           <div className="space-y-2">
@@ -560,8 +624,8 @@ export default function Profile() {
                 </CardContent>
               </Card>
 
-              {/* Bio */}
-              {profile?.bio || profile?.Bio ? (
+              {/* Bio — chỉ hiện khi role có bảng profile riêng và có bio */}
+              {editable && (profile?.bio || profile?.Bio) ? (
                 <Card>
                   <CardHeader>
                     <CardTitle>Giới thiệu</CardTitle>
@@ -573,39 +637,41 @@ export default function Profile() {
               ) : null}
             </TabsContent>
 
-            {/* Activity Tab */}
-            <TabsContent value="activity" className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Hoạt động gần đây</CardTitle>
-                  <CardDescription>Lịch sử các hoạt động của bạn trên nền tảng</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {[
-                      { icon: BookOpen, action: 'Upload chapter mới', detail: 'One Thorn - Chapter 15', time: '2 giờ trước' },
-                      { icon: CheckCircle2, action: 'Duyệt bản tổng hợp', detail: 'One Thorn - Chapter 14', time: '1 ngày trước' },
-                      { icon: Layers, action: 'Gửi cho Assistant', detail: 'Ma Đạo - Chapter 3', time: '3 ngày trước' },
-                      { icon: Star, action: 'Đánh giá chapter', detail: 'Vô Lượng - Chapter 5', time: '1 tuần trước' },
-                    ].map((item, i) => {
-                      const Icon = item.icon
-                      return (
-                        <div key={i} className="flex items-start gap-4 rounded-lg border p-4 transition-colors hover:bg-muted/50">
-                          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                            <Icon className="size-5 text-primary" />
+            {/* Activity Tab — chỉ Mangaka/Assistant có dữ liệu hoạt động sáng tác */}
+            {editable && (
+              <TabsContent value="activity" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Hoạt động gần đây</CardTitle>
+                    <CardDescription>Lịch sử các hoạt động của bạn trên nền tảng</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {[
+                        { icon: BookOpen, action: 'Upload chapter mới', detail: 'One Thorn - Chapter 15', time: '2 giờ trước' },
+                        { icon: CheckCircle2, action: 'Duyệt bản tổng hợp', detail: 'One Thorn - Chapter 14', time: '1 ngày trước' },
+                        { icon: Layers, action: 'Gửi cho Assistant', detail: 'Ma Đạo - Chapter 3', time: '3 ngày trước' },
+                        { icon: Star, action: 'Đánh giá chapter', detail: 'Vô Lượng - Chapter 5', time: '1 tuần trước' },
+                      ].map((item, i) => {
+                        const Icon = item.icon
+                        return (
+                          <div key={i} className="flex items-start gap-4 rounded-lg border p-4 transition-colors hover:bg-muted/50">
+                            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                              <Icon className="size-5 text-primary" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium">{item.action}</p>
+                              <p className="text-sm text-muted-foreground">{item.detail}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{item.time}</span>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium">{item.action}</p>
-                            <p className="text-sm text-muted-foreground">{item.detail}</p>
-                          </div>
-                          <span className="text-xs text-muted-foreground">{item.time}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+                        )
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
 
             {/* Settings Tab */}
             <TabsContent value="settings" className="space-y-6">

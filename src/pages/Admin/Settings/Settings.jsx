@@ -9,8 +9,10 @@ import {
   Loader2,
   Plug,
   RefreshCw,
+  ShieldCheck,
+  SlidersHorizontal,
 } from 'lucide-react'
-import { api } from '@/api/index.js'
+import { api } from '@/api/Adminapi.js'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -19,12 +21,59 @@ import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 
 const NAV = [
-  { id: 'site', label: 'Trang web', icon: Globe },
-  { id: 'notif', label: 'Thông báo', icon: Bell },
-  { id: 'storage', label: 'Lưu trữ', icon: Database },
-  { id: 'api', label: 'API & Tích hợp', icon: Plug },
-  { id: 'danger', label: 'Vùng nguy hiểm', icon: AlertTriangle },
+  { id: 'site',     label: 'Trang web',          icon: Globe },
+  { id: 'notif',     label: 'Thông báo',          icon: Bell },
+  { id: 'roles',     label: 'Vai trò & phân quyền', icon: ShieldCheck },
+  { id: 'review',    label: 'Quy định kiểm duyệt', icon: SlidersHorizontal },
+  { id: 'storage',   label: 'Lưu trữ',            icon: Database },
+  { id: 'api',       label: 'API & Tích hợp',     icon: Plug },
+  { id: 'danger',    label: 'Vùng nguy hiểm',     icon: AlertTriangle },
 ]
+
+// Mô tả vai trò cố định lấy từ bảng `roles` trong database (roleid 1-5).
+// Đây là dữ liệu tĩnh — hệ thống chỉ có đúng 5 role này, không cho tạo role mới
+// qua UI, nên hiển thị read-only thay vì làm form chỉnh sửa.
+const ROLE_DEFINITIONS = [
+  { id: 1, name: 'Admin',          desc: 'Quản trị viên toàn hệ thống',                                cls: 'bg-rose-100 text-rose-700' },
+  { id: 2, name: 'Editorial Board', desc: 'Tổng biên tập - Duyệt phát hành, phân bổ đầu truyện',         cls: 'bg-sky-100 text-sky-700' },
+  { id: 3, name: 'Tantou Editor',  desc: 'Biên tập viên (Tantou) - Theo dõi trực tiếp tác giả',          cls: 'bg-violet-100 text-violet-700' },
+  { id: 4, name: 'Mangaka',        desc: 'Hoạ sĩ chính / Tác giả truyện tranh',                          cls: 'bg-emerald-100 text-emerald-700' },
+  { id: 5, name: 'Assistant',      desc: 'Trợ lý hoạ sĩ - Nhận task phụ trợ (tô màu, đi nét...)',        cls: 'bg-amber-100 text-amber-700' },
+]
+
+// Ngưỡng phân loại điểm EB hiện đang hardcode trong Eb.jsx (getClassification).
+// Vì chưa có bảng DB lưu cấu hình này, lưu tạm ở localStorage — rõ ràng đây CHƯA
+// kết nối với logic chấm điểm thật trong Eb.jsx, chỉ là nơi xem/chỉnh nháp trước
+// khi có API thật. Khi có endpoint backend, thay localStorage bằng api call.
+const REVIEW_RULES_KEY = 'admin_review_rules_draft'
+
+function buildDefaultReviewRules() {
+  return {
+    minScore_KhongDat: 0,
+    minScore_Dat: 2.5,
+    minScore_Tot: 3.5,
+    minScore_XuatSac: 4.25,
+    minEbMembersRequired: 3,
+    draftToEditorReviewDays: 3,
+    editorReviewToEbReviewDays: 5,
+    ebReviewToPublishingDays: 2,
+  }
+}
+
+function loadReviewRulesDraft() {
+  try {
+    const raw = localStorage.getItem(REVIEW_RULES_KEY)
+    return raw ? { ...buildDefaultReviewRules(), ...JSON.parse(raw) } : buildDefaultReviewRules()
+  } catch {
+    return buildDefaultReviewRules()
+  }
+}
+
+function saveReviewRulesDraft(rules) {
+  try {
+    localStorage.setItem(REVIEW_RULES_KEY, JSON.stringify(rules))
+  } catch { /* ignore */ }
+}
 
 function Toggle({ checked, onChange }) {
   return (
@@ -66,6 +115,8 @@ export default function Settings() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [saved, setSaved] = useState(false)
+  const [reviewRules, setReviewRules] = useState(loadReviewRulesDraft)
+  const [reviewSaved, setReviewSaved] = useState(false)
 
   useEffect(() => {
     loadSettings()
@@ -97,6 +148,16 @@ export default function Settings() {
 
   function set(section, key, val) {
     setCfg(c => ({ ...c, [section]: { ...c[section], [key]: val } }))
+  }
+
+  function setReviewRule(key, val) {
+    setReviewRules(r => ({ ...r, [key]: val }))
+  }
+
+  function handleSaveReviewRules() {
+    saveReviewRulesDraft(reviewRules)
+    setReviewSaved(true)
+    setTimeout(() => setReviewSaved(false), 2000)
   }
 
   if (loading) {
@@ -228,6 +289,126 @@ export default function Settings() {
             </Card>
           ) : null}
 
+          {active === 'roles' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Vai trò & phân quyền</CardTitle>
+                <CardDescription>
+                  Hệ thống dùng 5 vai trò cố định. Không thể tạo vai trò mới qua giao diện — việc đổi vai trò người dùng được thực hiện tại trang Người dùng.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {ROLE_DEFINITIONS.map(r => (
+                  <div key={r.id} className="flex items-start justify-between gap-4 rounded-lg border p-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Badge className={r.cls} variant="secondary">{r.name}</Badge>
+                        <span className="text-xs text-muted-foreground">roleid {r.id}</span>
+                      </div>
+                      <p className="mt-1.5 text-sm text-muted-foreground">{r.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {active === 'review' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Quy định kiểm duyệt</CardTitle>
+                <CardDescription>
+                  Ngưỡng điểm phân loại và thời hạn xử lý cho từng giai đoạn duyệt truyện.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  Lưu ý: phần này hiện chỉ lưu nháp trên máy bạn (localStorage), <strong>chưa kết nối</strong> với logic chấm điểm thật trong trang Hội đồng (Eb.jsx). Cần thêm API backend để áp dụng thật.
+                </div>
+
+                <div>
+                  <p className="mb-3 text-sm font-medium">Ngưỡng phân loại điểm Hội đồng (thang 5.0)</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Điểm tối thiểu để "ĐẠT"</Label>
+                      <Input
+                        type="number" step="0.1" min="0" max="5"
+                        value={reviewRules.minScore_Dat}
+                        onChange={e => setReviewRule('minScore_Dat', Number(e.target.value))}
+                      />
+                      <p className="text-xs text-muted-foreground">Dưới mức này: KHÔNG ĐẠT</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Điểm tối thiểu để "TỐT"</Label>
+                      <Input
+                        type="number" step="0.1" min="0" max="5"
+                        value={reviewRules.minScore_Tot}
+                        onChange={e => setReviewRule('minScore_Tot', Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Điểm tối thiểu để "XUẤT SẮC"</Label>
+                      <Input
+                        type="number" step="0.1" min="0" max="5"
+                        value={reviewRules.minScore_XuatSac}
+                        onChange={e => setReviewRule('minScore_XuatSac', Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Số thành viên HĐ tối thiểu phải chấm</Label>
+                      <Input
+                        type="number" step="1" min="1" max="10"
+                        value={reviewRules.minEbMembersRequired}
+                        onChange={e => setReviewRule('minEbMembersRequired', Number(e.target.value))}
+                      />
+                      <p className="text-xs text-muted-foreground">Dùng để cảnh báo khi EB bấm "Chấp nhận" lúc chưa đủ điểm</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t pt-5">
+                  <p className="mb-3 text-sm font-medium">Thời hạn xử lý mỗi giai đoạn (ngày)</p>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="space-y-2">
+                      <Label>Draft → EditorReview</Label>
+                      <Input
+                        type="number" min="1"
+                        value={reviewRules.draftToEditorReviewDays}
+                        onChange={e => setReviewRule('draftToEditorReviewDays', Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>EditorReview → EBReview</Label>
+                      <Input
+                        type="number" min="1"
+                        value={reviewRules.editorReviewToEbReviewDays}
+                        onChange={e => setReviewRule('editorReviewToEbReviewDays', Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>EBReview → Publishing</Label>
+                      <Input
+                        type="number" min="1"
+                        value={reviewRules.ebReviewToPublishingDays}
+                        onChange={e => setReviewRule('ebReviewToPublishingDays', Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 border-t pt-4">
+                  <Button onClick={handleSaveReviewRules}>Lưu nháp</Button>
+                  {reviewSaved ? (
+                    <Badge className="bg-emerald-100 text-emerald-700" variant="secondary">
+                      <CheckCircle2 className="size-3.5" />
+                      Đã lưu nháp
+                    </Badge>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           {active === 'storage' ? (
             <Card>
               <CardHeader>
@@ -294,7 +475,7 @@ export default function Settings() {
                       <div className="text-sm font-medium">{item.label}</div>
                       <div className="text-xs text-muted-foreground">{item.desc}</div>
                     </div>
-                    <Button variant="destructive" size="sm" onClick={() => alert('Chức năng này đã bị khoá trong môi trường demo')}>
+                    <Button variant="destructive" size="sm" onClick={() => alert('Chức năng này chưa được kết nối với backend')}>
                       {item.label}
                     </Button>
                   </div>

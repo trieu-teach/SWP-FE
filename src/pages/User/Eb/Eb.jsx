@@ -1,5 +1,6 @@
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Gavel, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, Gavel, Loader2, Search, X, XCircle } from "lucide-react";
 import Header from "@/components/User/Header/Header.jsx";
 import Footer from "@/components/User/Footer/Footer.jsx";
 import { WorkspaceHero } from "@/components/layout/WorkspaceHero.jsx";
@@ -21,11 +22,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { getSession, logout } from "@/lib/auth.js";
 import { placeholderPageDataUrl } from "@/utils/assistantWorkspaceStorage.js";
 import { LABEL_EDITOR_BOARD } from "@/constants/roleTerminology.js";
 import { NAV_LINKS, SCORE_MAX } from "@/constants/eb.js";
 import { useEbWorkspace } from "@/hooks/useEbWorkspace.js";
+import { getClassification } from "@/pages/User/Eb/Eb.helpers.js";
 import { CouncilScoresTable } from "@/components/User/Eb/CouncilScoresTable.jsx";
 import { ScoreFieldCard } from "@/components/User/Eb/ScoreFieldCard.jsx";
 import { ThresholdTable } from "@/components/User/Eb/ThresholdTable.jsx";
@@ -65,6 +68,18 @@ export default function Eb() {
   } = useEbWorkspace();
 
   function handleLogout() { logout(); navigate("/login"); }
+
+  const [queueSearch, setQueueSearch] = useState("");
+
+  const filteredPending = useMemo(() => {
+    const q = queueSearch.trim().toLowerCase();
+    if (!q) return pending;
+    return pending.filter(p => {
+      const title = (p.title ?? p.series_title ?? "").toLowerCase();
+      const synopsis = (p.synopsis ?? "").toLowerCase();
+      return title.includes(q) || synopsis.includes(q);
+    });
+  }, [pending, queueSearch]);
 
   const activeTitle = activeSubmission?.title ?? activeSubmission?.series_title ?? "";
   const activeSeriesImage =
@@ -151,6 +166,14 @@ export default function Eb() {
                   <p className="text-xs text-muted-foreground">
                     {activeMember.title} — DTB cá nhân tạm tính:{" "}
                     <strong className="text-foreground">{average.toFixed(1)}</strong>
+                    {(() => {
+                      const memberClassify = getClassification(average);
+                      return (
+                        <Badge variant="secondary" className={`ml-2 text-[10px] border ${memberClassify.className}`}>
+                          {memberClassify.label}
+                        </Badge>
+                      );
+                    })()}
                     {activeMember.hasEvaluated && (
                       <Badge variant="outline" className="ml-2 text-[10px] border-emerald-200 text-emerald-700">Đã chấm</Badge>
                     )}
@@ -293,6 +316,27 @@ export default function Eb() {
               Series đang ở trạng thái EBReview — click để chọn và nhập điểm.
             </p>
           </div>
+
+          {!loadingQueue && pending.length > 0 && (
+            <div className="relative max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Tìm theo tên series hoặc mô tả..."
+                value={queueSearch}
+                onChange={e => setQueueSearch(e.target.value)}
+                className="h-9 pl-8 pr-8 text-sm"
+              />
+              {queueSearch && (
+                <button
+                  type="button"
+                  onClick={() => setQueueSearch("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+          )}
           {loadingQueue
             ? (
               <Card>
@@ -301,21 +345,30 @@ export default function Eb() {
                 </CardContent>
               </Card>
             )
-            : pending.length === 0
+            : filteredPending.length === 0
               ? (
                 <Card>
                   <CardContent className="py-16 text-center text-muted-foreground">
-                    Không có series trong hàng chờ EB duyệt.
+                    {pending.length === 0
+                      ? "Không có series trong hàng chờ EB duyệt."
+                      : "Không tìm thấy series khớp từ khoá tìm kiếm."}
                   </CardContent>
                 </Card>
               )
               : (
                 <div className="grid gap-4">
-                  {pending.map((p, idx) => {
+                  {filteredPending.map((p, idx) => {
                     const id = p._resolvedId;
                     const title = p.title ?? p.series_title ?? `Series #${id}`;
                     const assessment = getQueueAssessment(id);
                     const isActive = id === selectedId;
+                    const notReady = !assessment.isSelected || assessment.scoredCount < assessment.total;
+                    const lockReason = !assessment.isSelected
+                      ? "Click vào thẻ để chọn series này trước"
+                      : assessment.scoredCount < assessment.total
+                        ? `Cần chấm đủ điểm (${assessment.scoredCount}/${assessment.total} thành viên)`
+                        : undefined;
+
                     return (
                       <Card
                         key={id ?? idx}
@@ -338,30 +391,43 @@ export default function Eb() {
                                 <h3 className="font-semibold">{title}</h3>
                                 <Badge variant="secondary">✦ {p.status ?? p.Status ?? "EBReview"}</Badge>
                                 {p.agerating && <Badge variant="outline" className="text-[11px]">{p.agerating}</Badge>}
-                                {assessment.scoredCount > 0
+                                {assessment.isSelected && assessment.scoredCount > 0
                                   ? (
                                     <Badge variant="secondary" className={`border text-[11px] ${assessment.classification.className}`}>
                                       {assessment.scoredCount}/{assessment.total} đã chấm · {assessment.classification.label}
                                     </Badge>
                                   )
-                                  : <Badge variant="outline" className="text-[11px] text-muted-foreground">Chưa có điểm</Badge>}
+                                  : <Badge variant="outline" className="text-[11px] text-muted-foreground">
+                                      {assessment.isSelected ? "Chưa có điểm" : "Click để xem điểm"}
+                                    </Badge>}
                               </div>
                               <p className="text-sm text-muted-foreground line-clamp-2">
                                 {p.synopsis ?? ""}
                               </p>
                             </div>
                           </div>
-                          <div className="flex gap-2 shrink-0" onClick={e => e.stopPropagation()}>
-                            <Button
-                              variant="outline"
-                              className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-                              onClick={() => handleReject(id, title)}
-                            >
-                              <XCircle className="size-4" />Từ chối
-                            </Button>
-                            <Button onClick={() => handleApprove(id, title)}>
-                              <CheckCircle2 className="size-4" />Chấp nhận
-                            </Button>
+                          <div className="flex flex-col items-end gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                                onClick={() => handleReject(id, title)}
+                                disabled={notReady}
+                                title={lockReason}
+                              >
+                                <XCircle className="size-4" />Từ chối
+                              </Button>
+                              <Button
+                                onClick={() => handleApprove(id, title)}
+                                disabled={notReady}
+                                title={lockReason}
+                              >
+                                <CheckCircle2 className="size-4" />Chấp nhận
+                              </Button>
+                            </div>
+                            {notReady && (
+                              <p className="text-[11px] text-muted-foreground">{lockReason}</p>
+                            )}
                           </div>
                         </CardContent>
                       </Card>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Image as ImageIcon, Loader2, Plus, Trash2, Upload } from 'lucide-react'
-import { api } from '@/api/index.js'
+import { api } from '@/api/adminApi.js'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
