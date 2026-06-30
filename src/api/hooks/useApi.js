@@ -28,6 +28,7 @@ import {
   contractsService,
 } from '@/api'
 import { notificationsService } from '@/api/notificationsService'
+import { getSession } from '@/lib/auth'
 
 /* ===========================
    AVAILABLE ASSISTANTS
@@ -560,11 +561,43 @@ export function useTantouEditor(editorId) {
 /* ===========================
    USERS HOOKS
    =========================== */
+
+// Chỉ 2 role này có bảng profile riêng ở backend (xem UsersController.GetProfile).
+// Tantou / Editor Board / Admin chưa có bảng profile riêng → gọi /users/profile
+// sẽ bị BadRequest "Unsupported role for profile."
+const PROFILE_SUPPORTED_ROLES = new Set(['MANGAKA', 'ASSISTANT'])
+
 export function useProfile() {
+  const session = getSession()
+  const roleKey = session?.role
+  const supported = PROFILE_SUPPORTED_ROLES.has(roleKey)
+
   return useQuery({
-    queryKey: ['profile'],
-    queryFn: async () => { const res = await usersService.getProfile(); return unwrap(res) },
+    // roleKey trong key để tự refetch đúng nếu đổi tài khoản/role giữa các lần
+    queryKey: ['profile', roleKey],
+    queryFn: async () => {
+      const res = await usersService.getProfile()
+      return unwrap(res)
+    },
+    // Chỉ thật sự gọi API cho role có bảng profile riêng
+    enabled: supported,
+    // Role không hỗ trợ → dùng luôn dữ liệu cơ bản đã có sẵn trong session lúc
+    // login, khỏi cần gọi API và tránh lỗi 400 "Unsupported role for profile"
+    initialData: !supported && session
+      ? {
+          userid: session.userid ?? session.id,
+          username: session.username,
+          fullname: session.fullname ?? session.name,
+          email: session.email,
+          roleid: session.roleid,
+        }
+      : undefined,
   })
+}
+
+// Các role không có bảng profile riêng (chưa hỗ trợ chỉnh sửa qua /users/profile/*)
+export function isProfileEditable(roleKey) {
+  return PROFILE_SUPPORTED_ROLES.has(roleKey)
 }
 
 export function useUpdateProfile(roleKey) {

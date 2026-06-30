@@ -1,16 +1,14 @@
 import {
-  AlertTriangle,
   BarChart3,
   BookOpen,
   FileText,
   LayoutDashboard,
   LogOut,
-  MessageSquare,
   Settings as SettingsIcon,
   Users as UsersIcon,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
 const NAV_ITEMS = [
@@ -26,8 +24,6 @@ const NAV_ITEMS = [
     section: 'Cộng đồng',
     links: [
       { id: 'users', label: 'Độc giả', icon: UsersIcon },
-      { id: 'comments', label: 'Bình luận', icon: MessageSquare, badge: 12 },
-      { id: 'reports', label: 'Báo cáo', icon: AlertTriangle, badge: 3, badgeWarning: true },
     ],
   },
   {
@@ -40,10 +36,19 @@ const NAV_ITEMS = [
 ]
 
 export default function Sidebar({ activePage = 'dashboard', onNavigate }) {
+  const navigate = useNavigate()
+
   function handleLogout() {
+    // Xóa hết các key liên quan tới auth, không chỉ token/role
     localStorage.removeItem('token')
     localStorage.removeItem('role')
-    window.location.href = '/login'
+    localStorage.removeItem('refreshToken')
+    localStorage.removeItem('user')
+    sessionStorage.clear()
+
+    // Dùng navigate thay vì window.location.href để không full reload
+    // (nếu app có interceptor/context phụ thuộc state, full reload sẽ mất state đó luôn -> đúng ý)
+    navigate('/login', { replace: true })
   }
 
   return (
@@ -85,17 +90,6 @@ export default function Sidebar({ activePage = 'dashboard', onNavigate }) {
                   >
                     <Icon className="size-4 shrink-0" />
                     <span className="flex-1 text-left">{link.label}</span>
-                    {link.badge != null ? (
-                      <Badge
-                        variant={link.badgeWarning ? 'destructive' : active ? 'secondary' : 'outline'}
-                        className={cn(
-                          'h-5 px-1.5 text-[10px]',
-                          active && !link.badgeWarning && 'bg-white/20 text-white hover:bg-white/25',
-                        )}
-                      >
-                        {link.badge}
-                      </Badge>
-                    ) : null}
                   </button>
                 )
               })}

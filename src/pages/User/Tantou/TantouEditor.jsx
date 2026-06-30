@@ -18,6 +18,7 @@ import {
   PATH_EDITOR_BOARD,
 } from '@/constants/roleTerminology.js'
 import axiosClient from '@/api/axiosClient.js'
+import { useChapters, usePages } from '@/api/hooks'
 import TantouPageReview from './TantouPageReview.jsx'
 
 const NAV_LINKS = [
@@ -87,8 +88,6 @@ function handleCoverImgError(e) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 function CoverThumb({ url, sizeClass = 'size-16 sm:size-20' }) {
-    console.log("url =", url); // <-- Dán ở đây
-
   return (
     <div className={`flex ${sizeClass} shrink-0 overflow-hidden rounded-lg bg-muted`}>
       {url ? (
@@ -179,6 +178,7 @@ export default function TantouEditor() {
   const [selectedSub, setSelectedSub]           = useState(null)
   const [reviewOpen, setReviewOpen]             = useState(false)
   const [editorialComment, setEditorialComment] = useState('')
+  const [reviewPageIndex, setReviewPageIndex]   = useState(0)
 
   // Studio filter
   const [studioSearch, setStudioSearch]     = useState('')
@@ -203,11 +203,8 @@ export default function TantouEditor() {
   }, [])
 
   // ── Load chapter studio (phụ thuộc seriesById) ────────────────────────────
-  // Fetch GET /api/Chapters (hỗ trợ ?seriesId & ?status từ controller).
-  // Không dùng filter status vì cần nhiều statuses — lọc ở FE.
-  // Chỉ giữ chapter thuộc series Tantou đang quản lý (dùng seriesById làm whitelist).
   const loadStudioChapters = useCallback(async (seriesMap) => {
-    if (seriesMap.size === 0) return   // chưa có series nào → không cần fetch
+    if (seriesMap.size === 0) return
     setStudioLoading(true)
     try {
       const res = await axiosClient.get('/Chapters')
@@ -225,14 +222,10 @@ export default function TantouEditor() {
     finally { setStudioLoading(false) }
   }, [])
 
-  // ── Effect: load series trước ─────────────────────────────────────────────
   useEffect(() => { loadSeries() }, [loadSeries])
 
-  // ── Effect: sau khi series xong → build map → load chapters ──────────────
-  // Tách ra để loadStudioChapters luôn nhận seriesMap mới nhất,
-  // tránh stale closure nếu dùng seriesById từ useMemo bên ngoài callback.
   useEffect(() => {
-    if (loading) return   // chờ series load xong
+    if (loading) return
     const map = new Map()
     series.forEach(s => map.set(s.seriesid, s))
     loadStudioChapters(map)
@@ -262,7 +255,6 @@ export default function TantouEditor() {
     [series],
   )
 
-  // Join series info vào chapter để hiển thị tên / cover
   const studioQueue = useMemo(
     () => studioChapters.map(ch => ({
       ...ch,
@@ -271,7 +263,6 @@ export default function TantouEditor() {
     [studioChapters, seriesById],
   )
 
-  // Filter studio theo search + status
   const filteredStudioQueue = useMemo(() => {
     const q = studioSearch.trim().toLowerCase()
     return studioQueue.filter(ch => {
@@ -283,11 +274,44 @@ export default function TantouEditor() {
     })
   }, [studioQueue, studioSearch, studioStatusFilter])
 
-  // Badge đỏ: số chapter trễ deadline
   const delayedCount = useMemo(
     () => studioQueue.filter(ch => normalizeStatus(ch.status) === 'delayed').length,
     [studioQueue],
   )
+
+  // ── Chapter + pages thật của series đang review ───────────────────────────
+  // Chỉ fetch khi đang mở review (reviewOpen) để tránh gọi API thừa.
+  const reviewSeriesId = reviewOpen ? selectedSub?.seriesid : undefined
+  const { data: reviewChapters = [], isLoading: reviewChaptersLoading } = useChapters(reviewSeriesId)
+
+  // Chapter đầu tiên (nhỏ nhất theo chapternumber) — đây là chapter Mangaka mới gửi lên
+  const reviewChapter = useMemo(() => {
+    if (!Array.isArray(reviewChapters) || reviewChapters.length === 0) return null
+    return [...reviewChapters].sort((a, b) => {
+      const an = a.chapternumber ?? a.Chapternumber ?? 0
+      const bn = b.chapternumber ?? b.Chapternumber ?? 0
+      return an - bn
+    })[0]
+  }, [reviewChapters])
+
+  const reviewChapterId = reviewChapter
+    ? (reviewChapter.chapterid ?? reviewChapter.Chapterid ?? reviewChapter.id)
+    : undefined
+
+  const { data: reviewPagesRaw = [], isLoading: reviewPagesLoading } = usePages(reviewChapterId)
+
+  // Map về shape gọn cho TantouPageReview: { serverPageId, url, name }
+  const reviewPages = useMemo(() => {
+    if (!Array.isArray(reviewPagesRaw)) return []
+    return reviewPagesRaw
+      .filter(p => p && (p.pageimageurl ?? p.Pageimageurl))
+      .sort((a, b) => (a.pagenumber ?? a.Pagenumber ?? 0) - (b.pagenumber ?? b.Pagenumber ?? 0))
+      .map((p, i) => ({
+        serverPageId: p.pageid ?? p.Pageid,
+        url: p.pageimageurl ?? p.Pageimageurl,
+        name: `Trang ${p.pagenumber ?? p.Pagenumber ?? i + 1}`,
+      }))
+  }, [reviewPagesRaw])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   function handleLogout() {
@@ -298,6 +322,7 @@ export default function TantouEditor() {
   function openReview(sub) {
     setSelectedSub({ ...sub, __kind: 'series' })
     setEditorialComment('')
+    setReviewPageIndex(0)
     setReviewOpen(true)
   }
 
@@ -356,8 +381,11 @@ export default function TantouEditor() {
     const submission = {
       id:               selectedSub.seriesid,
       seriesTitle:      selectedSub.title,
-      chapterNum:       '—',
+      chapterNum:       reviewChapter
+        ? (reviewChapter.chapternumber ?? reviewChapter.Chapternumber ?? '—')
+        : '—',
       pageLabel:        selectedSub.publishformat ?? '—',
+      // Ảnh bìa series — dùng làm fallback khi chapter chưa có trang nào
       mangakaImageUrl:  selectedSub.coverimageurl ?? null,
       mangakaNotes:     [],
       pipeline:         isDebut ? 'debut' : 'recurring',
@@ -376,6 +404,14 @@ export default function TantouEditor() {
             onForwardEb={handleForwardEb}
             onRequestRevision={handleRequestRevision}
             onApproveRecurring={undefined}
+            // Trang truyện thật từ Chapters/Pages — cho phép Tantou vẽ ô ghi chú
+            pages={reviewPages}
+            pagesLoading={reviewChaptersLoading || reviewPagesLoading}
+            pageIndex={reviewPageIndex}
+            onPageIndexChange={setReviewPageIndex}
+            chapterId={reviewChapterId}
+            // Lịch sử nhận xét — chưa có API, để rỗng tạm thời
+            revisionHistory={[]}
           />
         </main>
       </div>
@@ -427,7 +463,6 @@ export default function TantouEditor() {
           <TabsContent value="debut" className="space-y-6">
             <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
               <div className="space-y-6">
-                {/* Bản thảo Tantou đang cầm */}
                 <div className="space-y-4">
                   <div>
                     <h2 className="text-xl font-semibold">Bản thảo đang xét</h2>
@@ -452,7 +487,6 @@ export default function TantouEditor() {
                   )}
                 </div>
 
-                {/* Series đang ở EB — chỉ theo dõi */}
                 {!loading && ebQueue.length > 0 && (
                   <div className="space-y-4">
                     <div>
@@ -516,7 +550,6 @@ export default function TantouEditor() {
               </Button>
             </div>
 
-            {/* Cảnh báo trễ */}
             {!studioLoading && delayedCount > 0 && (
               <Card className="border-destructive/40 bg-destructive/5">
                 <CardContent className="px-4 py-3 text-sm text-destructive">
@@ -525,7 +558,6 @@ export default function TantouEditor() {
               </Card>
             )}
 
-            {/* Filter bar */}
             {!studioLoading && studioQueue.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 <div className="relative min-w-0 flex-1">

@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react'
 import {
-  ArrowDown,
-  ArrowUp,
   BookOpen,
   CheckCircle2,
   Clock,
@@ -9,8 +7,11 @@ import {
   TrendingUp,
   Users,
   XCircle,
+  PenTool,
+  UserCheck,
+  ShieldCheck,
 } from 'lucide-react'
-import axiosClient from '@/api/axiosClient.js'
+import { api } from '@/api/Adminapi.js'
 import { Badge } from '@/components/ui/badge'
 import {
   Card,
@@ -21,7 +22,6 @@ import {
 } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 const STATUS_LABEL = {
   Approved:    { label: 'Đã duyệt',   class: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' },
   Rejected:    { label: 'Từ chối',    class: 'bg-red-100 text-red-700 hover:bg-red-100' },
@@ -30,15 +30,12 @@ const STATUS_LABEL = {
   Submitted:   { label: 'Đã nộp',     class: 'bg-purple-100 text-purple-700 hover:bg-purple-100' },
 }
 
-const SERIES_COLORS = [
-  '#6366f1', '#ec4899', '#f59e0b', '#10b981', '#14b8a6', '#8b5cf6',
-]
+const SERIES_COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#14b8a6', '#8b5cf6']
 
 function initials(title = '') {
   return title.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase() || '??'
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
 function StatCard({ label, value, icon: Icon, colorClass }) {
   return (
     <Card>
@@ -57,11 +54,11 @@ function StatCard({ label, value, icon: Icon, colorClass }) {
 
 function SeriesStatsPanel({ stats }) {
   const items = [
-    { label: 'Chờ duyệt',  value: stats.pending_series  ?? stats.pendingSeries,  color: 'text-amber-600',   icon: Clock },
-    { label: 'Đã duyệt',   value: stats.approved_series ?? stats.approvedSeries, color: 'text-emerald-600', icon: CheckCircle2 },
-    { label: 'Từ chối',    value: stats.rejected_series ?? stats.rejectedSeries, color: 'text-red-600',     icon: XCircle },
-    { label: 'Đang ra',    value: stats.ongoing_series  ?? stats.ongoingSeries,  color: 'text-sky-600',     icon: TrendingUp },
-    { label: 'Hoàn thành', value: stats.completed_series ?? stats.completedSeries, color: 'text-purple-600', icon: BookOpen },
+    { label: 'Chờ duyệt',  value: stats.pending_series   ?? stats.pendingSeries,   color: 'text-amber-600',   icon: Clock },
+    { label: 'Đã duyệt',   value: stats.approved_series  ?? stats.approvedSeries,  color: 'text-emerald-600', icon: CheckCircle2 },
+    { label: 'Từ chối',    value: stats.rejected_series  ?? stats.rejectedSeries,  color: 'text-red-600',     icon: XCircle },
+    { label: 'Đang ra',    value: stats.ongoing_series   ?? stats.ongoingSeries,   color: 'text-sky-600',     icon: TrendingUp },
+    { label: 'Hoàn thành', value: stats.completed_series ?? stats.completedSeries, color: 'text-purple-600',  icon: BookOpen },
   ]
   return (
     <Card>
@@ -113,7 +110,7 @@ function TopSeriesTable({ series }) {
             const id = s.seriesid ?? s.series_id ?? s.id
             const title = s.title ?? `Series #${id}`
             const st = STATUS_LABEL[s.status] ?? STATUS_LABEL.Approved
-            const genreNames = s.genres?.map(g => g?.genrename ?? g?.name ?? '').filter(Boolean).join(', ') || '—'
+            const genreNames = s.genres?.map(g => g?.genrename ?? g?.genre_name ?? g?.name ?? '').filter(Boolean).join(', ') || '—'
             return (
               <div key={id ?? idx} className="flex items-center gap-4 px-6 py-3 transition-colors hover:bg-muted/50">
                 <div
@@ -139,24 +136,19 @@ function TopSeriesTable({ series }) {
   )
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [overview, setOverview]     = useState(null)
+  const [overview, setOverview]       = useState(null)
   const [seriesStats, setSeriesStats] = useState(null)
-  const [topSeries, setTopSeries]   = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [error, setError]           = useState(null)
+  const [topSeries, setTopSeries]     = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [error, setError]             = useState(null)
 
   useEffect(() => {
-    Promise.all([
-      axiosClient.get('/Dashboard/Admin/Overview'),
-      axiosClient.get('/Dashboard/Admin/SeriesStats'),
-      axiosClient.get('/Dashboard/TopSeries'),
-    ])
-      .then(([ovRes, statsRes, topRes]) => {
-        setOverview(ovRes.data)
-        setSeriesStats(statsRes.data)
-        setTopSeries(Array.isArray(topRes.data) ? topRes.data : [])
+    api.getDashboardData()
+      .then(({ overview, seriesStats, topSeries }) => {
+        setOverview(overview)
+        setSeriesStats(seriesStats)
+        setTopSeries(topSeries)
       })
       .catch(() => setError('Không thể tải dữ liệu dashboard.'))
       .finally(() => setLoading(false))
@@ -189,15 +181,63 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Overview stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Tổng người dùng"  value={overview?.total_users     ?? overview?.totalUsers}     icon={Users}     colorClass="bg-primary/10 text-primary" />
-        <StatCard label="Mangaka"           value={overview?.total_mangakas  ?? overview?.totalMangakas}  icon={Users}     colorClass="bg-emerald-500/10 text-emerald-600" />
-        <StatCard label="Tổng series"       value={overview?.total_series    ?? overview?.totalSeries}    icon={BookOpen}  colorClass="bg-sky-500/10 text-sky-600" />
-        <StatCard label="Tổng chương"       value={overview?.total_chapters  ?? overview?.totalChapters}  icon={BookOpen}  colorClass="bg-amber-500/10 text-amber-600" />
+      {/* Row 1: Tổng quan người dùng theo role */}
+      <div>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Người dùng theo vai trò</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <StatCard
+            label="Tổng người dùng"
+            value={overview?.total_users ?? overview?.totalUsers}
+            icon={Users}
+            colorClass="bg-primary/10 text-primary"
+          />
+          <StatCard
+            label="Mangaka"
+            value={overview?.total_mangakas ?? overview?.totalMangakas}
+            icon={PenTool}
+            colorClass="bg-emerald-500/10 text-emerald-600"
+          />
+          <StatCard
+            label="Assistant"
+            value={overview?.total_assistants}
+            icon={UserCheck}
+            colorClass="bg-violet-500/10 text-violet-600"
+          />
+          <StatCard
+            label="Editor (EB)"
+            value={overview?.total_ebs}
+            icon={ShieldCheck}
+            colorClass="bg-sky-500/10 text-sky-600"
+          />
+          <StatCard
+            label="Tantou Editor"
+            value={overview?.total_tantous}
+            icon={Users}
+            colorClass="bg-rose-500/10 text-rose-600"
+          />
+        </div>
       </div>
 
-      {/* Series stats + Top series */}
+      {/* Row 2: Nội dung */}
+      <div>
+        <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">Nội dung</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-2">
+          <StatCard
+            label="Tổng series"
+            value={overview?.total_series ?? overview?.totalSeries}
+            icon={BookOpen}
+            colorClass="bg-amber-500/10 text-amber-600"
+          />
+          <StatCard
+            label="Tổng chương"
+            value={overview?.total_chapters ?? overview?.totalChapters}
+            icon={BookOpen}
+            colorClass="bg-teal-500/10 text-teal-600"
+          />
+        </div>
+      </div>
+
+      {/* Row 3: Series stats + Top series */}
       <div className="grid gap-4 lg:grid-cols-3">
         <TopSeriesTable series={topSeries} />
         {seriesStats && <SeriesStatsPanel stats={seriesStats} />}

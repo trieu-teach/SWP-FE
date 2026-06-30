@@ -10,8 +10,6 @@ import Dashboard from '@/pages/Admin/Dashboard/Dashboard.jsx'
 import AdminManga from '@/pages/Admin/Manga/Manga.jsx'
 import Chapters from '@/pages/Admin/Chapters/Chapters.jsx'
 import Users from '@/pages/Admin/Users/Users.jsx'
-import Comments from '@/pages/Admin/Comments/Comments.jsx'
-import Reports from '@/pages/Admin/Reports/Reports.jsx'
 import Stats from '@/pages/Admin/Stats/Stats.jsx'
 import Settings from '@/pages/Admin/Settings/Settings.jsx'
 import Profile from '@/pages/Admin/Profile/Profile.jsx'
@@ -30,7 +28,6 @@ import UserProfile from '@/pages/User/Profile/Profile.jsx'
 function HomeOrWorkspace() {
   const { user, loading, loggingIn } = useAuth()
   console.log('[HomeOrWorkspace] render', { user: !!user, loading, loggingIn })
-  // Chờ hydrate session + đợi login in-flight xong để không flash Home rồi mới redirect
   if (loading || loggingIn) return null
   if (user) {
     const target = getRolePath(user.role)
@@ -58,16 +55,13 @@ export default function App() {
       <QueryProvider>
         <AuthProvider>
           <Routes>
-            {/* Public routes — redirect logged-in users to their workspace */}
             <Route path="/" element={<HomeOrWorkspace />} />
 
-            {/* Guest routes - chỉ dành cho chưa đăng nhập */}
             <Route element={<GuestRoute />}>
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
             </Route>
 
-            {/* Protected routes - cần đăng nhập */}
             <Route element={<ProtectedRoute />}>
               <Route path="/mangaka" element={<Mangaka />} />
               <Route path="/mangaka/series/:seriesSlug" element={<SeriesUploadDetail />} />
@@ -79,7 +73,6 @@ export default function App() {
               <Route path="/profile" element={<UserProfile />} />
             </Route>
 
-            {/* Admin routes - cần đăng nhập + role Admin */}
             <Route element={<ProtectedRoute roles={['Admin']} />}>
               <Route path="/admin" element={<AdminShell />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
@@ -87,8 +80,6 @@ export default function App() {
                 <Route path="manga" element={<AdminManga />} />
                 <Route path="chapters" element={<Chapters />} />
                 <Route path="users" element={<Users />} />
-                <Route path="comments" element={<Comments />} />
-                <Route path="reports" element={<Reports />} />
                 <Route path="stats" element={<Stats />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="profile" element={<Profile />} />

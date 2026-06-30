@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Eye, Loader2, Lock, Search, ShieldCheck, Unlock, X } from 'lucide-react'
-import { api } from '@/api/index.js'
+import { Eye, Loader2, Lock, Search, Unlock, X } from 'lucide-react'
+import { api } from '@/api/Adminapi.js'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,45 +14,45 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { cn } from '@/lib/utils'
 
-const ROLE_LABEL = { admin: 'Admin', mod: 'Mod', user: 'User' }
-const ROLE_CLS = {
-  admin: 'bg-rose-100 text-rose-700 hover:bg-rose-100 dark:bg-rose-500/15 dark:text-rose-400',
-  mod: 'bg-violet-100 text-violet-700 hover:bg-violet-100 dark:bg-violet-500/15 dark:text-violet-400',
-  user: 'bg-slate-100 text-slate-700 hover:bg-slate-100 dark:bg-slate-500/15 dark:text-slate-400',
-}
+// roleId → label/class
+const ROLES = [
+  { id: 1, key: 'admin',    label: 'Admin',          cls: 'bg-rose-100 text-rose-700 hover:bg-rose-100' },
+  { id: 2, key: 'eb',       label: 'Editorial Board', cls: 'bg-sky-100 text-sky-700 hover:bg-sky-100' },
+  { id: 3, key: 'editor',   label: 'Tantou Editor',  cls: 'bg-violet-100 text-violet-700 hover:bg-violet-100' },
+  { id: 4, key: 'mangaka',  label: 'Mangaka',        cls: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' },
+  { id: 5, key: 'assistant',label: 'Assistant',      cls: 'bg-amber-100 text-amber-700 hover:bg-amber-100' },
+]
+const ROLE_BY_KEY = Object.fromEntries(ROLES.map(r => [r.key, r]))
+const ROLE_BY_ID  = Object.fromEntries(ROLES.map(r => [r.id,  r]))
+
 const STATUS_LABEL = { active: 'Hoạt động', banned: 'Đã khoá' }
 const STATUS_CLS = {
-  active: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-400',
-  banned: 'bg-amber-100 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-400',
+  active: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100',
+  banned: 'bg-amber-100 text-amber-700 hover:bg-amber-100',
 }
 
-function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
+function RoleBadge({ roleKey }) {
+  const r = ROLE_BY_KEY[roleKey] ?? { label: roleKey, cls: 'bg-slate-100 text-slate-700' }
+  return <Badge className={r.cls} variant="secondary">{r.label}</Badge>
+}
+
+function UserDrawer({ user, onClose, onToggleStatus, onChangeRole }) {
   const [changing, setChanging] = useState(false)
 
-  async function handleBan() {
+  async function handleToggle() {
     try {
       setChanging(true)
-      await onBan(user.id)
+      await onToggleStatus(user.id, user.status === 'active' ? 'banned' : 'active')
     } finally {
       setChanging(false)
     }
   }
 
-  async function handleUnban() {
+  async function handleChangeRole(roleKey) {
     try {
       setChanging(true)
-      await onUnban(user.id)
-    } finally {
-      setChanging(false)
-    }
-  }
-
-  async function handleChangeRole(newRole) {
-    try {
-      setChanging(true)
-      await onChangeRole(user.id, newRole)
+      await onChangeRole(user.id, roleKey)
     } finally {
       setChanging(false)
     }
@@ -68,6 +68,7 @@ function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
             <X className="size-4" />
           </Button>
         </div>
+
         <div className="flex flex-col items-center gap-3 border-b py-6">
           <Avatar className="size-20">
             <AvatarFallback className="bg-gradient-to-br from-primary to-rose-500 text-2xl font-bold text-primary-foreground">
@@ -78,20 +79,7 @@ function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
             <div className="text-lg font-semibold">{user.name}</div>
             <div className="text-sm text-muted-foreground">{user.email}</div>
           </div>
-          <Badge className={ROLE_CLS[user.role]} variant="secondary">{ROLE_LABEL[user.role]}</Badge>
-        </div>
-
-        <div className="grid grid-cols-3 divide-x border-b py-4 text-center">
-          {[
-            { label: 'Lượt đọc', value: user.readCount.toLocaleString() },
-            { label: 'Bình luận', value: user.comments },
-            { label: 'Báo cáo', value: user.reports },
-          ].map(s => (
-            <div key={s.label} className="px-2">
-              <div className="text-lg font-bold">{s.value}</div>
-              <div className="text-xs text-muted-foreground">{s.label}</div>
-            </div>
-          ))}
+          <RoleBadge roleKey={user.role} />
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto p-5 text-sm">
@@ -104,7 +92,9 @@ function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Trạng thái</span>
-                <Badge className={STATUS_CLS[user.status]} variant="secondary">{STATUS_LABEL[user.status]}</Badge>
+                <Badge className={STATUS_CLS[user.status] ?? STATUS_CLS.active} variant="secondary">
+                  {STATUS_LABEL[user.status] ?? user.status}
+                </Badge>
               </div>
             </div>
           </div>
@@ -113,17 +103,16 @@ function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
 
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Đổi vai trò</p>
-            <div className="flex gap-2">
-              {['user', 'mod', 'admin'].map(r => (
+            <div className="grid grid-cols-2 gap-2">
+              {ROLES.map(r => (
                 <Button
-                  key={r}
+                  key={r.key}
                   size="sm"
-                  variant={user.role === r ? 'default' : 'outline'}
-                  className="flex-1"
-                  onClick={() => handleChangeRole(r)}
+                  variant={user.role === r.key ? 'default' : 'outline'}
+                  onClick={() => handleChangeRole(r.key)}
                   disabled={changing}
                 >
-                  {ROLE_LABEL[r]}
+                  {r.label}
                 </Button>
               ))}
             </div>
@@ -132,22 +121,13 @@ function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
 
         <div className="border-t p-4">
           {user.status === 'active' ? (
-            <Button 
-              variant="destructive" 
-              className="w-full" 
-              onClick={handleBan}
-              disabled={changing}
-            >
-              <Lock className="size-4" />
+            <Button variant="destructive" className="w-full" onClick={handleToggle} disabled={changing}>
+              <Lock className="mr-2 size-4" />
               Khoá tài khoản
             </Button>
           ) : (
-            <Button 
-              className="w-full" 
-              onClick={handleUnban}
-              disabled={changing}
-            >
-              <Unlock className="size-4" />
+            <Button className="w-full" onClick={handleToggle} disabled={changing}>
+              <Unlock className="mr-2 size-4" />
               Mở khoá
             </Button>
           )}
@@ -158,16 +138,14 @@ function UserDrawer({ user, onClose, onBan, onUnban, onChangeRole }) {
 }
 
 export default function Users() {
-  const [list, setList] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [search, setSearch] = useState('')
+  const [list, setList]         = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [error, setError]       = useState(null)
+  const [search, setSearch]     = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
   const [selected, setSelected] = useState(null)
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
   async function loadData() {
     try {
@@ -177,39 +155,30 @@ export default function Users() {
       setList(d)
     } catch (err) {
       setError(err.message || 'Lỗi tải dữ liệu')
-      console.error('Load error:', err)
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleBan(id) {
+  async function handleToggleStatus(id, newStatus) {
     try {
-      await api.updateUserStatus(id, 'banned')
-      setList(l => l.map(u => u.id === id ? { ...u, status: 'banned' } : u))
-      setSelected(s => s?.id === id ? { ...s, status: 'banned' } : s)
+      await api.updateUserStatus(id, newStatus)
+      setList(l => l.map(u => u.id === id ? { ...u, status: newStatus } : u))
+      setSelected(s => s?.id === id ? { ...s, status: newStatus } : s)
     } catch (err) {
-      console.error('Ban error:', err)
+      console.error('Status error:', err)
     }
   }
 
-  async function handleUnban(id) {
+  async function handleChangeRole(id, roleKey) {
+    const role = ROLE_BY_KEY[roleKey]
+    if (!role) return
     try {
-      await api.updateUserStatus(id, 'active')
-      setList(l => l.map(u => u.id === id ? { ...u, status: 'active' } : u))
-      setSelected(s => s?.id === id ? { ...s, status: 'active' } : s)
+      await api.updateUserRole(id, role.id)
+      setList(l => l.map(u => u.id === id ? { ...u, role: roleKey } : u))
+      setSelected(s => s?.id === id ? { ...s, role: roleKey } : s)
     } catch (err) {
-      console.error('Unban error:', err)
-    }
-  }
-
-  async function handleChangeRole(id, role) {
-    try {
-      await api.updateUserRole(id, role)
-      setList(l => l.map(u => u.id === id ? { ...u, role } : u))
-      setSelected(s => s?.id === id ? { ...s, role } : s)
-    } catch (err) {
-      console.error('Change role error:', err)
+      console.error('Role error:', err)
     }
   }
 
@@ -222,15 +191,11 @@ export default function Users() {
   if (error) {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Độc giả</h1>
-        </div>
+        <h1 className="text-3xl font-bold tracking-tight">Độc giả</h1>
         <Card className="border-destructive/50">
           <CardContent className="flex flex-col items-center justify-center py-12 text-destructive">
             <p className="text-sm font-medium">{error}</p>
-            <Button onClick={loadData} className="mt-4">
-              Thử lại
-            </Button>
+            <Button onClick={loadData} className="mt-4">Thử lại</Button>
           </CardContent>
         </Card>
       </div>
@@ -248,15 +213,20 @@ export default function Users() {
         <CardContent className="flex flex-wrap items-center gap-3 p-4">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Tìm tên, email..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+            <Input
+              placeholder="Tìm tên, email..."
+              className="pl-9"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
           </div>
           <Select value={roleFilter} onValueChange={setRoleFilter}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tất cả vai trò</SelectItem>
-              <SelectItem value="user">User</SelectItem>
-              <SelectItem value="mod">Mod</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
+              {ROLES.map(r => (
+                <SelectItem key={r.key} value={r.key}>{r.label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </CardContent>
@@ -275,16 +245,19 @@ export default function Users() {
                 <tr>
                   <th className="px-4 py-3 text-left font-medium">Người dùng</th>
                   <th className="px-4 py-3 text-left font-medium">Vai trò</th>
-                  <th className="px-4 py-3 text-left font-medium">Đọc</th>
-                  <th className="px-4 py-3 text-left font-medium">BL</th>
-                  <th className="px-4 py-3 text-left font-medium">Báo cáo</th>
                   <th className="px-4 py-3 text-left font-medium">Tham gia</th>
                   <th className="px-4 py-3 text-left font-medium">Trạng thái</th>
                   <th className="px-4 py-3" style={{ width: 60 }}></th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {filtered.map(u => (
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-sm text-muted-foreground">
+                      Không tìm thấy người dùng nào.
+                    </td>
+                  </tr>
+                ) : filtered.map(u => (
                   <tr key={u.id} className="hover:bg-muted/30">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -299,15 +272,12 @@ export default function Users() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <Badge className={ROLE_CLS[u.role]} variant="secondary">{ROLE_LABEL[u.role]}</Badge>
-                    </td>
-                    <td className="px-4 py-3">{u.readCount.toLocaleString()}</td>
-                    <td className="px-4 py-3">{u.comments}</td>
-                    <td className={cn('px-4 py-3', u.reports > 0 && 'font-semibold text-destructive')}>{u.reports}</td>
+                    <td className="px-4 py-3"><RoleBadge roleKey={u.role} /></td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">{u.joinDate}</td>
                     <td className="px-4 py-3">
-                      <Badge className={STATUS_CLS[u.status]} variant="secondary">{STATUS_LABEL[u.status]}</Badge>
+                      <Badge className={STATUS_CLS[u.status] ?? STATUS_CLS.active} variant="secondary">
+                        {STATUS_LABEL[u.status] ?? u.status}
+                      </Badge>
                     </td>
                     <td className="px-4 py-3">
                       <Button variant="ghost" size="icon-sm" onClick={() => setSelected(u)}>
@@ -322,15 +292,14 @@ export default function Users() {
         </Card>
       )}
 
-      {selected ? (
+      {selected && (
         <UserDrawer
           user={selected}
           onClose={() => setSelected(null)}
-          onBan={handleBan}
-          onUnban={handleUnban}
+          onToggleStatus={handleToggleStatus}
           onChangeRole={handleChangeRole}
         />
-      ) : null}
+      )}
     </div>
   )
 }

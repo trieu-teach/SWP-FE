@@ -10,7 +10,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { api } from '@/api/index.js'
+import { api } from '@/api/adminApi.js'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -46,20 +46,9 @@ const STATUS_OPTIONS = [
   { value: 'hiatus', label: 'Tạm dừng' },
 ]
 
-function formatReads(n) {
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`
-  return n
-}
-
 function MangaDialog({ manga, open, onClose, onSave }) {
   const isEdit = !!manga?.id
-  const [form, setForm] = useState({
-    title: '',
-    author: '',
-    genre: '',
-    status: 'ongoing',
-  })
+  const [form, setForm] = useState({ title: '', author: '', genre: '', status: 'ongoing' })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -148,7 +137,7 @@ function MangaDialog({ manga, open, onClose, onSave }) {
 }
 
 function MangaDrawer({ manga, onClose, onEdit, onDelete }) {
-  const st = STATUS_LABEL[manga.status]
+  const st = STATUS_LABEL[manga.status] ?? STATUS_LABEL.ongoing
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/30 backdrop-blur-sm" onClick={onClose} />
@@ -169,7 +158,7 @@ function MangaDrawer({ manga, onClose, onEdit, onDelete }) {
           <h2 className="mb-1 text-xl font-bold">{manga.title}</h2>
           <p className="mb-4 text-sm text-muted-foreground">bởi {manga.author}</p>
           <div className="mb-4 flex flex-wrap gap-1.5">
-            {manga.genre.map(g => (
+            {(manga.genre ?? []).map(g => (
               <Badge key={g} variant="outline">{g}</Badge>
             ))}
           </div>
@@ -182,17 +171,9 @@ function MangaDrawer({ manga, onClose, onEdit, onDelete }) {
               <span className="text-muted-foreground">Số chương</span>
               <span className="font-medium">{manga.chapters}</span>
             </div>
-            <div className="flex justify-between border-b py-2">
-              <span className="text-muted-foreground">Lượt đọc</span>
-              <span className="font-medium">{formatReads(manga.reads)}</span>
-            </div>
-            <div className="flex justify-between border-b py-2">
+            <div className="flex justify-between py-2">
               <span className="text-muted-foreground">Ngày tạo</span>
               <span className="font-medium">{manga.createdAt}</span>
-            </div>
-            <div className="flex justify-between py-2">
-              <span className="text-muted-foreground">Cập nhật</span>
-              <span className="font-medium">{manga.updatedAt}</span>
             </div>
           </div>
         </div>
@@ -221,9 +202,7 @@ export default function Manga() {
   const [selected, setSelected] = useState(null)
   const [modal, setModal] = useState(null)
 
-  useEffect(() => {
-    loadData()
-  }, [])
+  useEffect(() => { loadData() }, [])
 
   async function loadData() {
     try {
@@ -265,15 +244,11 @@ export default function Manga() {
   if (error) {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Quản lý truyện</h1>
-        </div>
+        <div><h1 className="text-3xl font-bold tracking-tight">Quản lý truyện</h1></div>
         <Card className="border-destructive/50">
           <CardContent className="flex flex-col items-center justify-center py-12 text-destructive">
             <p className="text-sm font-medium">{error}</p>
-            <Button onClick={loadData} className="mt-4">
-              Thử lại
-            </Button>
+            <Button onClick={loadData} className="mt-4">Thử lại</Button>
           </CardContent>
         </Card>
       </div>
@@ -285,9 +260,7 @@ export default function Manga() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Quản lý truyện</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {list.length} bộ truyện trong hệ thống
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{list.length} bộ truyện trong hệ thống</p>
         </div>
         <Button onClick={() => setModal({})}>
           <Plus className="size-4" />
@@ -300,12 +273,7 @@ export default function Manga() {
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative flex-1 min-w-[200px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Tìm theo tên, tác giả..."
-                className="pl-9"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
+              <Input placeholder="Tìm theo tên, tác giả..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
@@ -314,18 +282,10 @@ export default function Manga() {
               </SelectContent>
             </Select>
             <div className="flex rounded-md border bg-background p-0.5">
-              <Button
-                variant={view === 'table' ? 'secondary' : 'ghost'}
-                size="icon-sm"
-                onClick={() => setView('table')}
-              >
+              <Button variant={view === 'table' ? 'secondary' : 'ghost'} size="icon-sm" onClick={() => setView('table')}>
                 <List className="size-4" />
               </Button>
-              <Button
-                variant={view === 'grid' ? 'secondary' : 'ghost'}
-                size="icon-sm"
-                onClick={() => setView('grid')}
-              >
+              <Button variant={view === 'grid' ? 'secondary' : 'ghost'} size="icon-sm" onClick={() => setView('grid')}>
                 <LayoutGrid className="size-4" />
               </Button>
             </div>
@@ -341,17 +301,10 @@ export default function Manga() {
       ) : view === 'grid' ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map(m => {
-            const st = STATUS_LABEL[m.status]
+            const st = STATUS_LABEL[m.status] ?? STATUS_LABEL.ongoing
             return (
-              <Card
-                key={m.id}
-                onClick={() => setSelected(m)}
-                className="group cursor-pointer gap-0 overflow-hidden p-0 transition-all hover:-translate-y-1 hover:shadow-lg"
-              >
-                <div
-                  className="flex aspect-[3/4] items-center justify-center text-4xl font-bold text-white"
-                  style={{ background: m.bg }}
-                >
+              <Card key={m.id} onClick={() => setSelected(m)} className="group cursor-pointer gap-0 overflow-hidden p-0 transition-all hover:-translate-y-1 hover:shadow-lg">
+                <div className="flex aspect-[3/4] items-center justify-center text-4xl font-bold text-white" style={{ background: m.bg }}>
                   {m.initials}
                 </div>
                 <CardContent className="p-3">
@@ -375,22 +328,17 @@ export default function Manga() {
                   <th className="px-4 py-3 text-left font-medium">Tên truyện</th>
                   <th className="px-4 py-3 text-left font-medium">Thể loại</th>
                   <th className="px-4 py-3 text-left font-medium">Chương</th>
-                  <th className="px-4 py-3 text-left font-medium">Lượt đọc</th>
                   <th className="px-4 py-3 text-left font-medium">Trạng thái</th>
-                  <th className="px-4 py-3 text-left font-medium">Cập nhật</th>
                   <th className="px-4 py-3" style={{ width: 100 }}></th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {filtered.map(m => {
-                  const st = STATUS_LABEL[m.status]
+                  const st = STATUS_LABEL[m.status] ?? STATUS_LABEL.ongoing
                   return (
                     <tr key={m.id} className="hover:bg-muted/30">
                       <td className="px-4 py-2">
-                        <div
-                          className="flex size-9 items-center justify-center rounded-md text-xs font-bold text-white"
-                          style={{ background: m.bg }}
-                        >
+                        <div className="flex size-9 items-center justify-center rounded-md text-xs font-bold text-white" style={{ background: m.bg }}>
                           {m.initials}
                         </div>
                       </td>
@@ -400,17 +348,15 @@ export default function Manga() {
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex flex-wrap gap-1">
-                          {m.genre.slice(0, 2).map(g => (
+                          {(m.genre ?? []).slice(0, 2).map(g => (
                             <Badge key={g} variant="outline" className="text-[10px]">{g}</Badge>
                           ))}
                         </div>
                       </td>
                       <td className="px-4 py-2">{m.chapters}</td>
-                      <td className="px-4 py-2">{formatReads(m.reads)}</td>
                       <td className="px-4 py-2">
                         <Badge className={st.class} variant="secondary">{st.label}</Badge>
                       </td>
-                      <td className="px-4 py-2 text-xs text-muted-foreground">{m.updatedAt}</td>
                       <td className="px-4 py-2">
                         <div className="flex justify-end gap-1">
                           <Button variant="ghost" size="icon-sm" onClick={() => setSelected(m)}>
