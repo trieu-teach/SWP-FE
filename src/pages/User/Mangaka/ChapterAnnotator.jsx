@@ -139,6 +139,7 @@ export default function ChapterAnnotator({
   onUploadComplete,
   onSendToAssistant,
   onSendToTantou,
+  onDeleteServerChapter,
 }) {
   const fileRef = useRef(null)
   const coverFileRef = useRef(null)
@@ -603,13 +604,31 @@ export default function ChapterAnnotator({
     setChapters(prev => prev.map(c => (c.id === activeChapterId ? { ...c, cover: null } : c)))
   }, [activeChapterId, setChapters])
 
-  const deleteChapter = useCallback((chapterId) => {
+  const handleDeleteChapter = useCallback((chapterId) => {
     if (!chapterId) return
-    const target = chapters.find(c => c.id === chapterId)
+    const target = seriesChapters.find(c => c.id === chapterId)
     if (!target) return
-    const label = `Ch. ${target.num}${target.pages.length ? ` (${target.pages.length} trang)` : ''}`
+    const label = `Ch. ${target.num}${target.pages?.length ? ` (${target.pages.length} trang)` : ''}`
     if (typeof window !== 'undefined' && !window.confirm(`Xóa ${label}? Hành động không thể hoàn tác.`)) return
 
+    // Chapter đã có trên server → xóa thật qua API (đừng chỉ ẩn ở local,
+    // nếu không các dòng "ma" sẽ quay lại ngay khi refetch).
+    if (target.isApi) {
+      const sid = target.serverChapterId
+      if (sid && onDeleteServerChapter) {
+        onDeleteServerChapter(sid)
+      } else {
+        toast.error('Không xác định được ID chapter trên server.')
+      }
+      if (activeChapterId === chapterId) {
+        setActiveChapterId(null)
+        setPageIndex(0)
+        setSelectedNoteId(null)
+      }
+      return
+    }
+
+    // Chapter chỉ tồn tại local (chưa từng POST lên server)
     setChapters(prev => prev.filter(c => c.id !== chapterId))
     setNotes(prev => {
       const next = {}
@@ -623,7 +642,7 @@ export default function ChapterAnnotator({
       setPageIndex(0)
       setSelectedNoteId(null)
     }
-  }, [chapters, activeChapterId, setChapters, setNotes, setActiveChapterId, setPageIndex])
+  }, [seriesChapters, activeChapterId, setChapters, setNotes, setActiveChapterId, setPageIndex, onDeleteServerChapter])
 
   function getPercent(e, ref) {
     const el = ref?.current
@@ -1406,16 +1425,10 @@ export default function ChapterAnnotator({
                           <Button
                             size="xs"
                             variant="ghost"
-                            className={cn(
-                              'size-7 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity',
-                              ch.isApi
-                                ? 'group-hover:opacity-0 cursor-not-allowed pointer-events-none'
-                                : 'hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 data-[active=true]:opacity-100',
-                            )}
+                            className="size-7 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 data-[active=true]:opacity-100"
                             data-active={isPick || undefined}
-                            title={ch.isApi ? 'Chapter từ server — xóa bằng API riêng' : `Xóa Ch. ${ch.num}`}
-                            disabled={ch.isApi}
-                            onClick={(e) => { e.stopPropagation(); deleteChapter(ch.id) }}
+                            title={`Xóa Ch. ${ch.num}`}
+                            onClick={(e) => { e.stopPropagation(); handleDeleteChapter(ch.id) }}
                           >
                             <Trash2 className="size-3.5" />
                           </Button>

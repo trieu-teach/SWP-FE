@@ -181,9 +181,13 @@ instance.interceptors.response.use(
           return instance.request(originalRequest)
         })
         .catch(refreshErr => {
-          // Refresh thất bại → fall through tới handler logout
-          console.warn('[axiosClient] refresh-on-401 failed:', refreshErr?.message)
-          // Trả về một 401 marker để caller biết refresh đã thử nhưng fail
+          // Refresh THẬT SỰ thất bại (refresh token sai/hết hạn) → đây mới là lúc
+          // session thực sự không còn hợp lệ → logout.
+          console.warn('[axiosClient] refresh-on-401 failed → clearing session:', refreshErr?.message)
+          clearSession()
+          window.dispatchEvent(new Event('auth-session-change'))
+          window.dispatchEvent(new CustomEvent('auth-401', { detail: { url } }))
+
           const finalErr = new Error('Session expired. Please log in again.')
           finalErr.isRefreshFailed = true
           finalErr.originalError = refreshErr
@@ -200,10 +204,21 @@ instance.interceptors.response.use(
 
     window.__apiLog.push({ phase: 'error', ts: Date.now(), ms, method, url, status, error: errorMsg, response: errorData })
 
-    if (status === 401) {
-      clearSession()
-      window.dispatchEvent(new Event('auth-session-change'))
-      window.dispatchEvent(new CustomEvent('auth-401', { detail: { url } }))
+    // 401 sau khi đã retry với token mới mà VẪN bị từ chối → token không hết hạn
+    // (refresh vừa thành công) nên đây là vấn đề QUYỀN (role), không phải mất session.
+    // Backend lẽ ra nên trả 403 cho trường hợp này — xử lý như 403, KHÔNG clearSession.
+    if (status === 401 && alreadyRetried) {
+      const backendMsg = errorMsg && errorMsg !== 'Ban khong co quyen thuc hien thao tac nay' ? ` (${errorMsg})` : ''
+      toast.error(`Ban khong co quyen thuc hien thao tac nay${backendMsg}`)
+      return Promise.reject(err)
+    }
+
+    // 401 trên chính endpoint auth (vd sai mật khẩu khi login) → không có session để clear,
+    // chỉ báo lỗi bình thường, không trigger logout flow.
+    if (status === 401 && isAuthEndpoint) {
+      const userMsg = buildUserErrorMsg(status, errorMsg, method)
+      toast.error(userMsg)
+      return Promise.reject(err)
     }
 
     if (status === 403) {
@@ -260,7 +275,7 @@ function buildUserErrorMsg(status, errorMsg, method) {
     case 409: return errorMsg || 'Xung dot du lieu. Vui long kiem tra lai.'
     case 422: return `Loi xac thuc du lieu. ${errorMsg}`
     case 500: return 'Loi server. Vui long thu lai sau.'
-    default:   return errorMsg || `Loi ${status}. Vui long thu lai.`
+    default: return errorMsg || `Loi ${status}. Vui long thu lai.`
   }
 }
 

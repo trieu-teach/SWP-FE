@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Calendar, Clock, Loader2, Search, Sparkles, X } from 'lucide-react'
 import Header from '@/components/User/Header/Header.jsx'
 import Footer from '@/components/User/Footer/Footer.jsx'
@@ -9,259 +8,55 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import { getSession, logout } from '@/lib/auth.js'
-import {
-  LABEL_EDITOR_BOARD,
-  LABEL_TANTOU_EDITOR,
-  PATH_EDITOR_BOARD,
-} from '@/constants/roleTerminology.js'
-import axiosClient from '@/api/axiosClient.js'
-import { useChapters, usePages } from '@/api/hooks'
+import { LABEL_EDITOR_BOARD, LABEL_TANTOU_EDITOR } from '@/constants/roleTerminology.js'
+import { NAV_LINKS } from '@/constants/tantou.js'
+import { useTantouWorkspace } from '@/hooks/Usetantouworkspace.js'
+import { normalizeStatus, isDebutStatus, isApprovedStatus, statusLabel } from './TantouEditor.helpers.js'
+import { CoverThumb } from '@/components/User/Tantou/CoverThumb.jsx'
+import { SubmissionCard } from '@/components/User/Tantou/SubmissionCard.jsx'
+import { StudioChapterCard } from '@/components/User/Tantou/StudioChapterCard.jsx'
+import { SidebarFlow } from '@/components/User/Tantou/SidebarFlow.jsx'
 import TantouPageReview from './TantouPageReview.jsx'
+import './TantouEditor.css'
 
-const NAV_LINKS = [
-  { to: '/', label: 'Trang chủ' },
-  { to: '/mangaka', label: 'Mangaka' },
-  { to: PATH_EDITOR_BOARD, label: LABEL_EDITOR_BOARD },
-]
-
-// ── Status helpers ────────────────────────────────────────────────────────────
-function normalizeStatus(raw) {
-  return (raw ?? '').toLowerCase().replace(/[_\s-]/g, '')
-}
-
-const DEBUT_STATUSES   = new Set(['draft', 'editorreview', 'submitted'])
-const APPROVED_STATUSES = new Set(['approved', 'publishing'])
-const EB_STATUSES      = new Set(['ebreview', 'underreview'])
-
-function isDebutStatus(raw)    { return DEBUT_STATUSES.has(normalizeStatus(raw)) }
-function isApprovedStatus(raw) { return APPROVED_STATUSES.has(normalizeStatus(raw)) }
-function isEbStatus(raw)       { return EB_STATUSES.has(normalizeStatus(raw)) }
-
-function statusVariant(raw) {
-  const s = normalizeStatus(raw)
-  if (s === 'draft')                             return 'outline'
-  if (s === 'submitted' || s === 'editorreview') return 'secondary'
-  if (s === 'ebreview'  || s === 'underreview')  return 'default'
-  if (s === 'publishing' || s === 'approved')    return 'default'
-  if (s === 'rejected'  || s === 'cancelled')    return 'destructive'
-  if (s === 'inproduction')                      return 'secondary'
-  if (s === 'ready')                             return 'default'
-  if (s === 'published')                         return 'outline'
-  if (s === 'delayed')                           return 'destructive'
-  return 'outline'
-}
-
-function statusLabel(raw) {
-  const map = {
-    draft:        'Bản nháp',
-    submitted:    'Chờ duyệt',
-    editorreview: 'Tantou đang xét',
-    ebreview:     `Đang xét ${LABEL_EDITOR_BOARD}`,
-    underreview:  `Đang xét ${LABEL_EDITOR_BOARD}`,
-    publishing:   'Đang phát hành',
-    approved:     'Đã duyệt',
-    completed:    'Hoàn thành',
-    rejected:     'Đã từ chối',
-    cancelled:    'Đã huỷ',
-    inproduction: 'Đang thực hiện',
-    ready:        'Sẵn sàng — chờ EB',
-    published:    'Đã phát hành',
-    delayed:      'Trễ deadline',
-  }
-  return map[normalizeStatus(raw)] ?? raw
-}
-
-function cadenceFromFormat(raw) {
-  const f = normalizeStatus(raw)
-  if (f === 'weekly')  return 'weekly'
-  if (f === 'monthly') return 'monthly'
-  return null
-}
-
-function handleCoverImgError(e) {
-  e.currentTarget.style.display = 'none'
-  e.currentTarget.nextElementSibling?.classList.remove('hidden')
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
-function CoverThumb({ url, sizeClass = 'size-16 sm:size-20' }) {
-  return (
-    <div className={`flex ${sizeClass} shrink-0 overflow-hidden rounded-lg bg-muted`}>
-      {url ? (
-        <img src={url} alt="" className="size-full object-cover" onError={handleCoverImgError} />
-      ) : null}
-      <div className={`flex size-full items-center justify-center text-2xl ${url ? 'hidden' : ''}`}>
-        📄
-      </div>
-    </div>
-  )
-}
-
-function SubmissionCard({ sub, onReview }) {
-  return (
-    <Card className="group transition-all hover:shadow-md">
-      <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
-        <CoverThumb url={sub.coverimageurl} />
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold">{sub.title}</h3>
-            <Badge variant={statusVariant(sub.status)}>{statusLabel(sub.status)}</Badge>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {sub.publishformat} · {sub.agerating}
-          </p>
-          {sub.synopsis && (
-            <p className="line-clamp-2 text-xs text-muted-foreground">{sub.synopsis}</p>
-          )}
-        </div>
-        <Button variant="outline" size="sm" onClick={() => onReview(sub)}>
-          Mở & nhận xét
-        </Button>
-      </CardContent>
-    </Card>
-  )
-}
-
-// Chỉ xem — Tantou không duyệt chapter, quyền đó thuộc EB
-function StudioChapterCard({ item }) {
-  const s         = item.seriesInfo
-  const st        = normalizeStatus(item.status)
-  const isDelayed = st === 'delayed'
-  const isReady   = st === 'ready'
-
-  return (
-    <Card className={`transition-all ${isDelayed ? 'border-destructive/50' : ''}`}>
-      <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
-        <CoverThumb url={s?.coverimageurl} />
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-semibold">{s?.title ?? `Series #${item.seriesid}`}</h3>
-            <Badge variant="secondary">Ch.{item.chapternumber}</Badge>
-            <Badge variant={statusVariant(item.status)}>{statusLabel(item.status)}</Badge>
-          </div>
-          {item.title && (
-            <p className="text-sm text-muted-foreground">{item.title}</p>
-          )}
-          {item.deadline && (
-            <p className={`text-xs ${isDelayed ? 'font-medium text-destructive' : 'text-muted-foreground'}`}>
-              Deadline: {new Date(item.deadline).toLocaleDateString('vi-VN')}
-            </p>
-          )}
-        </div>
-        {isReady && (
-          <p className="shrink-0 text-xs text-muted-foreground">Chờ {LABEL_EDITOR_BOARD} duyệt</p>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-// ── Main component ────────────────────────────────────────────────────────────
 export default function TantouEditor() {
   const navigate = useNavigate()
   const user = getSession()
 
+  const {
+    loading,
+    debutQueue,
+    ebQueue,
+    scheduleSeries,
+    loadSeries,
+    studioLoading,
+    studioQueue,
+    delayedCount,
+    handleRefreshStudio,
+    selectedSub,
+    reviewOpen,
+    editorialComment,
+    setEditorialComment,
+    reviewPageIndex,
+    setReviewPageIndex,
+    reviewChapterId,
+    reviewChapterNumber,
+    reviewPages,
+    reviewPagesLoading,
+    openReview,
+    closeReview,
+    handleForwardEb,
+    handleRequestRevision,
+    savingScheduleId,
+    handleSetSchedule,
+  } = useTantouWorkspace()
+
+  // ── UI-only state (không liên quan tới dữ liệu/API) ───────────────────────
   const [tab, setTab] = useState('debut')
-
-  // Series
-  const [loading, setLoading]   = useState(true)
-  const [series, setSeries]     = useState([])
-
-  // Studio chapters — load sau khi series đã xong (cần seriesById để filter)
-  const [studioLoading, setStudioLoading]     = useState(false)
-  const [studioChapters, setStudioChapters]   = useState([])
-
-  // Review
-  const [selectedSub, setSelectedSub]           = useState(null)
-  const [reviewOpen, setReviewOpen]             = useState(false)
-  const [editorialComment, setEditorialComment] = useState('')
-  const [reviewPageIndex, setReviewPageIndex]   = useState(0)
-
-  // Studio filter
-  const [studioSearch, setStudioSearch]     = useState('')
+  const [studioSearch, setStudioSearch]             = useState('')
   const [studioStatusFilter, setStudioStatusFilter] = useState('all')
-
-  // Schedule save
-  const [savingScheduleId, setSavingScheduleId] = useState(null)
-
-  // ── Load series ───────────────────────────────────────────────────────────
-  const loadSeries = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await axiosClient.get('/Series')
-      const raw = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
-      const active = raw.filter(s => {
-        const st = normalizeStatus(s.status)
-        return st !== 'cancelled' && st !== 'completed'
-      })
-      setSeries(active)
-    } catch { /* interceptor toast */ }
-    finally { setLoading(false) }
-  }, [])
-
-  // ── Load chapter studio (phụ thuộc seriesById) ────────────────────────────
-  const loadStudioChapters = useCallback(async (seriesMap) => {
-    if (seriesMap.size === 0) return
-    setStudioLoading(true)
-    try {
-      const res = await axiosClient.get('/Chapters')
-      const raw = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
-      const active = raw.filter(ch => {
-        const st = normalizeStatus(ch.status)
-        return (
-          seriesMap.has(ch.seriesid) &&
-          st !== 'draft' &&
-          st !== 'cancelled'
-        )
-      })
-      setStudioChapters(active)
-    } catch { /* interceptor toast */ }
-    finally { setStudioLoading(false) }
-  }, [])
-
-  useEffect(() => { loadSeries() }, [loadSeries])
-
-  useEffect(() => {
-    if (loading) return
-    const map = new Map()
-    series.forEach(s => map.set(s.seriesid, s))
-    loadStudioChapters(map)
-  }, [loading, series, loadStudioChapters])
-
-  // ── Derived ───────────────────────────────────────────────────────────────
-  const seriesById = useMemo(() => {
-    const map = new Map()
-    series.forEach(s => map.set(s.seriesid, s))
-    return map
-  }, [series])
-
-  const debutQueue = useMemo(
-    () => series.filter(s => isDebutStatus(s.status)),
-    [series],
-  )
-
-  const ebQueue = useMemo(
-    () => series.filter(s => isEbStatus(s.status)),
-    [series],
-  )
-
-  const scheduleSeries = useMemo(
-    () => series
-      .filter(s => isApprovedStatus(s.status))
-      .map(s => ({ ...s, cadence: cadenceFromFormat(s.publishformat) })),
-    [series],
-  )
-
-  const studioQueue = useMemo(
-    () => studioChapters.map(ch => ({
-      ...ch,
-      seriesInfo: seriesById.get(ch.seriesid) ?? null,
-    })),
-    [studioChapters, seriesById],
-  )
 
   const filteredStudioQueue = useMemo(() => {
     const q = studioSearch.trim().toLowerCase()
@@ -274,105 +69,9 @@ export default function TantouEditor() {
     })
   }, [studioQueue, studioSearch, studioStatusFilter])
 
-  const delayedCount = useMemo(
-    () => studioQueue.filter(ch => normalizeStatus(ch.status) === 'delayed').length,
-    [studioQueue],
-  )
-
-  // ── Chapter + pages thật của series đang review ───────────────────────────
-  // Chỉ fetch khi đang mở review (reviewOpen) để tránh gọi API thừa.
-  const reviewSeriesId = reviewOpen ? selectedSub?.seriesid : undefined
-  const { data: reviewChapters = [], isLoading: reviewChaptersLoading } = useChapters(reviewSeriesId)
-
-  // Chapter đầu tiên (nhỏ nhất theo chapternumber) — đây là chapter Mangaka mới gửi lên
-  const reviewChapter = useMemo(() => {
-    if (!Array.isArray(reviewChapters) || reviewChapters.length === 0) return null
-    return [...reviewChapters].sort((a, b) => {
-      const an = a.chapternumber ?? a.Chapternumber ?? 0
-      const bn = b.chapternumber ?? b.Chapternumber ?? 0
-      return an - bn
-    })[0]
-  }, [reviewChapters])
-
-  const reviewChapterId = reviewChapter
-    ? (reviewChapter.chapterid ?? reviewChapter.Chapterid ?? reviewChapter.id)
-    : undefined
-
-  const { data: reviewPagesRaw = [], isLoading: reviewPagesLoading } = usePages(reviewChapterId)
-
-  // Map về shape gọn cho TantouPageReview: { serverPageId, url, name }
-  const reviewPages = useMemo(() => {
-    if (!Array.isArray(reviewPagesRaw)) return []
-    return reviewPagesRaw
-      .filter(p => p && (p.pageimageurl ?? p.Pageimageurl))
-      .sort((a, b) => (a.pagenumber ?? a.Pagenumber ?? 0) - (b.pagenumber ?? b.Pagenumber ?? 0))
-      .map((p, i) => ({
-        serverPageId: p.pageid ?? p.Pageid,
-        url: p.pageimageurl ?? p.Pageimageurl,
-        name: `Trang ${p.pagenumber ?? p.Pagenumber ?? i + 1}`,
-      }))
-  }, [reviewPagesRaw])
-
-  // ── Handlers ──────────────────────────────────────────────────────────────
   function handleLogout() {
     logout()
     navigate('/login')
-  }
-
-  function openReview(sub) {
-    setSelectedSub({ ...sub, __kind: 'series' })
-    setEditorialComment('')
-    setReviewPageIndex(0)
-    setReviewOpen(true)
-  }
-
-  function closeReview() {
-    setReviewOpen(false)
-    setSelectedSub(null)
-    loadSeries()
-  }
-
-  async function handleForwardEb() {
-    if (!selectedSub) return
-    try {
-      await axiosClient.patch(`/Series/${selectedSub.seriesid}/status`, { status: 'EBReview' })
-      toast.success(`Đã chuyển "${selectedSub.title}" sang ${LABEL_EDITOR_BOARD}.`)
-      setReviewOpen(false)
-      loadSeries()
-    } catch { /* interceptor toast */ }
-  }
-
-  async function handleRequestRevision() {
-    if (!selectedSub) return
-    if (!editorialComment.trim()) {
-      toast.error('Nhập ghi chú trước khi yêu cầu Mangaka chỉnh sửa.')
-      return
-    }
-    try {
-      await axiosClient.patch(`/Series/${selectedSub.seriesid}/request-revision`, {
-        Comment: editorialComment.trim(),
-      })
-      toast.success('Đã gửi yêu cầu chỉnh sửa cho Mangaka.')
-      setReviewOpen(false)
-      loadSeries()
-    } catch { /* interceptor toast */ }
-  }
-
-  async function handleSetSchedule(seriesid, cadence) {
-    const publishformat = cadence === 'weekly' ? 'Weekly' : 'Monthly'
-    setSavingScheduleId(seriesid)
-    try {
-      await axiosClient.patch(`/Series/${seriesid}/publish-format`, { Publishformat: publishformat })
-      toast.success(`Đã đặt lịch ${cadence === 'weekly' ? 'theo tuần' : 'theo tháng'}.`)
-      await loadSeries()
-    } catch { /* interceptor toast */ }
-    finally { setSavingScheduleId(null) }
-  }
-
-  function handleRefreshStudio() {
-    const map = new Map()
-    series.forEach(s => map.set(s.seriesid, s))
-    loadStudioChapters(map)
   }
 
   // ── Review mode ───────────────────────────────────────────────────────────
@@ -381,11 +80,8 @@ export default function TantouEditor() {
     const submission = {
       id:               selectedSub.seriesid,
       seriesTitle:      selectedSub.title,
-      chapterNum:       reviewChapter
-        ? (reviewChapter.chapternumber ?? reviewChapter.Chapternumber ?? '—')
-        : '—',
+      chapterNum:       reviewChapterNumber,
       pageLabel:        selectedSub.publishformat ?? '—',
-      // Ảnh bìa series — dùng làm fallback khi chapter chưa có trang nào
       mangakaImageUrl:  selectedSub.coverimageurl ?? null,
       mangakaNotes:     [],
       pipeline:         isDebut ? 'debut' : 'recurring',
@@ -404,13 +100,11 @@ export default function TantouEditor() {
             onForwardEb={handleForwardEb}
             onRequestRevision={handleRequestRevision}
             onApproveRecurring={undefined}
-            // Trang truyện thật từ Chapters/Pages — cho phép Tantou vẽ ô ghi chú
             pages={reviewPages}
-            pagesLoading={reviewChaptersLoading || reviewPagesLoading}
+            pagesLoading={reviewPagesLoading}
             pageIndex={reviewPageIndex}
             onPageIndexChange={setReviewPageIndex}
             chapterId={reviewChapterId}
-            // Lịch sử nhận xét — chưa có API, để rỗng tạm thời
             revisionHistory={[]}
           />
         </main>
@@ -420,7 +114,7 @@ export default function TantouEditor() {
 
   // ── Main render ───────────────────────────────────────────────────────────
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="ws-page--tantou flex min-h-screen flex-col bg-background">
       <Header links={NAV_LINKS} onLogout={user ? handleLogout : undefined} />
 
       <WorkspaceHero
@@ -687,42 +381,5 @@ export default function TantouEditor() {
 
       <Footer />
     </div>
-  )
-}
-
-function SidebarFlow({ onRefresh }) {
-  return (
-    <Card className="h-fit">
-      <CardHeader>
-        <CardTitle className="text-base">Luồng công việc</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm text-muted-foreground">
-        <div>
-          <p className="font-medium text-foreground">Lần đầu</p>
-          <p>Mangaka → Tantou → {LABEL_EDITOR_BOARD}</p>
-          <p className="mt-1 text-xs">
-            <code className="rounded bg-muted px-1">Draft → EditorReview → EBReview → Publishing</code>
-          </p>
-        </div>
-        <Separator />
-        <div>
-          <p className="font-medium text-foreground">Phát hành định kỳ</p>
-          <p>Studio → Ready → {LABEL_EDITOR_BOARD} duyệt → Published</p>
-          <p className="mt-1 text-xs">Tantou theo dõi tiến độ, không duyệt chapter.</p>
-        </div>
-        <Button variant="link" className="h-auto p-0" asChild>
-          <Link to={PATH_EDITOR_BOARD}>Mở {LABEL_EDITOR_BOARD} →</Link>
-        </Button>
-        <Separator />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
-          onClick={onRefresh}
-        >
-          Tải lại dữ liệu
-        </Button>
-      </CardContent>
-    </Card>
   )
 }

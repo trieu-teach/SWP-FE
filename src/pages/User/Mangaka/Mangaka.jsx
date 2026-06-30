@@ -1647,6 +1647,12 @@ export default function Mangaka() {
                   onUploadComplete={handleUploadComplete}
                   onSendToAssistant={handleSendToAssistant}
                   onSendToTantou={handleSendToTantou}
+                  onDeleteServerChapter={(serverChapterId) =>
+                    deleteChapter.mutate(serverChapterId, {
+                      onSuccess: () => toast.success('Đã xóa chapter trên server.'),
+                      onError: (err) => toast.error(err?.response?.data?.message ?? 'Xóa chapter thất bại.'),
+                    })
+                  }
                 />
               </TabsContent>
 

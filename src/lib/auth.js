@@ -52,11 +52,6 @@ export function clearSession() {
   window.dispatchEvent(new Event('auth-session-change'))
 }
 
-// Lấy giá trị đầu tiên có sẵn trong object (bỏ qua null/undefined/empty-string).
-// Dùng để chấp nhận cả snake_case (user_id) lẫn PascalCase (UserId, userId) từ
-// response backend — axiosClient.js đang normalize PascalCase → snake_case,
-// nhưng một số call site (ví dụ authService) cần fallback về PascalCase nếu
-// normalize bị tắt hoặc backend trả thẳng snake_case.
 function pick(obj, keys) {
   if (!obj) return null
   for (const k of keys) {
@@ -71,10 +66,6 @@ function buildSessionFromAuthResponse(data) {
 
   const jwtPayload = pick(data, ['token']) ? decodeJwtPayload(data.token) : {}
 
-  // Resolve role: ưu tiên chuỗi role hợp lệ, fallback roleId (snake & Pascal) từ
-  // response backend hoặc JWT.  Đảm bảo check cả hai dạng snake_case + PascalCase cho mọi
-  // field để chịu được cả response backend PascalCase lẫn response sau khi
-  // normalizeKeys của axiosClient đã convert thành snake_case.
   const rawRole = pick(data, ['role', 'Role'])
   const roleIdNum = Number(
     pick(data, ['roleid', 'role_id', 'Roleid', 'roleId', 'RoleId']) ??
@@ -88,6 +79,13 @@ function buildSessionFromAuthResponse(data) {
     roleKey = String(jwtPayload.role).toUpperCase()
   } else if (Number.isFinite(roleIdNum) && ROLE_ID_TO_KEY[roleIdNum]) {
     roleKey = ROLE_ID_TO_KEY[roleIdNum]
+  }
+
+  if (!roleKey) {
+    console.error(
+      '[auth] Không thể xác định role từ response backend.',
+      { rawRole, roleIdNum, jwtPayload, data }
+    )
   }
 
   const id = pick(data, ['user_id', 'userid', 'Userid', 'userId', 'UserId']) ??
@@ -113,7 +111,6 @@ export async function login(username, password) {
   const token = pick(data, ['token', 'Token'])
   if (!token) throw new Error('Phan hoi dang nhap khong hop le — khong co token.')
 
-  // Luu token truoc de cac API call sau co Bearer header
   const refreshToken = pick(data, ['refresh_token', 'refreshToken', 'RefreshToken'])
   if (token) localStorage.setItem('token', token)
   if (refreshToken) localStorage.setItem('refreshToken', refreshToken)
