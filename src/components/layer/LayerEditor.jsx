@@ -36,6 +36,7 @@ export default function LayerEditor({ chapter, pageId: pageIdProp, onSubmitted, 
   const [pageNotes, setPageNotes] = useState([])
   const [notesLoading, setNotesLoading] = useState(false)
   const [user, setUser] = useState(null)
+  const [hiddenNoteIds, setHiddenNoteIds] = useState(new Set())
 
   const safeIdx = Math.min(Math.max(0, pageIdx), Math.max(0, pages.length - 1))
   const safePage = pages[safeIdx] ?? null
@@ -113,6 +114,23 @@ export default function LayerEditor({ chapter, pageId: pageIdProp, onSubmitted, 
 
   const baseImage = showOriginal ? (originalImage ?? safePage?.url ?? null) : null
 
+  const handleToggleNote = useCallback((noteId) => {
+    setHiddenNoteIds(prev => {
+      const next = new Set(prev)
+      if (next.has(noteId)) {
+        next.delete(noteId)
+      } else {
+        next.add(noteId)
+      }
+      return next
+    })
+  }, [])
+
+  // Reset hidden notes when page changes
+  useEffect(() => {
+    setHiddenNoteIds(new Set())
+  }, [activePageId])
+
   const handleAddLayer = useCallback(async (file) => {
     if (!activePageId) {
       toast.error('Chưa có trang để thêm layer. Hãy chọn 1 trang trước.')
@@ -148,7 +166,7 @@ export default function LayerEditor({ chapter, pageId: pageIdProp, onSubmitted, 
       )
       // Update chapter status
       if (chaptersService.updateStatus) {
-        await chaptersService.updateStatus(chapter.chapterId, 'MangakaReview')
+        await chaptersService.updateStatus(chapter.chapterId, 'Ready')
       }
       toast.success('Đã gửi chapter cho Mangaka.')
       onSubmitted?.()
@@ -349,8 +367,9 @@ export default function LayerEditor({ chapter, pageId: pageIdProp, onSubmitted, 
               fullscreen={fullscreen}
               baseImage={baseImage}
               className="absolute inset-0 h-full w-full"
-              notes={pageNotes}
+              notes={pageNotes.filter(n => !hiddenNoteIds.has(n.id))}
               showNotes={showNotes}
+              onToggleNote={handleToggleNote}
             />
           </div>
 

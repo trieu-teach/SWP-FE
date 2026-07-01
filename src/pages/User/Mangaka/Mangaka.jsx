@@ -67,15 +67,14 @@ import {
 } from '@/utils/mangakaWorkspaceStorage.js'
 import { resolveAnnotatorChapter } from '@/utils/mangakaWorkspaceReader.js'
 import {
-  buildSubmissionFromMangakaPage,
   getAssistantSubmission,
   getPendingDeliverableForMangaka,
-  pushAssistantSubmission,
   hydrateAssistantDeliverable,
   migrateAssistantStorage,
   updateDeliverableStatus,
 } from '@/utils/assistantWorkspaceStorage.js'
 import { pageIssuesService, seriesService } from '@/api'
+import { getNoteTaskBeMapping } from '@/constants/workspaceTasks.js'
 import {
   listTantouSubmissions,
   pushTantouSubmissionFromMangaka,
@@ -400,11 +399,11 @@ export default function Mangaka() {
   )
   const { data: annotateChaptersRaw = [] } = useChapters(annotateSeriesId || undefined)
 
-  // Chapter chờ Mangaka duyệt (status = MangakaReview khi Assistant gửi bản ghép về)
+  // Chapter chờ Mangaka duyệt (status = 'Ready' khi Assistant gửi bản ghép về)
   const pendingFromAssistant = useMemo(
     () => (annotateChaptersRaw || []).filter(c => {
       const s = String(c.status ?? c.Status ?? '').toLowerCase().replace(/[\s_-]/g, '')
-      return s === 'mangakareview'
+      return s === 'ready'
     }),
     [annotateChaptersRaw],
   )
@@ -491,26 +490,11 @@ export default function Mangaka() {
   const [tantouSendReady, setTantouSendReady] = useState(null)
   const [rosterTick, setRosterTick] = useState(0)
 
-  // Use API data merged with optimistic local changes; deduplicate by id to avoid React key collisions.
-  //
-  // QUAN TRỌNG: phải useMemo ở đây. Nếu để là biểu thức thường (tính lại mỗi render), mảng này
-  // sẽ có IDENTITY MỚI ở MỌI lần render — kể cả khi nội dung không đổi. Vì nhiều useEffect/useMemo
-  // bên dưới (vd. effect xử lý location.state, workspaceSnapshot, chapterRowsBySeries...) đều
-  // phụ thuộc trực tiếp vào seriesList/chapterRows, identity-mới-mỗi-render khiến các effect đó
-  // chạy lại liên tục. Nếu effect nào trong số đó gọi setState KHÔNG điều kiện (như effect
-  // location.state từng gọi setLocationKey vô điều kiện), sẽ tạo vòng lặp:
-  //   render → seriesList mới → effect chạy → setState → re-render → seriesList lại mới → ...
-  // → React throw "Maximum update depth exceeded" → ErrorBoundary hiện trang trắng báo lỗi.
-  const seriesList = useMemo(
-    () => Object.values(
-      [...apiSeries, ...localSeriesList].reduce((acc, s) => ({ ...acc, [s.id]: s }), {}),
-    ),
-    [apiSeries, localSeriesList],
+  // Use API data merged with optimistic local changes; deduplicate by id to avoid React key collisions
+  const seriesList = Object.values(
+    [...apiSeries, ...localSeriesList].reduce((acc, s) => ({ ...acc, [s.id]: s }), {}),
   )
-  const chapterRows = useMemo(
-    () => [...apiChapters, ...localChapterRows],
-    [apiChapters, localChapterRows],
-  )
+  const chapterRows = [...apiChapters, ...localChapterRows]
 
   // Real chapter ID on backend for the currently active annotator chapter
   const annotatorServerChapterId = useMemo(() => {
@@ -616,16 +600,16 @@ export default function Mangaka() {
 
   function handleSendToAssistant({ chapter, pageIndex, pageUrl, pageName, notes, assistantId }) {
     if (!notes?.length) return
-    const assistant = hiredAssistants.find(a => String(a.assistantId) === String(assistantId))
+    const activePage = chapter?.pages?.[pageIndex]
+    const realPageId = activePage?.serverPageId ?? activePage?.apiPageId
     console.log('[Mangaka] handleSendToAssistant →', {
       series: chapter.series,
       chapterId: chapter.id,
       chapterNum: chapter.num,
       pageIndex,
       assistantId,
-      assistantName: assistant?.name,
       notesCount: notes.length,
-      activePageApiId: chapter?.pages?.[pageIndex]?.apiPageId,
+      activePageServerId: realPageId,
     })
     const submission = buildSubmissionFromMangakaPage({
       seriesTitle: chapter.series,
@@ -649,20 +633,21 @@ export default function Mangaka() {
         const issueType = note.taskType === 'revision' ? 'Revision' : note.taskType === 'production' ? 'Production' : 'Revision'
         const workCategory = note.taskType === 'background' ? 'Background'
           : note.taskType === 'dialog' ? 'Dialog'
-            : note.taskType === 'ink' ? 'Inking'
-              : note.taskType === 'fx' ? 'Effects'
-                : note.taskType === 'shading' ? 'Shading'
-                  : 'Content'
+          : note.taskType === 'ink' ? 'Inking'
+          : note.taskType === 'fx' ? 'Effects'
+          : note.taskType === 'shading' ? 'Shading'
+          : 'Content'
         pageIssuesService.create({
-          pageId: activePage.apiPageId,
-          createdById: user.id,
-          issueType,
-          workCategory,
-          boxX: Math.round(note.x),
-          boxY: Math.round(note.y),
-          boxWidth: Math.round(note.w),
-          boxHeight: Math.round(note.h),
-          description: note.text ?? note.content ?? '',
+          Pageid: realPageId,
+          CreatedById: user.id,
+          AssignedToId: Number(assistantId) || null,
+          IssueType: beMapping.IssueType,
+          WorkCategory: beMapping.WorkCategory,
+          BoxX: Math.round(note.x),
+          BoxY: Math.round(note.y),
+          BoxWidth: Math.round(note.w),
+          BoxHeight: Math.round(note.h),
+          Description: note.text ?? note.content ?? '',
         }).then(r => console.log('[Mangaka] pageIssuesService.create OK →', { noteClientKey: note.clientKey, response: JSON.stringify(r?.data) }))
           .catch(e => console.error('[Mangaka] pageIssuesService.create FAILED →', { noteClientKey: note.clientKey, error: e?.response?.data ?? e.message }))
       })
@@ -676,11 +661,7 @@ export default function Mangaka() {
       ),
     )
 
-    // Chapter vẫn giữ 'InProduction' khi Assistant đang làm — Assistant chỉ tạo PageIssue,
-    // KHÔNG đổi status chapter. Status chỉ chuyển sang 'Ready' khi Mangaka bấm "Hoàn tất chapter".
-    // (Enum BE: InProduction → Ready → Published; không có 'StudioWorking'/'SubmittedToEditor'.)
-
-    toast.success(`Đã gửi ${submission.pageLabel} (${notes.length} ô) cho ${assistant?.label ?? 'Assistant'}.`)
+    toast.success(`Đã gửi (${notes.length} ô) cho Assistant.`)
   }
 
   function sendChapterToTantou({ series, chapter, pageIndex = 0, pageName, notes = [], imageOverride }) {

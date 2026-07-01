@@ -5,7 +5,7 @@ import { contractsService } from '@/api'
 import { chaptersService } from '@/api'
 import { seriesService } from '@/api'
 import { pagesService } from '@/api'
-import { listAssistantSubmissions } from '@/utils/assistantWorkspaceStorage.js'
+import { pageIssuesService } from '@/api'
 
 async function enrichChapterWithSeries(chapter) {
   const cid = chapter.chapterid ?? chapter.Chapterid ?? chapter.id ?? null
@@ -124,30 +124,24 @@ export function useAssistantAssignments() {
       const chapterAssignments = await Promise.all(chapterList.map(enrichChapterWithSeries))
       console.log('[useAssistantAssignments] chapterAssignments:', chapterAssignments.map(a => ({ chapterId: a.chapterId, pageCount: a.pageCount, firstPageUrl: a.pages[0]?.url })))
 
-      // Lay contracts (quan he mangaka-assistant)
+      // Lay contracts (quan he mangaka-assistant) — chua co chapter
       const contractsRes = await contractsService.getAll({ assistantId })
       const contractList = Array.isArray(contractsRes?.data) ? contractsRes.data : []
       console.log('[useAssistantAssignments] contractsRes →', JSON.stringify(contractList.map(c => ({ contractId: c.contract_id, mangakaId: c.mangaka_id, assistantId: c.assistant_id }))))
       const contractAssignments = await Promise.all(contractList.map(enrichContract))
 
-      // Lay submissions tu localStorage, loc theo assistantId
-      const rawSubs = listAssistantSubmissions()
-      const mySubs = rawSubs.filter(
-        s => s.assistantId != null && String(s.assistantId) === String(assistantId),
-      )
-      console.log('[useAssistantAssignments] rawSubs count:', rawSubs.length, 'mySubs count:', mySubs.length, 'mySubs:', mySubs.map(s => ({ id: s.id, chapterId: s.chapterId, seriesTitle: s.seriesTitle })))
-
-      // Merge: chapter assignments + contract assignments + submissions
+      // Merge: chapter assignments + contract assignments
+      // (da bo localStorage submissions - bay gio chi lay tu API)
       const seriesIds = new Set(chapterAssignments.map(a => a.seriesId).filter(Boolean))
       const extraContracts = contractAssignments.filter(a => !a.seriesId || !seriesIds.has(a.seriesId))
 
-      const merged = [...chapterAssignments, ...extraContracts, ...mySubs]
+      const merged = [...chapterAssignments, ...extraContracts]
       console.log('[useAssistantAssignments] merged assignments →', merged.map(a => ({
-        key: a.id ?? a.contractId ?? a.chapterId,
+        key: a.contractId ?? a.chapterId,
         chapterId: a.chapterId,
         seriesTitle: a.seriesTitle,
         pageCount: a.pageCount,
-        source: a.id ? 'submission' : a.contractId ? 'contract' : 'chapter',
+        source: a.contractId ? 'contract' : 'chapter',
       })))
       setAssignments(merged)
     } catch (err) {

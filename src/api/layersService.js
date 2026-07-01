@@ -1,13 +1,9 @@
-import axios from './axiosClient'
-
-function unwrap(res) {
-  return res?.data !== undefined ? res.data : res
-}
+import axiosClient from './axiosClient'
 
 export const layersService = {
-  // GET /PageLayers/{id} → PageLayerDto (single)
+  // GET /PageLayers?pageId=N
   list(pageId) {
-    return axios.get(`/PageLayers/${pageId}`).then(unwrap)
+    return axiosClient.get('/PageLayers', { params: pageId != null ? { pageId } : undefined })
   },
 
   // POST /PageLayers (multipart): layerFile + pageid + uploaderid + layername + zindex + opacity
@@ -19,7 +15,7 @@ export const layersService = {
     if (layerName) fd.append('layername', layerName)
     if (index != null) fd.append('zindex', String(index))
     fd.append('opacity', Number(opacity).toFixed(2))
-    return axios.post('/PageLayers', fd).then(unwrap)
+    return axiosClient.post('/PageLayers', fd)
   },
 
   // PUT /PageLayers/:id (multipart)
@@ -30,21 +26,21 @@ export const layersService = {
     if (patch.opacity !== undefined) fd.append('opacity', Number(patch.opacity).toFixed(2))
     if (patch.versionNumber !== undefined) fd.append('versionnumber', String(patch.versionNumber))
     if (patch.file !== undefined) fd.append('layerFile', patch.file)
-    return axios.put(`/PageLayers/${layerId}`, fd).then(unwrap)
+    return axiosClient.put(`/PageLayers/${layerId}`, fd)
   },
 
   // DELETE /PageLayers/:id/soft
   softDeleteLayer(layerId) {
-    return axios.delete(`/PageLayers/${layerId}/soft`).then(unwrap)
+    return axiosClient.delete(`/PageLayers/${layerId}/soft`)
   },
 
   // PATCH /PageLayers/:id/visibility
   toggleVisibility(layerId) {
-    return axios.patch(`/PageLayers/${layerId}/visibility`).then(unwrap)
+    return axiosClient.patch(`/PageLayers/${layerId}/visibility`)
   },
 
   // GET /Pages/:id/composite (gộp ảnh → trả Pageimageurl)
   finalize(pageId) {
-    return axios.post(`/Pages/${pageId}/composite`).then(unwrap)
+    return axiosClient.post(`/Pages/${pageId}/composite`)
   },
 }
