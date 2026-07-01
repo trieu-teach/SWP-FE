@@ -9,22 +9,22 @@ import {
   isApprovedStatus,
   isEbStatus,
   cadenceFromFormat,
-} from '@/pages/User/Tantou/TantouEditor.helpers.js'
+} from '@/pages/User/Tantou/TantouEditor.helpers.jsx'
 
 export function useTantouWorkspace() {
   // ── Series ──────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true)
-  const [series, setSeries]   = useState([])
+  const [series, setSeries] = useState([])
 
   // ── Studio chapters (chỉ xem — duyệt chapter là quyền EB) ────────────────
-  const [studioLoading, setStudioLoading]   = useState(false)
+  const [studioLoading, setStudioLoading] = useState(false)
   const [studioChapters, setStudioChapters] = useState([])
 
   // ── Review (Mangaka → Tantou) ────────────────────────────────────────────
-  const [selectedSub, setSelectedSub]           = useState(null)
-  const [reviewOpen, setReviewOpen]             = useState(false)
+  const [selectedSub, setSelectedSub] = useState(null)
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [editorialComment, setEditorialComment] = useState('')
-  const [reviewPageIndex, setReviewPageIndex]   = useState(0)
+  const [reviewPageIndex, setReviewPageIndex] = useState(0)
 
   // ── Lịch xuất bản ─────────────────────────────────────────────────────────
   const [savingScheduleId, setSavingScheduleId] = useState(null)
@@ -162,9 +162,16 @@ export function useTantouWorkspace() {
     loadSeries()
   }
 
+  // Backend state machine: Draft → EditorReview → EBReview (không cho nhảy thẳng
+  // Draft → EBReview, xem _validTransitions trong SeriesService.cs). Tantou "Chuyển
+  // sang EB" phải đi qua EditorReview trước nếu series đang ở Draft.
   async function handleForwardEb() {
     if (!selectedSub) return
     try {
+      const currentStatus = normalizeStatus(selectedSub.status)
+      if (currentStatus === 'draft') {
+        await axiosClient.patch(`/Series/${selectedSub.seriesid}/status`, { status: 'EditorReview' })
+      }
       await axiosClient.patch(`/Series/${selectedSub.seriesid}/status`, { status: 'EBReview' })
       toast.success(`Đã chuyển "${selectedSub.title}" sang ${LABEL_EDITOR_BOARD}.`)
       setReviewOpen(false)

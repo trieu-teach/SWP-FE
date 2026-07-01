@@ -1,4 +1,4 @@
-import { handleCoverImgError } from '@/pages/User/Tantou/TantouEditor.helpers.js'
+import { handleCoverImgError } from '@/pages/User/Tantou/TantouEditor.helpers.jsx'
 
 export function CoverThumb({ url, sizeClass = 'size-16 sm:size-20' }) {
   return (

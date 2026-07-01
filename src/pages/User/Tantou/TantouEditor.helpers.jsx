@@ -13,7 +13,7 @@ import { getSession, logout } from '@/lib/auth.js'
 import { LABEL_EDITOR_BOARD, LABEL_TANTOU_EDITOR } from '@/constants/roleTerminology.js'
 import { NAV_LINKS } from '@/constants/tantou.js'
 import { useTantouWorkspace } from '@/hooks/Usetantouworkspace.js'
-import { normalizeStatus, isDebutStatus, isApprovedStatus, isEbStatus, statusLabel } from './TantouEditor.helpers.jsx'
+import { normalizeStatus, isDebutStatus, isApprovedStatus, statusLabel } from './TantouEditor.helpers.js'
 import { CoverThumb } from '@/components/User/Tantou/CoverThumb.jsx'
 import { SubmissionCard } from '@/components/User/Tantou/SubmissionCard.jsx'
 import { StudioChapterCard } from '@/components/User/Tantou/StudioChapterCard.jsx'
@@ -22,7 +22,7 @@ import TantouPageReview from './TantouPageReview.jsx'
 import './TantouEditor.css'
 
 const DAY_MS = 24 * 60 * 60 * 1000
-const URGENT_THRESHOLD_DAYS = 14  // deadline còn ≤ 14 ngày → coi là gấp
+const URGENT_THRESHOLD_DAYS = 14  // deadline còn ≤ 2 ngày → coi là gấp
 
 function getDaysLeft(deadline) {
   if (!deadline) return null
@@ -41,18 +41,6 @@ function urgencyLabel(daysLeft) {
   if (daysLeft < 0) return `Quá hạn ${Math.ceil(Math.abs(daysLeft))} ngày`
   if (daysLeft < 1) return 'Gấp — hôm nay/ngày mai'
   return `Còn ${Math.ceil(daysLeft)} ngày`
-}
-
-// ── Xác định layer luồng của 1 chapter ──────────────────────────────────────
-// - 'done'        : chapter đã Published
-// - 'eb'          : chapter Ready HOẶC series cha đang nằm ở EB (EBReview) → đã gửi/đang chờ EB chấm
-// - 'inprogress'  : còn lại — đang làm, chưa tới lượt EB
-function getChapterLayer(item) {
-  const st = normalizeStatus(item.status)
-  if (st === 'published') return 'done'
-  const seriesWithEb = item.seriesInfo && isEbStatus(item.seriesInfo.status)
-  if (seriesWithEb || st === 'ready') return 'eb'
-  return 'inprogress'
 }
 
 export default function TantouEditor() {
@@ -103,13 +91,12 @@ export default function TantouEditor() {
     })
   }, [studioQueue, studioSearch, studioStatusFilter])
 
-  // ── Chapter cần xử lý gấp (deadline gần/đã quá hạn, chưa published, ─────
-  //    chưa gửi EB) ─────────────────────────────────────────────────────────
-  // Chapter đã ở layer 'eb' hoặc 'done' thì không còn là việc "Tantou cần xử lý gấp" nữa.
+  // ── Chapter cần xử lý gấp (deadline gần/đã quá hạn, chưa published) ──────
   const urgentChapters = useMemo(() => {
     return studioQueue
       .filter(ch => {
-        if (getChapterLayer(ch) !== 'inprogress') return false
+        const st = normalizeStatus(ch.status)
+        if (st === 'published') return false
         const daysLeft = getDaysLeft(ch.deadline)
         return daysLeft !== null && daysLeft <= URGENT_THRESHOLD_DAYS
       })
@@ -117,13 +104,10 @@ export default function TantouEditor() {
       .sort((a, b) => a.daysLeft - b.daysLeft) // quá hạn / gần hạn nhất lên đầu
   }, [studioQueue])
 
-  // ── Gom chapter theo 3 layer, trong mỗi layer gom tiếp theo series ────────
-  const layeredStudioQueue = useMemo(() => {
-    const maps = { inprogress: new Map(), eb: new Map(), done: new Map() }
-
+  // ── Gom chapter theo series, sắp theo ngày tạo chapter (mới nhất trước) ──
+  const groupedStudioQueue = useMemo(() => {
+    const map = new Map()
     for (const item of filteredStudioQueue) {
-      const layer = getChapterLayer(item)
-      const map = maps[layer]
       const seriesId = item.seriesInfo?.seriesid ?? item.seriesid ?? 'unknown'
       if (!map.has(seriesId)) {
         map.set(seriesId, {
@@ -138,28 +122,24 @@ export default function TantouEditor() {
 
     const getCreatedAt = item => new Date(item.createdat ?? item.createdAt ?? 0).getTime()
 
-    const result = {}
-    for (const layerKey of ['inprogress', 'eb', 'done']) {
-      const groups = Array.from(maps[layerKey].values())
-      for (const group of groups) {
-        group.chapters.sort((a, b) => getCreatedAt(b) - getCreatedAt(a))
-        group.latestCreatedAt = group.chapters.length ? getCreatedAt(group.chapters[0]) : 0
-      }
-      groups.sort((a, b) => {
-        if (b.latestCreatedAt !== a.latestCreatedAt) return b.latestCreatedAt - a.latestCreatedAt
-        return a.seriesTitle.localeCompare(b.seriesTitle)
-      })
-      result[layerKey] = groups
-    }
-    return result
-  }, [filteredStudioQueue])
+    const groups = Array.from(map.values())
 
-  // ── Định nghĩa 3 section hiển thị (thứ tự luồng: làm → chờ EB → xong) ────
-  const studioSections = [
-    { key: 'inprogress', label: 'Đang thực hiện',                    dot: 'bg-sky-500',    groups: layeredStudioQueue.inprogress },
-    { key: 'eb',         label: `Đang chờ ${LABEL_EDITOR_BOARD} chấm`, dot: 'bg-violet-500', groups: layeredStudioQueue.eb },
-    { key: 'done',       label: 'Đã phát hành',                      dot: 'bg-emerald-500', groups: layeredStudioQueue.done },
-  ]
+    // Sort chapter trong từng series theo ngày tạo (mới nhất trước)
+    for (const group of groups) {
+      group.chapters.sort((a, b) => getCreatedAt(b) - getCreatedAt(a))
+      group.latestCreatedAt = group.chapters.length ? getCreatedAt(group.chapters[0]) : 0
+    }
+
+    // Sort series theo ngày tạo chapter mới nhất, rồi theo tên series
+    groups.sort((a, b) => {
+      if (b.latestCreatedAt !== a.latestCreatedAt) {
+        return b.latestCreatedAt - a.latestCreatedAt
+      }
+      return a.seriesTitle.localeCompare(b.seriesTitle)
+    })
+
+    return groups
+  }, [filteredStudioQueue])
 
   function handleLogout() {
     logout()
@@ -217,6 +197,59 @@ export default function TantouEditor() {
       />
 
       <main className="page-container flex-1 py-8">
+        {/* ── Banner global: cần xử lý gấp (hiện trên mọi tab) ── */}
+        {!loading && urgentChapters.length > 0 && (
+          <Card className="mb-6 border-destructive/40 bg-destructive/5">
+            <CardContent className="space-y-3 px-4 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-destructive">
+                  <AlertTriangle className="size-4" />
+                  Cần xử lý gấp ({urgentChapters.length})
+                </div>
+                {tab !== 'studio' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 border-destructive/40 text-xs text-destructive hover:bg-destructive/10"
+                    onClick={() => setTab('studio')}
+                  >
+                    Xem chi tiết
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-2">
+                {urgentChapters.map(ch => (
+                  <div
+                    key={ch.chapterid}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-background/60 px-3 py-2 text-sm"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="font-medium">
+                        {ch.seriesInfo?.title ?? 'Không rõ series'}
+                      </span>
+                      <span className="text-muted-foreground">·</span>
+                      <span className="text-muted-foreground">
+                        Ch.{ch.chapternumber} — {ch.title}
+                      </span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        Deadline: {formatDeadline(ch.deadline)}
+                      </span>
+                      <Badge
+                        variant={ch.daysLeft < 0 ? 'destructive' : 'default'}
+                        className="text-[10px]"
+                      >
+                        {urgencyLabel(ch.daysLeft)}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         <Tabs value={tab} onValueChange={setTab} className="space-y-6">
           <TabsList className="h-auto flex-wrap">
             <TabsTrigger value="debut" className="gap-2">
@@ -390,60 +423,41 @@ export default function TantouEditor() {
                 </CardContent>
               </Card>
             ) : (
-              <div className="space-y-8">
-                {studioSections.map(section => {
-                  const totalChapters = section.groups.reduce((sum, g) => sum + g.chapters.length, 0)
-                  if (totalChapters === 0) return null
-                  return (
-                    <div key={section.key} className="space-y-4">
-                      <div className="flex items-center gap-2">
-                        <span className={`size-2 rounded-full ${section.dot}`} />
-                        <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                          {section.label}
-                        </h3>
-                        <Badge variant="outline" className="text-[10px]">{totalChapters}</Badge>
-                      </div>
-
-                      <div className="space-y-5">
-                        {section.groups.map(group => (
-                          <div key={group.seriesId} className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <CoverThumb url={group.coverUrl} />
-                              <h4 className="font-semibold">{group.seriesTitle}</h4>
-                              <Badge variant="outline" className="text-[10px]">
-                                {group.chapters.length}
-                              </Badge>
-                            </div>
-                            <div className="space-y-2 border-l-2 border-border pl-3">
-                              {group.chapters.map(item => {
-                                const daysLeft = getDaysLeft(item.deadline)
-                                const isUrgent =
-                                  section.key === 'inprogress' &&
-                                  daysLeft !== null &&
-                                  daysLeft <= URGENT_THRESHOLD_DAYS
-                                return (
-                                  <div key={item.chapterid} className="relative">
-                                    {isUrgent && (
-                                      <Badge
-                                        variant="destructive"
-                                        className="absolute -top-2 -right-2 z-10 gap-1 text-[10px] px-1.5 py-0.5"
-                                      >
-                                        <AlertTriangle className="size-3" />
-                                        {urgencyLabel(daysLeft)}
-                                      </Badge>
-                                    )}
-                                    <StudioChapterCard item={item} />
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+              <div className="space-y-5">
+                {groupedStudioQueue.map(group => (
+                  <div key={group.seriesId} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <CoverThumb url={group.coverUrl} />
+                      <h3 className="font-semibold">{group.seriesTitle}</h3>
+                      <Badge variant="outline" className="text-[10px]">
+                        {group.chapters.length}
+                      </Badge>
                     </div>
-                  )
-                })}
-
+                    <div className="space-y-2 border-l-2 border-border pl-3">
+                      {group.chapters.map(item => {
+                        const daysLeft = getDaysLeft(item.deadline)
+                        const isUrgent =
+                          daysLeft !== null &&
+                          daysLeft <= URGENT_THRESHOLD_DAYS &&
+                          normalizeStatus(item.status) !== 'published'
+                        return (
+                          <div key={item.chapterid} className="relative">
+                            {isUrgent && (
+                              <Badge
+                                variant="destructive"
+                                className="absolute -top-2 -right-2 z-10 gap-1 text-[10px] px-1.5 py-0.5"
+                              >
+                                <AlertTriangle className="size-3" />
+                                {urgencyLabel(daysLeft)}
+                              </Badge>
+                            )}
+                            <StudioChapterCard item={item} />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
                 {filteredStudioQueue.length < studioQueue.length && (
                   <p className="text-center text-xs text-muted-foreground">
                     Hiện {filteredStudioQueue.length} / {studioQueue.length} chương

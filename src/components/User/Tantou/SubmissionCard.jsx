@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { statusVariant, statusLabel } from '@/pages/User/Tantou/TantouEditor.helpers.js'
+import { statusVariant, statusLabel } from '@/pages/User/Tantou/TantouEditor.helpers.jsx'
 import { CoverThumb } from './CoverThumb.jsx'
 
 export function SubmissionCard({ sub, onReview }) {
