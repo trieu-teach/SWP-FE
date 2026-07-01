@@ -34,6 +34,7 @@ export default function LayerCanvas({
   baseImage,
   notes = [],
   showNotes = true,
+  onToggleNote,
   fullscreen = false,
 }) {
   const containerRef = useRef(null)
@@ -245,12 +246,30 @@ export default function LayerCanvas({
           transition: isPanning ? 'none' : undefined,
           flexShrink: 0,
         }}
+        onClick={(e) => {
+          if (!onToggleNote || !showNotes || notes.length === 0) return
+          const rect = e.currentTarget.getBoundingClientRect()
+          const scaleX = width / rect.width
+          const scaleY = height / rect.height
+          const clickX = (e.clientX - rect.left) * scaleX
+          const clickY = (e.clientY - rect.top) * scaleY
+          for (const note of notes) {
+            const nx = (canvas.width * (note.x ?? note.boxx ?? note.boxX ?? 0)) / 100
+            const ny = (canvas.height * (note.y ?? note.boxy ?? note.boxY ?? 0)) / 100
+            const nw = (canvas.width * (note.w ?? note.boxwidth ?? note.boxWidth ?? 10)) / 100
+            const nh = (canvas.height * (note.h ?? note.boxheight ?? note.boxHeight ?? 10)) / 100
+            if (clickX >= nx && clickX <= nx + nw && clickY >= ny && clickY <= ny + nh) {
+              onToggleNote(note.id)
+              break
+            }
+          }
+        }}
       >
         <canvas
           ref={canvasRef}
           width={width}
           height={height}
-          className="block"
+          className="block cursor-pointer"
         />
 
         {sorted.length === 0 && (

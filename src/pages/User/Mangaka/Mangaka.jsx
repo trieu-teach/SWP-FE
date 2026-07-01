@@ -67,15 +67,14 @@ import {
 } from '@/utils/mangakaWorkspaceStorage.js'
 import { resolveAnnotatorChapter } from '@/utils/mangakaWorkspaceReader.js'
 import {
-  buildSubmissionFromMangakaPage,
   getAssistantSubmission,
   getPendingDeliverableForMangaka,
-  pushAssistantSubmission,
   hydrateAssistantDeliverable,
   migrateAssistantStorage,
   updateDeliverableStatus,
 } from '@/utils/assistantWorkspaceStorage.js'
 import { pageIssuesService, seriesService } from '@/api'
+import { getNoteTaskBeMapping } from '@/constants/workspaceTasks.js'
 import {
   listTantouSubmissions,
   pushTantouSubmissionFromMangaka,
@@ -400,11 +399,11 @@ export default function Mangaka() {
   )
   const { data: annotateChaptersRaw = [] } = useChapters(annotateSeriesId || undefined)
 
-  // Chapter chờ Mangaka duyệt (status = MangakaReview khi Assistant gửi bản ghép về)
+  // Chapter chờ Mangaka duyệt (status = 'Ready' khi Assistant gửi bản ghép về)
   const pendingFromAssistant = useMemo(
     () => (annotateChaptersRaw || []).filter(c => {
       const s = String(c.status ?? c.Status ?? '').toLowerCase().replace(/[\s_-]/g, '')
-      return s === 'mangakareview'
+      return s === 'ready'
     }),
     [annotateChaptersRaw],
   )
@@ -623,53 +622,40 @@ export default function Mangaka() {
 
   function handleSendToAssistant({ chapter, pageIndex, pageUrl, pageName, notes, assistantId }) {
     if (!notes?.length) return
-    const assistant = hiredAssistants.find(a => String(a.assistantId) === String(assistantId))
+    const activePage = chapter?.pages?.[pageIndex]
+    const realPageId = activePage?.serverPageId ?? activePage?.apiPageId
     console.log('[Mangaka] handleSendToAssistant →', {
       series: chapter.series,
       chapterId: chapter.id,
       chapterNum: chapter.num,
       pageIndex,
       assistantId,
-      assistantName: assistant?.name,
       notesCount: notes.length,
-      activePageApiId: chapter?.pages?.[pageIndex]?.apiPageId,
+      activePageServerId: realPageId,
     })
-    const submission = buildSubmissionFromMangakaPage({
-      seriesTitle: chapter.series,
-      chapterId: chapter.id,
-      chapterNum: chapter.num,
-      pageIndex,
-      pageName,
-      mangakaImageUrl: pageUrl,
-      notes,
-      mangakaName: user?.name ?? 'Mangaka',
-      assistantId,
-    })
-    console.log('[Mangaka] submission built →', { id: submission.id, chapterId: submission.chapterId, notes: submission.notes.map(n => n.clientKey) })
-    void pushAssistantSubmission(submission)
-    console.log('[Mangaka] submission pushed to localStorage, chapterId used:', submission.chapterId)
 
-    const activePage = chapter?.pages?.[pageIndex]
-    // Save notes to API (mapping sang field backend: PageId, CreatedById, IssueType, WorkCategory, BoxX/Y/W/H, Description)
-    if (user?.id && activePage?.apiPageId) {
-      notes.forEach((note) => {
-        const issueType = note.taskType === 'revision' ? 'Revision' : note.taskType === 'production' ? 'Production' : 'Revision'
-        const workCategory = note.taskType === 'background' ? 'Background'
-          : note.taskType === 'dialog' ? 'Dialog'
-            : note.taskType === 'ink' ? 'Inking'
-              : note.taskType === 'fx' ? 'Effects'
-                : note.taskType === 'shading' ? 'Shading'
-                  : 'Content'
+    // Save notes to API (mapping sang field backend theo DTOs/PageIssueDto.cs).
+    // assignedToId = User.Id (int) của Assistant, được truyền từ ChapterAnnotator dropdown.
+    // BE validate [Required] cho Description → phải có text trước khi gửi.
+    if (user?.id && realPageId) {
+      const validNotes = notes.filter(n => (n.text ?? n.content ?? '').trim().length > 0)
+      if (!validNotes.length) {
+        console.warn('[Mangaka] handleSendToAssistant: all notes empty → skip API', { total: notes.length })
+        return
+      }
+      validNotes.forEach((note) => {
+        const beMapping = getNoteTaskBeMapping(note.taskType)
         pageIssuesService.create({
-          pageId: activePage.apiPageId,
-          createdById: user.id,
-          issueType,
-          workCategory,
-          boxX: Math.round(note.x),
-          boxY: Math.round(note.y),
-          boxWidth: Math.round(note.w),
-          boxHeight: Math.round(note.h),
-          description: note.text ?? note.content ?? '',
+          Pageid: realPageId,
+          CreatedById: user.id,
+          AssignedToId: Number(assistantId) || null,
+          IssueType: beMapping.IssueType,
+          WorkCategory: beMapping.WorkCategory,
+          BoxX: Math.round(note.x),
+          BoxY: Math.round(note.y),
+          BoxWidth: Math.round(note.w),
+          BoxHeight: Math.round(note.h),
+          Description: note.text ?? note.content ?? '',
         }).then(r => console.log('[Mangaka] pageIssuesService.create OK →', { noteClientKey: note.clientKey, response: JSON.stringify(r?.data) }))
           .catch(e => console.error('[Mangaka] pageIssuesService.create FAILED →', { noteClientKey: note.clientKey, error: e?.response?.data ?? e.message }))
       })
@@ -683,11 +669,7 @@ export default function Mangaka() {
       ),
     )
 
-    // Chapter vẫn giữ 'InProduction' khi Assistant đang làm — Assistant chỉ tạo PageIssue,
-    // KHÔNG đổi status chapter. Status chỉ chuyển sang 'Ready' khi Mangaka bấm "Hoàn tất chapter".
-    // (Enum BE: InProduction → Ready → Published; không có 'StudioWorking'/'SubmittedToEditor'.)
-
-    toast.success(`Đã gửi ${submission.pageLabel} (${notes.length} ô) cho ${assistant?.label ?? 'Assistant'}.`)
+    toast.success(`Đã gửi (${notes.length} ô) cho Assistant.`)
   }
 
   function sendChapterToTantou({ series, chapter, pageIndex = 0, pageName, notes = [], imageOverride }) {

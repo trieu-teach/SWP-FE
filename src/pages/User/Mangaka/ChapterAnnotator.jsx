@@ -194,10 +194,9 @@ export default function ChapterAnnotator({
   const localMangakaId = useMemo(() => {
     const u = getSession()
     return u?.id ?? u?.userid ?? null
-  }, [localRosterTick])
+  }, [])
 
   const { data: contractsRaw = [] } = useContracts({ mangakaId: localMangakaId })
-  console.log('[ChapterAnnotator] contractsRaw:', contractsRaw)
 
   // API: fetch available assistants (for name lookup)
   const { data: assistantProfilesRaw = [] } = useAvailableAssistantProfiles()
@@ -218,13 +217,9 @@ export default function ChapterAnnotator({
       profileMap[pid] = name
     }
 
-    console.log('[ChapterAnnotator] contractsAssistants raw:', accepted)
-    console.log('[ChapterAnnotator] profileMap:', profileMap)
-
     return accepted.map(c => {
       const asstId = String(c.assistant_id ?? c.assistantid ?? '')
       const name = profileMap[asstId] ?? c.assistant_name ?? c.assistantName ?? 'Assistant'
-      console.log('[ChapterAnnotator] mapping contract:', { asstId, name })
       return { value: asstId, label: name, assistantId: asstId }
     })
   }, [contractsRaw, assistantProfilesRaw])
