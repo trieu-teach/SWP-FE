@@ -40,13 +40,13 @@ export function usePageLayers(pageId, { uploaderId } = {}) {
         layersService.list(pageId),
       ])
 
-      // pagesService trả axios response → data nằm trong res.data (sau interceptor transform)
-      const pageData = pageRes?.data ?? pageRes
-      setOriginalImage(pageData?.page_image_url ?? pageData?.pageimageurl ?? pageData?.Pageimageurl ?? null)
-      setResultImage(pageData?.page_image_url ?? pageData?.pageimageurl ?? pageData?.Pageimageurl ?? null)
+      if (pageRes?.status === 'fulfilled') {
+        const p = pageRes.value?.data ?? pageRes.value
+        setOriginalImage(p?.pageimageurl ?? p?.Pageimageurl ?? null)
+        setResultImage(p?.pageimageurl ?? p?.Pageimageurl ?? null)
+      }
 
-      // layersService trả axios response → unwrap ở đây
-      const rawLayers = Array.isArray(layersRes?.data) ? layersRes.data : Array.isArray(layersRes) ? layersRes : []
+      const rawLayers = Array.isArray(layersRes) ? layersRes : []
       setLayers(rawLayers.map(apiLayerToUi))
     } catch (err) {
       setError(err?.message ?? 'Lỗi không xác định')
@@ -184,7 +184,8 @@ export function usePageLayers(pageId, { uploaderId } = {}) {
     try {
       const res = await layersService.finalize(pageId)
       const raw = res?.data ?? res
-      const url = raw?.page_image_url ?? raw?.pageimageurl ?? raw?.Pageimageurl ?? raw?.data?.page_image_url ?? null
+      // Backend trả về { Message, Pageimageurl } — lấy Pageimageurl
+      const url = raw?.pageimageurl ?? raw?.Pageimageurl ?? raw?.data?.pageimageurl ?? null
       if (!url) throw new Error('Backend không trả về ảnh gộp.')
       setResultImage(url)
       toast.success('Đã gộp layer thành ảnh hoàn chỉnh.')

@@ -45,7 +45,7 @@ const STATS = [
 const STATUS_BADGE = {
   Drafting: { label: 'Đang soạn', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100' },
   StudioWorking: { label: 'Studio làm', className: 'bg-violet-100 text-violet-700 hover:bg-violet-100' },
-  Ready: { label: 'Chờ Mangaka duyệt', className: 'bg-sky-100 text-sky-700 hover:bg-sky-100' },
+  MangakaReview: { label: 'Chờ Mangaka duyệt', className: 'bg-sky-100 text-sky-700 hover:bg-sky-100' },
   Approved: { label: 'Đã duyệt', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' },
   Revision: { label: 'Cần sửa', className: 'bg-red-100 text-red-700 hover:bg-red-100' },
   pending: { label: 'Chờ nhận', className: 'bg-amber-100 text-amber-700 hover:bg-amber-100' },

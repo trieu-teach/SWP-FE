@@ -196,9 +196,10 @@ export default function ChapterAnnotator({
   const localMangakaId = useMemo(() => {
     const u = getSession()
     return u?.id ?? u?.userid ?? null
-  }, [])
+  }, [localRosterTick])
 
   const { data: contractsRaw = [] } = useContracts({ mangakaId: localMangakaId })
+  console.log('[ChapterAnnotator] contractsRaw:', contractsRaw)
 
   // API: fetch available assistants (for name lookup)
   const { data: assistantProfilesRaw = [] } = useAvailableAssistantProfiles()
@@ -219,9 +220,13 @@ export default function ChapterAnnotator({
       profileMap[pid] = name
     }
 
+    console.log('[ChapterAnnotator] contractsAssistants raw:', accepted)
+    console.log('[ChapterAnnotator] profileMap:', profileMap)
+
     return accepted.map(c => {
       const asstId = String(c.assistant_id ?? c.assistantid ?? '')
       const name = profileMap[asstId] ?? c.assistant_name ?? c.assistantName ?? 'Assistant'
+      console.log('[ChapterAnnotator] mapping contract:', { asstId, name })
       return { value: asstId, label: name, assistantId: asstId }
     })
   }, [contractsRaw, assistantProfilesRaw])
@@ -504,67 +509,37 @@ export default function ChapterAnnotator({
     return nums.length === 0 ? 1 : Math.max(...nums) + 1
   }, [selectedSeriesTitle, seriesChapters])
 
-  // Chặn double-submit khi bấm liên tiếp trước khi state/re-render kịp cập nhật
-  // (vd. double click, hoặc bấm lại trong lúc network đang xử lý).
-  const isCreatingChapterRef = useRef(false)
-
   const createNewChapter = useCallback(() => {
     const trimmedSeries = selectedSeriesTitle.trim()
     if (!trimmedSeries) return
-    if (isCreatingChapterRef.current) return
-    isCreatingChapterRef.current = true
 
-    const createdAt = new Date().toLocaleDateString('vi-VN')
-    const titleInput = newChapterTitle.trim()
-    const deadline = newChapterDeadline ? new Date(newChapterDeadline).toISOString() : null
-
-    // QUAN TRỌNG: toàn bộ logic tính num + check trùng phải nằm TRONG functional updater
-    // của setChapters, để luôn đọc `prev` mới nhất — không dùng biến `chapters`/`nextChapterNum`
-    // từ closure (có thể stale nếu hàm này bị gọi 2 lần liên tiếp trước khi re-render xong,
-    // gây tạo trùng nhiều "Ch. N" với cùng num nhưng id khác nhau — đây chính là bug bạn gặp).
-    let resultChapter = null
-    let wasExisting = false
-    setChapters(prev => {
-      const seriesChaptersPrev = prev.filter(c => c.series === trimmedSeries)
-      const nums = seriesChaptersPrev
-        .map(c => parseInt(String(c.num), 10))
-        .filter(Number.isFinite)
-      const num = nums.length === 0 ? 1 : Math.max(...nums) + 1
-      const numKey = String(num)
-      const existing = seriesChaptersPrev.find(c => String(c.num) === numKey)
-      if (existing) {
-        wasExisting = true
-        resultChapter = existing
-        return prev
-      }
-      const title = titleInput || `Chapter ${num}`
-      const ch = { id: uid(), series: trimmedSeries, num, title, pages: [], createdAt, deadline, deadlineRaw: newChapterDeadline }
-      resultChapter = ch
-      return [ch, ...prev]
-    })
-
-    if (resultChapter) {
-      setActiveChapterId(resultChapter.id)
-      setPageIndex(0)
-      setSelectedNoteId(null)
-      setUploadRejectMessage(null)
-
-      if (!wasExisting) {
-        const num = resultChapter.num
-        onUploadComplete?.({
-          series: trimmedSeries, num, title: resultChapter.title,
-          pages: 0, chapterLocalId: resultChapter.id, isNewChapter: true,
-        })
-        onChapterNumChange?.(String(num + 1))
-        setNewChapterTitle('')
-        setNewChapterDeadline('')
-      }
+    const num = nextChapterNum
+    const numKey = String(num)
+    const existing = chapters.find(c => c.series === trimmedSeries && String(c.num) === numKey)
+    if (existing) {
+      activateChapter(existing, 0)
+      return
     }
 
-    window.setTimeout(() => { isCreatingChapterRef.current = false }, 0)
+    const createdAt = new Date().toLocaleDateString('vi-VN')
+    const title = newChapterTitle.trim() || `Chapter ${num}`
+    const deadline = newChapterDeadline ? new Date(newChapterDeadline).toISOString() : null
+    const ch = { id: uid(), series: trimmedSeries, num, title, pages: [], createdAt, deadline, deadlineRaw: newChapterDeadline }
+    setChapters(prev => [ch, ...prev])
+    setActiveChapterId(ch.id)
+    setPageIndex(0)
+    setSelectedNoteId(null)
+    setUploadRejectMessage(null)
+
+    // Notify parent to persist / call API
+    onUploadComplete?.({ series: trimmedSeries, num, title, pages: 0, chapterLocalId: ch.id, isNewChapter: true })
+
+    setNewChapterTitle('')
+    setNewChapterDeadline('')
+    onChapterNumChange?.(String(num + 1))
   }, [
-    selectedSeriesTitle, setChapters,
-    setActiveChapterId, setPageIndex, onChapterNumChange,
+    selectedSeriesTitle, nextChapterNum, chapters, setChapters,
+    setActiveChapterId, setPageIndex, onChapterNumChange, activateChapter,
     newChapterTitle, newChapterDeadline, onUploadComplete,
   ])
 
@@ -1343,53 +1318,53 @@ export default function ChapterAnnotator({
           </CardContent>
         </Card>
 
-      <Dialog open={tantouDialogOpen} onOpenChange={setTantouDialogOpen}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader>
-            <DialogTitle>Gửi thẳng cho {LABEL_TANTOU_EDITOR}</DialogTitle>
-            <DialogDescription>
-              Chọn 1 {LABEL_TANTOU_EDITOR} để nhận chapter này. Nếu bỏ trống, hệ thống sẽ dùng {LABEL_TANTOU_EDITOR} mặc định của series.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2 max-h-[300px] overflow-y-auto">
-            {(tantouEditorsRaw ?? []).length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Chưa có {LABEL_TANTOU_EDITOR} nào khả dụng trong hệ thống.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {tantouEditorsRaw.map((t) => {
-                  const tid = String(t.id ?? t.user_id ?? t.userId ?? '')
-                  const tname = t.fullName ?? t.fullname ?? t.name ?? t.username ?? 'Tantou'
-                  const checked = selectedTantouId === tid
-                  return (
-                    <li
-                      key={tid}
-                      className={cn(
-                        'flex items-center gap-2 rounded-md border p-2 cursor-pointer hover:bg-muted/50',
-                        checked && 'border-primary bg-primary/5',
-                      )}
-                      onClick={() => setSelectedTantouId(checked ? null : tid)}
-                    >
-                      <input type="radio" name="tantou" checked={checked} onChange={() => setSelectedTantouId(tid)} />
-                      <span className="text-sm">{tname}</span>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setTantouDialogOpen(false)}>Hủy</Button>
-            <Button
-              onClick={confirmSendTantou}
-              disabled={updateChapterStatus.isPending}
-            >
-              {updateChapterStatus.isPending ? 'Đang gửi...' : 'Xác nhận gửi'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        <Dialog open={tantouDialogOpen} onOpenChange={setTantouDialogOpen}>
+          <DialogContent className="sm:max-w-[480px]">
+            <DialogHeader>
+              <DialogTitle>Gửi thẳng cho {LABEL_TANTOU_EDITOR}</DialogTitle>
+              <DialogDescription>
+                Chọn 1 {LABEL_TANTOU_EDITOR} để nhận chapter này. Nếu bỏ trống, hệ thống sẽ dùng {LABEL_TANTOU_EDITOR} mặc định của series.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {(tantouEditorsRaw ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Chưa có {LABEL_TANTOU_EDITOR} nào khả dụng trong hệ thống.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {tantouEditorsRaw.map((t) => {
+                    const tid = String(t.user_id ?? t.userid ?? t.id ?? '')
+                    const tname = t.full_name ?? t.fullname ?? t.fullName ?? t.name ?? t.username ?? 'Tantou'
+                    const checked = selectedTantouId === tid
+                    return (
+                      <li
+                        key={tid}
+                        className={cn(
+                          'flex items-center gap-2 rounded-md border p-2 cursor-pointer hover:bg-muted/50',
+                          checked && 'border-primary bg-primary/5',
+                        )}
+                        onClick={() => setSelectedTantouId(checked ? null : tid)}
+                      >
+                        <input type="radio" name="tantou" checked={checked} onChange={() => setSelectedTantouId(tid)} />
+                        <span className="text-sm">{tname}</span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setTantouDialogOpen(false)}>Hủy</Button>
+              <Button
+                onClick={confirmSendTantou}
+                disabled={updateChapterStatus.isPending}
+              >
+                {updateChapterStatus.isPending ? 'Đang gửi...' : 'Xác nhận gửi'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </>
     )
   }

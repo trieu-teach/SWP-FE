@@ -191,13 +191,12 @@ export const pageLayersService = {
 
 // ── PAGE ISSUES ────────────────────────────────────────────────────────────────
 export const pageIssuesService = {
-  // GET /PageIssues?pageId=N (preferred) or ?chapterId=N (fallback) or ?assignedToId=N or ?status=...
+  // GET /PageIssues?pageId=N (preferred) or ?chapterId=N (fallback) or ?status=...
   // Returns raw PageIssueDto[] (not wrapped)
-  getAll: ({ pageId, chapterId, assignedToId, status } = {}) => {
+  getAll: ({ pageId, chapterId, status } = {}) => {
     const params = {}
     if (pageId != null) params.pageId = pageId
     else if (chapterId != null) params.chapterId = chapterId
-    if (assignedToId != null) params.assignedToId = assignedToId
     if (status) params.status = status
     console.log('[API] GET /PageIssues', params)
     return axios.get('/PageIssues', { params: Object.keys(params).length ? params : undefined })
@@ -213,18 +212,6 @@ export const pageIssuesService = {
   update: (id, data) => {
     console.log('[API] PUT /PageIssues/:id', id, data)
     return axios.put(`/PageIssues/${id}`, data)
-  },
-  updateStatus: (id, status) => {
-    console.log('[API] PATCH /PageIssues/:id/status', id, status)
-    return axios.patch(`/PageIssues/${id}/status`, { Status: status })
-  },
-  softDelete: (id) => {
-    console.log('[API] DELETE /PageIssues/:id/soft', id)
-    return axios.delete(`/PageIssues/${id}/soft`)
-  },
-  hardDelete: (id) => {
-    console.log('[API] DELETE /PageIssues/:id', id)
-    return axios.delete(`/PageIssues/${id}`)
   },
   delete: (id) => {
     console.log('[API] DELETE /PageIssues/:id', id)
@@ -368,8 +355,42 @@ export const contractsService = {
   },
 }
 
-// ── PAGE ISSUES (alias for backward compat) ────────────────────────────────────
-export const pageIssuesApi = pageIssuesService
+// ── PAGE ISSUES (duplicated service) ──────────────────────────────────────────
+export const pageIssuesApi = {
+  // GET /PageIssues?pageId=N (preferred) or ?chapterId=N (fallback) or ?status=...
+  getAll: ({ pageId, chapterId, status } = {}) => {
+    const params = {}
+    if (pageId != null) params.pageId = pageId
+    else if (chapterId != null) params.chapterId = chapterId
+    if (status) params.status = status
+    console.log('[API] GET /PageIssues', params)
+    return axios.get('/PageIssues', { params: Object.keys(params).length ? params : undefined })
+  },
+  getById: (id) => {
+    console.log('[API] GET /PageIssues/:id', id)
+    return axios.get(`/PageIssues/${id}`)
+  },
+  create: (data) => {
+    console.log('[API] POST /PageIssues', data)
+    return axios.post('/PageIssues', data)
+  },
+  update: (id, data) => {
+    console.log('[API] PUT /PageIssues/:id', id, data)
+    return axios.put(`/PageIssues/${id}`, data)
+  },
+  updateStatus: (id, status) => {
+    console.log('[API] PATCH /PageIssues/:id/status', id, status)
+    return axios.patch(`/PageIssues/${id}/status`, { Status: status })
+  },
+  softDelete: (id) => {
+    console.log('[API] DELETE /PageIssues/:id/soft', id)
+    return axios.delete(`/PageIssues/${id}/soft`)
+  },
+  hardDelete: (id) => {
+    console.log('[API] DELETE /PageIssues/:id', id)
+    return axios.delete(`/PageIssues/${id}`)
+  },
+}
 
 // ── ERROR HELPER ──────────────────────────────────────────────────────────────
 export function getApiErrorMessage(err, fallback) {
