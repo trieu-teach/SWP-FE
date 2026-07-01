@@ -771,3 +771,28 @@
     min-width: 0;
   }
 }
+
+/* ── Dashboard ── */
+.ws-page--tantou table {
+  font-size: 13px;
+}
+
+.ws-page--tantou table th {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ── Status stepper ── */
+.te-stepper-wrap {
+  padding: 2px 4px;
+}
+
+/* ── Annotation thread ── */
+.te-annotation-card {
+  border-radius: 12px;
+}
+
+.te-annotation-thread input:focus-visible {
+  outline: 2px solid var(--ws-accent);
+  outline-offset: -1px;
+}

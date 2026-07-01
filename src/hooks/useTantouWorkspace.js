@@ -111,11 +111,9 @@ export function useTantouWorkspace() {
   )
 
   // ── Chapter + pages thật của series đang review ───────────────────────────
-  // Chỉ fetch khi đang mở review (reviewOpen) để tránh gọi API thừa.
   const reviewSeriesId = reviewOpen ? selectedSub?.seriesid : undefined
   const { data: reviewChapters = [], isLoading: reviewChaptersLoading } = useChapters(reviewSeriesId)
 
-  // Chapter đầu tiên (nhỏ nhất theo chapternumber) — chapter Mangaka mới gửi lên
   const reviewChapter = useMemo(() => {
     if (!Array.isArray(reviewChapters) || reviewChapters.length === 0) return null
     return [...reviewChapters].sort((a, b) => {
@@ -135,7 +133,6 @@ export function useTantouWorkspace() {
 
   const { data: reviewPagesRaw = [], isLoading: reviewPagesLoading } = usePages(reviewChapterId)
 
-  // Map về shape gọn cho TantouPageReview: { serverPageId, url, name }
   const reviewPages = useMemo(() => {
     if (!Array.isArray(reviewPagesRaw)) return []
     return reviewPagesRaw
@@ -162,14 +159,29 @@ export function useTantouWorkspace() {
     loadSeries()
   }
 
+  // ── Chuyển sang Editor Board ────────────────────────────────────────────
+  // Backend giới hạn luồng chuyển status (SeriesService._validTransitions):
+  //   Draft → EditorReview → EBReview → Publishing → Completed
+  // Không thể nhảy thẳng Draft → EBReview (400 Bad Request: "Luồng không hợp lệ").
+  // Nên nếu series đang Draft, phải PATCH 2 bước: Draft→EditorReview rồi EditorReview→EBReview.
   async function handleForwardEb() {
     if (!selectedSub) return
+    const currentStatus = normalizeStatus(selectedSub.status)
+
     try {
+      if (currentStatus === 'draft') {
+        await axiosClient.patch(`/Series/${selectedSub.seriesid}/status`, { status: 'EditorReview' })
+      }
+
       await axiosClient.patch(`/Series/${selectedSub.seriesid}/status`, { status: 'EBReview' })
+
       toast.success(`Đã chuyển "${selectedSub.title}" sang ${LABEL_EDITOR_BOARD}.`)
       setReviewOpen(false)
       loadSeries()
-    } catch { /* interceptor toast */ }
+    } catch (err) {
+      const msg = err?.response?.data?.message ?? err?.response?.data ?? 'Không chuyển được trạng thái.'
+      toast.error(typeof msg === 'string' ? msg : 'Không chuyển được trạng thái.')
+    }
   }
 
   async function handleRequestRevision() {

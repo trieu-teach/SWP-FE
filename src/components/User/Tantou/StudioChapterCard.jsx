@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { LABEL_EDITOR_BOARD } from '@/constants/roleTerminology.js'
 import { normalizeStatus, statusVariant, statusLabel } from '@/pages/User/Tantou/TantouEditor.helpers.js'
 import { CoverThumb } from './CoverThumb.jsx'
+import { ProgressTracker } from './ProgressTracker.jsx'
 
 // Chỉ xem — Tantou không duyệt chapter, quyền đó thuộc EB
 export function StudioChapterCard({ item }) {
@@ -15,7 +16,7 @@ export function StudioChapterCard({ item }) {
     <Card className={`transition-all ${isDelayed ? 'border-destructive/50' : ''}`}>
       <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
         <CoverThumb url={s?.coverimageurl} />
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold">{s?.title ?? `Series #${item.seriesid}`}</h3>
             <Badge variant="secondary">Ch.{item.chapternumber}</Badge>
@@ -29,6 +30,7 @@ export function StudioChapterCard({ item }) {
               Deadline: {new Date(item.deadline).toLocaleDateString('vi-VN')}
             </p>
           )}
+          <ProgressTracker status={item.status} variant="bar" />
         </div>
         {isReady && (
           <p className="shrink-0 text-xs text-muted-foreground">Chờ {LABEL_EDITOR_BOARD} duyệt</p>

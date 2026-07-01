@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Calendar, Clock, Loader2, Search, Sparkles, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { Calendar, Clock, LayoutDashboard, Loader2, Search, Sparkles, X } from 'lucide-react'
 import Header from '@/components/User/Header/Header.jsx'
 import Footer from '@/components/User/Footer/Footer.jsx'
 import { WorkspaceHero } from '@/components/layout/WorkspaceHero.jsx'
@@ -12,17 +12,19 @@ import { Input } from '@/components/ui/input'
 import { getSession, logout } from '@/lib/auth.js'
 import { LABEL_EDITOR_BOARD, LABEL_TANTOU_EDITOR } from '@/constants/roleTerminology.js'
 import { NAV_LINKS } from '@/constants/tantou.js'
-import { useTantouWorkspace } from '@/hooks/Usetantouworkspace.js'
+import { useTantouWorkspace } from '@/hooks/useTantouWorkspace.js'
 import { normalizeStatus, isDebutStatus, isApprovedStatus, statusLabel } from './TantouEditor.helpers.js'
 import { CoverThumb } from '@/components/User/Tantou/CoverThumb.jsx'
 import { SubmissionCard } from '@/components/User/Tantou/SubmissionCard.jsx'
 import { StudioChapterCard } from '@/components/User/Tantou/StudioChapterCard.jsx'
 import { SidebarFlow } from '@/components/User/Tantou/SidebarFlow.jsx'
+import { StatusStepper } from '@/components/User/Tantou/StatusStepper.jsx'
 import TantouPageReview from './TantouPageReview.jsx'
 import './TantouEditor.css'
 
 export default function TantouEditor() {
   const navigate = useNavigate()
+  const location = useLocation()
   const user = getSession()
 
   const {
@@ -53,10 +55,21 @@ export default function TantouEditor() {
     handleSetSchedule,
   } = useTantouWorkspace()
 
-  // ── UI-only state (không liên quan tới dữ liệu/API) ───────────────────────
+  // ── UI-only state ───────────────────────────────────────────────────────
   const [tab, setTab] = useState('debut')
   const [studioSearch, setStudioSearch]             = useState('')
   const [studioStatusFilter, setStudioStatusFilter] = useState('all')
+
+  // ── Nếu được điều hướng từ Dashboard kèm reviewSub, tự mở review ─────────
+  // Xoá state khỏi history ngay sau khi dùng để tránh mở lại review khi
+  // back/forward hoặc reload trang.
+  useEffect(() => {
+    if (location.state?.reviewSub) {
+      openReview(location.state.reviewSub)
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state])
 
   const filteredStudioQueue = useMemo(() => {
     const q = studioSearch.trim().toLowerCase()
@@ -125,6 +138,13 @@ export default function TantouEditor() {
       />
 
       <main className="page-container flex-1 py-8">
+        <div className="mb-4 flex justify-end">
+          <Button variant="outline" size="sm" onClick={() => navigate('/tantou')} className="gap-2">
+            <LayoutDashboard className="size-4" />
+            Xem Dashboard
+          </Button>
+        </div>
+
         <Tabs value={tab} onValueChange={setTab} className="space-y-6">
           <TabsList className="h-auto flex-wrap">
             <TabsTrigger value="debut" className="gap-2">
@@ -176,7 +196,12 @@ export default function TantouEditor() {
                     </Card>
                   ) : (
                     debutQueue.map(sub => (
-                      <SubmissionCard key={sub.seriesid} sub={sub} onReview={openReview} />
+                      <div key={sub.seriesid} className="space-y-2">
+                        <SubmissionCard sub={sub} onReview={openReview} />
+                        <div className="px-1">
+                          <StatusStepper status={sub.status} />
+                        </div>
+                      </div>
                     ))
                   )}
                 </div>

@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react'
-import { ArrowLeft, CheckCircle2, MessageSquarePlus, Send, Trash2, XCircle } from 'lucide-react'
+import {
+  ArrowLeft, CheckCircle2, Loader2, MessageSquarePlus,
+  Send, Send as SendIcon, Trash2, XCircle,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { noteTaskLabel } from '@/constants/workspaceTasks.js'
 import { LABEL_EDITOR_BOARD } from '@/constants/roleTerminology.js'
@@ -21,9 +24,9 @@ import '@/styles/mangaPage.css'
 //   pageid, createdById, assignedToId, issueType, workCategory,
 //   boxX, boxY, boxWidth, boxHeight, description, deadline
 // Không có chapterId — mọi issue gắn theo 1 pageid cụ thể.
-// issueType riêng cho nhận xét chung của Tantou (không gắn vị trí, box = 0).
+// Không có cột parent/reply → dùng prefix [ref:id] trong description để
+// gắn comment Tantou vào đúng annotation Mangaka (xem AnnotationThread).
 const TANTOU_COMMENT_TYPE = 'TantouComment'
-// issueType cho ghi chú gốc của Mangaka (tạo trong ChapterAnnotator)
 const MANGAKA_NOTE_TYPE = 'MangakaNote'
 
 function issueField(issue, camelKey, lowerKey) {
@@ -57,9 +60,87 @@ function issueType(issue) {
 }
 
 /**
- * Panel nhận xét riêng của Tantou — không sửa/đè ghi chú gốc (Mangaka/Assistant),
- * chỉ thêm record mới qua PageIssues với issueType = 'TantouComment'.
- * Schema thật chỉ filter theo pageid (không có chapterId) → cần pageId cụ thể của trang đang xem.
+ * Thread nhận xét Tantou gắn theo 1 annotation Mangaka cụ thể.
+ * Workaround vì PageIssue không có cột parent: dùng prefix `[ref:<mangakaNoteId>]`
+ * trong description để lọc lại đúng thread khi hiển thị.
+ * Nếu BE sau này thêm cột parentIssueId, nên migrate sang filter theo cột đó.
+ */
+function AnnotationThread({ pageId, mangakaNoteId }) {
+  const [draft, setDraft] = useState('')
+  const session = getSession()
+  const { data: issuesRaw = [] } = usePageIssues({ pageId })
+  const createIssue = useCreatePageIssue()
+
+  const REF_PREFIX = `[ref:${mangakaNoteId}]`
+
+  const threadComments = useMemo(() => {
+    if (!Array.isArray(issuesRaw)) return []
+    return issuesRaw
+      .filter(i => issueType(i) === TANTOU_COMMENT_TYPE && tantouCommentText(i).startsWith(REF_PREFIX))
+      .sort((a, b) => {
+        const ad = new Date(issueField(a, 'createdat', 'createdAt') ?? 0).getTime()
+        const bd = new Date(issueField(b, 'createdat', 'createdAt') ?? 0).getTime()
+        return ad - bd
+      })
+  }, [issuesRaw, REF_PREFIX])
+
+  async function handleSend() {
+    const text = draft.trim()
+    if (!text || !pageId) return
+    try {
+      await createIssue.mutateAsync({
+        pageid: pageId,
+        createdById: session?.id ?? session?.userid ?? null,
+        assignedToId: null,
+        issueType: TANTOU_COMMENT_TYPE,
+        workCategory: 'review',
+        boxX: 0,
+        boxY: 0,
+        boxWidth: 0,
+        boxHeight: 0,
+        description: `${REF_PREFIX} ${text}`,
+        deadline: null,
+      })
+      setDraft('')
+    } catch (err) {
+      toast.error(err?.response?.data?.message ?? 'Không gửi được nhận xét.')
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {threadComments.length === 0 ? (
+        <p className="rounded-md bg-white/70 p-2 text-xs text-muted-foreground dark:bg-black/20">
+          Chưa có nhận xét.
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {threadComments.map((c, i) => (
+            <li key={issueId(c) ?? i} className="rounded-md bg-sky-50 p-2 text-sm dark:bg-sky-500/10">
+              {tantouCommentText(c).replace(REF_PREFIX, '').trim()}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-1.5">
+        <input
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          placeholder="Nhận xét cho annotation này..."
+          className="flex-1 rounded-md border px-2 py-1.5 text-sm"
+          onKeyDown={e => e.key === 'Enter' && handleSend()}
+        />
+        <Button size="icon-sm" onClick={handleSend} disabled={createIssue.isPending || !draft.trim()}>
+          {createIssue.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <SendIcon className="size-3.5" />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Panel nhận xét chung của Tantou (không gắn annotation cụ thể) — dùng cho
+ * 2 khu vực: trang truyện gốc và phần "Ghi chú cho Mangaka".
  */
 function TantouCommentPanel({ pageId, title = 'Nhận xét của Tantou' }) {
   const [draft, setDraft] = useState('')
@@ -72,7 +153,7 @@ function TantouCommentPanel({ pageId, title = 'Nhận xét của Tantou' }) {
   const tantouComments = useMemo(() => {
     if (!Array.isArray(issuesRaw)) return []
     return issuesRaw
-      .filter(i => issueType(i) === TANTOU_COMMENT_TYPE)
+      .filter(i => issueType(i) === TANTOU_COMMENT_TYPE && !tantouCommentText(i).startsWith('[ref:'))
       .sort((a, b) => {
         const ad = new Date(issueField(a, 'createdat', 'createdAt') ?? 0).getTime()
         const bd = new Date(issueField(b, 'createdat', 'createdAt') ?? 0).getTime()
@@ -208,12 +289,9 @@ export default function TantouPageReview({
 }) {
   const [selectedMangakaId, setSelectedMangakaId] = useState(null)
 
-  // pageId thật của trang đang xem — lấy từ pages[pageIndex] do TantouEditor truyền xuống
-  // (mảng reviewPages, mỗi item có serverPageId)
   const currentPage = pages[pageIndex] ?? null
   const currentPageId = currentPage?.serverPageId ?? null
 
-  // Ghi chú Mangaka thật từ PageIssues (issueType = 'MangakaNote'), lọc theo trang đang xem
   const { data: pageIssuesRaw = [] } = usePageIssues({ pageId: currentPageId })
 
   const mangakaNotes = useMemo(() => {
@@ -238,14 +316,11 @@ export default function TantouPageReview({
 
   if (!submission) return null
 
-  // Lần đầu (pipeline === 'debut') → cần chuyển EB.
-  // Đã qua EB (recurring / EB-approved) → chỉ cần Tantou duyệt nhanh.
   const isDebut = submission.pipeline === 'debut'
   const hasComment = editorialComment.trim().length > 0
   const pageImageUrl = currentPage?.url ?? submission.mangakaImageUrl ?? null
 
   return (
-    // pb-24 chừa chỗ cho thanh nút sticky ở cuối trang, tránh che nội dung
     <div className="space-y-4 pb-24">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" size="sm" onClick={onBack}>
@@ -270,7 +345,7 @@ export default function TantouPageReview({
             <div className="flex items-center justify-between gap-2">
               <div>
                 <CardTitle className="text-base">Trang truyện</CardTitle>
-                <CardDescription>Ô đỏ = ghi chú Mangaka (chỉ xem)</CardDescription>
+                <CardDescription>Ô đỏ = ghi chú Mangaka (bấm để xem & trả lời)</CardDescription>
               </div>
               {pages.length > 1 && onPageIndexChange ? (
                 <div className="flex items-center gap-1.5">
@@ -308,8 +383,6 @@ export default function TantouPageReview({
                     draggable={false}
                     width={728}
                     height={1030}
-                    // Ảnh lỗi (domain CDN chưa resolve được / 404...) → ẩn ảnh,
-                    // giữ nguyên khung zinc-900 + các ô ghi chú đỏ định vị theo %
                     onError={(e) => { e.currentTarget.style.visibility = 'hidden' }}
                   />
                 ) : null}
@@ -366,10 +439,29 @@ export default function TantouPageReview({
                     })}
                   </div>
                 </ScrollArea>
+
+                {/* ── Annotation card: 📍 Mangaka note + thread Tantou ── */}
                 {selectedMangaka ? (
-                  <div className="rounded-lg bg-muted/50 p-3 text-sm">
-                    <p className="mb-1 font-medium text-rose-700">{noteTaskLabel(selectedMangaka.taskType)}</p>
-                    <p>{selectedMangaka.text || 'Không có mô tả'}</p>
+                  <div className="rounded-lg border border-rose-200 bg-rose-50/40 p-3 text-sm dark:bg-rose-500/5">
+                    <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-rose-700">
+                      📍 Annotation
+                    </p>
+
+                    <div className="mb-1">
+                      <p className="mb-0.5 text-[11px] font-medium text-muted-foreground">
+                        {noteTaskLabel(selectedMangaka.taskType)} · Mangaka:
+                      </p>
+                      <p className="rounded-md bg-white/70 p-2 text-sm dark:bg-black/20">
+                        {selectedMangaka.text || 'Không có mô tả'}
+                      </p>
+                    </div>
+
+                    <div className="my-2 border-t border-dashed" />
+
+                    <div>
+                      <p className="mb-1 text-[11px] font-medium text-sky-700">Tantou:</p>
+                      <AnnotationThread pageId={currentPageId} mangakaNoteId={selectedMangaka.id} />
+                    </div>
                   </div>
                 ) : null}
               </CardContent>
@@ -382,8 +474,7 @@ export default function TantouPageReview({
             </Card>
           )}
 
-          {/* Giai đoạn 1: nhận xét lại của Tantou trên trang truyện gốc — gắn theo trang
-              đang xem, không sửa note Mangaka, chỉ thêm panel riêng (PageIssues) */}
+          {/* Nhận xét chung của Tantou trên trang truyện gốc — không gắn annotation cụ thể */}
           <TantouCommentPanel
             pageId={currentPageId}
             title="Nhận xét của Tantou — Trang truyện"
@@ -413,8 +504,6 @@ export default function TantouPageReview({
             </CardContent>
           </Card>
 
-          {/* Giai đoạn 2: nhận xét lại của Tantou cho phần "Ghi chú cho Mangaka" —
-              cùng trang nhưng panel riêng để phân biệt rõ 2 giai đoạn trong luồng */}
           <TantouCommentPanel
             pageId={currentPageId}
             title="Nhận xét của Tantou — Ghi chú cho Mangaka"
@@ -422,9 +511,8 @@ export default function TantouPageReview({
         </div>
       </div>
 
-      {/* Thanh hành động sticky — "Yêu cầu chỉnh sửa" chỉ gửi notification, KHÔNG đổi status
-          (xem handleRequestRevision trong TantouEditor.jsx). Tantou không có quyền reject/lùi
-          status về Draft — quyết định duyệt/từ chối series thuộc về Editorial Board. */}
+      {/* Thanh hành động sticky — "Yêu cầu chỉnh sửa" chỉ gửi notification, KHÔNG đổi status.
+          Tantou không có quyền reject/lùi status về Draft — quyết định duyệt/từ chối thuộc EB. */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="page-container flex flex-wrap items-center justify-end gap-2 py-3">
           {isDebut && (

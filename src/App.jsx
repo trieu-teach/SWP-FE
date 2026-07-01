@@ -21,7 +21,9 @@ import SeriesUploadDetail from '@/pages/User/Mangaka/SeriesUploadDetail.jsx'
 import PageLayerWorkspace from '@/pages/User/Mangaka/PageLayerWorkspace.jsx'
 import Assistant from '@/pages/User/Assistant/Assistant.jsx'
 import Eb from '@/pages/User/Eb/Eb.jsx'
+import TantouDashboard from '@/pages/User/Tantou/TantouDashboard.jsx'
 import TantouEditor from '@/pages/User/Tantou/TantouEditor.jsx'
+import SeriesProfile from '@/pages/User/Tantou/SeriesProfile.jsx'
 import UserProfile from '@/pages/User/Profile/Profile.jsx'
 
 // Redirects logged-in user to their workspace, else shows Home
@@ -69,7 +71,13 @@ export default function App() {
               <Route path="/mangaka/series/:seriesSlug/chapter/:chapterId/page/:pageId" element={<PageLayerWorkspace />} />
               <Route path="/assistant" element={<Assistant />} />
               <Route path="/eb" element={<Eb />} />
-              <Route path="/tantou" element={<TantouEditor />} />
+
+              {/* Tantou workspace — /tantou là Dashboard tổng quan,
+                  /tantou/editor là màn review thật (cũ là /tantou) */}
+              <Route path="/tantou" element={<TantouDashboard />} />
+              <Route path="/tantou/editor" element={<TantouEditor />} />
+              <Route path="/tantou/series/:seriesId" element={<SeriesProfile />} />
+
               <Route path="/profile" element={<UserProfile />} />
             </Route>
 
