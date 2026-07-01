@@ -26,14 +26,14 @@ import { ImageLightbox } from './ImageLightbox.jsx'
 const CANVAS_W = 800
 const CANVAS_H = 1100
 
-export default function LayerEditor({ chapter, pageId: pageIdProp, onSubmitted, pages: pagesProp, fullscreen = false }) {
+export default function LayerEditor({ chapter, pageId: pageIdProp, onSubmitted, pages: pagesProp, pageIssues: pageIssuesProp, fullscreen = false }) {
   const pages = pagesProp ?? chapter?.pages ?? []
   const [pageIdx, setPageIdx] = useState(0)
   const [submittingAll, setSubmittingAll] = useState(false)
   const [showOriginal, setShowOriginal] = useState(true)
   const [showNotes, setShowNotes] = useState(true)
   const [lightbox, setLightbox] = useState(null)
-  const [pageNotes, setPageNotes] = useState([])
+  const [pageNotes, setPageNotes] = useState(pageIssuesProp ?? [])
   const [notesLoading, setNotesLoading] = useState(false)
   const [user, setUser] = useState(null)
 
@@ -71,6 +71,11 @@ export default function LayerEditor({ chapter, pageId: pageIdProp, onSubmitted, 
 
   // Notes cho page hiện tại — dùng pageId (preferred) thay vì chapterId
   useEffect(() => {
+    // Nếu có pageIssuesProp (từ submission) thì dùng trực tiếp, không gọi API
+    if (pageIssuesProp && pageIssuesProp.length > 0) {
+      setPageNotes(pageIssuesProp)
+      return
+    }
     let cancelled = false
     async function load() {
       if (!activePageId) {

@@ -30,8 +30,11 @@ export function usePageLayers(pageId, { uploaderId } = {}) {
   const [finalizing, setFinalizing] = useState(false)
   const [error, setError] = useState(null)
 
+  // Submission IDs are client-generated (sub-*) - skip API calls
+  const isSubmissionPage = pageId?.startsWith('sub-')
+
   const refresh = useCallback(async () => {
-    if (!pageId) return
+    if (!pageId || isSubmissionPage) return
     setLoading(true)
     setError(null)
     try {

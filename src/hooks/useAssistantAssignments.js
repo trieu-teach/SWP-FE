@@ -130,18 +130,24 @@ export function useAssistantAssignments() {
       console.log('[useAssistantAssignments] contractsRes →', JSON.stringify(contractList.map(c => ({ contractId: c.contract_id, mangakaId: c.mangaka_id, assistantId: c.assistant_id }))))
       const contractAssignments = await Promise.all(contractList.map(enrichContract))
 
-      // Lay submissions tu localStorage, loc theo assistantId
-      const rawSubs = listAssistantSubmissions()
-      const mySubs = rawSubs.filter(
-        s => s.assistantId != null && String(s.assistantId) === String(assistantId),
-      )
-      console.log('[useAssistantAssignments] rawSubs count:', rawSubs.length, 'mySubs count:', mySubs.length, 'mySubs:', mySubs.map(s => ({ id: s.id, chapterId: s.chapterId, seriesTitle: s.seriesTitle })))
+      // Lay submissions tu localStorage
+      const hydratedSubs = listAssistantSubmissions(assistantId)
+      console.log('[useAssistantAssignments] submissions from localStorage →', hydratedSubs.map(s => ({ id: s.id, chapterId: s.chapterId, seriesTitle: s.seriesTitle, hasImage: !!s.imageUrl })))
 
-      // Merge: chapter assignments + contract assignments + submissions
+      // Merge: chapter assignments + contract assignments + submissions (deduplicate by key)
       const seriesIds = new Set(chapterAssignments.map(a => a.seriesId).filter(Boolean))
       const extraContracts = contractAssignments.filter(a => !a.seriesId || !seriesIds.has(a.seriesId))
 
-      const merged = [...chapterAssignments, ...extraContracts, ...mySubs]
+      // Deduplicate by id > contractId > chapterId
+      const seen = new Set()
+      const dedup = (arr) => arr.filter(a => {
+        const key = a.id ?? a.contractId ?? a.chapterId
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+
+      const merged = dedup([...chapterAssignments, ...extraContracts, ...hydratedSubs])
       console.log('[useAssistantAssignments] merged assignments →', merged.map(a => ({
         key: a.id ?? a.contractId ?? a.chapterId,
         chapterId: a.chapterId,

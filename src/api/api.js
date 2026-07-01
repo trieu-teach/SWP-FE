@@ -96,8 +96,8 @@ export const chaptersService = {
     return axios.put(`/Chapters/${id}`, data)
   },
   delete: (id) => {
-    console.log('[API] DELETE /Chapters/:id', id)
-    return axios.delete(`/Chapters/${id}`)
+    console.log('[API] DELETE /Chapters/:id/soft', id)
+    return axios.delete(`/Chapters/${id}/soft`)
   },
   getByAssistant: (assistantId) => {
     console.log('[API] GET /Chapters/assistant/:assistantId', assistantId)

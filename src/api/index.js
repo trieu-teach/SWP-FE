@@ -10,4 +10,5 @@ export { assistantLayersService } from './assistantLayersService.js'
 export { layersService } from './layersService.js'
 export { boardEvaluationService } from './boardEvaluation.service.js'
 export { assistantProfileService } from './api.js'
+export { submissionsService } from './submissionsService.js'
 

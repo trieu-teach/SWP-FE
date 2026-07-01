@@ -137,7 +137,9 @@ export default function Assistant() {
   }
 
   function handleSelectChapter(chapter) {
-    setSelectedChapterId(chapter.chapterId)
+    // Submissions have id but no chapterId; use id for selection
+    const key = chapter.chapterId ?? chapter.id ?? null
+    setSelectedChapterId(key)
   }
 
   return (
@@ -259,9 +261,12 @@ export default function Assistant() {
                       {filteredChapters.map(ch => {
                         const badge = STATUS_BADGE[ch.status] ?? STATUS_BADGE.pending
                         const cover = ch.pages?.find(p => p.url) ?? ch.pages?.[0]
+                        const coverUrl = cover?.url ?? ch.mangakaImageUrl ?? null
+                        const notesCount = ch.notes?.length ?? 0
+                        const itemKey = ch.id ?? ch.chapterId ?? ch.contractId
                         const isSelected = ch.chapterId === selectedChapterId
                         return (
-                          <li key={ch.chapterId ?? ch.contractId}>
+                          <li key={itemKey}>
                             <button
                               type="button"
                               onClick={() => handleSelectChapter(ch)}
@@ -271,8 +276,8 @@ export default function Assistant() {
                               )}
                             >
                               <span className="shrink-0 size-12 overflow-hidden rounded border bg-muted">
-                                {cover?.url ? (
-                                  <img src={cover.url} alt="" className="size-full object-cover" />
+                                {coverUrl ? (
+                                  <img src={coverUrl} alt="" className="size-full object-cover" />
                                 ) : (
                                   <span className="flex size-full items-center justify-center text-muted-foreground">
                                     <ImageIcon className="size-4" />
@@ -287,7 +292,7 @@ export default function Assistant() {
                                   Ch.{ch.chapterNum}{ch.title ? ` · ${ch.title}` : ''}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {ch.pageCount ?? ch.pages?.length ?? 0} trang
+                                  {ch.pageCount ?? ch.pages?.length ?? 0} trang{ch.id && notesCount > 0 ? ` · ${notesCount} ghi chú` : ''}
                                 </p>
                                 <Badge className={cn('mt-1', badge.className)} variant="secondary">
                                   {badge.label}
@@ -361,22 +366,33 @@ export default function Assistant() {
           <div className="flex min-h-[calc(100vh-200px)] flex-col">
             {selectedAssignment ? (
               <div className="relative flex h-full min-h-0 flex-col">
-                <LayerEditor
-                  chapter={{
-                    seriesTitle: selectedAssignment.seriesTitle,
-                    chapterNum: selectedAssignment.chapterNum,
-                    chapterId: selectedAssignment.chapterId,
-                    pages: (selectedAssignment.pages ?? []).map(p => ({
-                      id: p.id,
-                      url: p.url,
-                      pageNum: p.pageNum,
-                    })),
-                  }}
-                  onSubmitted={() => {
-                    void refresh()
-                    toast.success('Đã gửi chapter. Đang tải lại danh sách…')
-                  }}
-                />
+                {/* Determine if this is a submission (has id field but no chapterId) */}
+                {(() => {
+                  const isSubmission = Boolean(selectedAssignment.id) && !selectedAssignment.chapterId
+                  const pages = isSubmission && selectedAssignment.mangakaImageUrl
+                    ? [{ id: `sub-${selectedAssignment.id}-0`, url: selectedAssignment.mangakaImageUrl, pageNum: 1 }]
+                    : (selectedAssignment.pages ?? []).map(p => ({
+                        id: p.id,
+                        url: p.url,
+                        pageNum: p.pageNum,
+                      }))
+                  return (
+                    <LayerEditor
+                      chapter={{
+                        seriesTitle: selectedAssignment.seriesTitle,
+                        chapterNum: selectedAssignment.chapterNum,
+                        chapterId: selectedAssignment.chapterId,
+                        pages,
+                      }}
+                      pageId={isSubmission ? undefined : selectedAssignment.pages?.[0]?.id}
+                      pageIssues={isSubmission ? (selectedAssignment.notes ?? []) : undefined}
+                      onSubmitted={() => {
+                        void refresh()
+                        toast.success('Đã gửi chapter. Đang tải lại danh sách…')
+                      }}
+                    />
+                  )
+                })()}
               </div>
             ) : (
               <Card className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">

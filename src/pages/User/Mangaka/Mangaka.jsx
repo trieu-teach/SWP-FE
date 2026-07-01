@@ -61,12 +61,6 @@ import {
   PATH_TANTOU_EDITOR,
 } from '@/constants/roleTerminology.js'
 import {
-  loadMangakaWorkspaceState,
-  persistMangakaWorkspaceState,
-  persistMangakaWorkspaceStateNow,
-} from '@/utils/mangakaWorkspaceStorage.js'
-import { resolveAnnotatorChapter } from '@/utils/mangakaWorkspaceReader.js'
-import {
   buildSubmissionFromMangakaPage,
   getAssistantSubmission,
   getPendingDeliverableForMangaka,
@@ -75,7 +69,7 @@ import {
   migrateAssistantStorage,
   updateDeliverableStatus,
 } from '@/utils/assistantWorkspaceStorage.js'
-import { pageIssuesService, seriesService } from '@/api'
+import { pageIssuesService, seriesService, submissionsService } from '@/api'
 import {
   listTantouSubmissions,
   pushTantouSubmissionFromMangaka,
@@ -132,6 +126,7 @@ const STATUS_BADGE = {
 
 /** Convert a data URL (blob: or data:) back to a File object for upload. */
 export function dataUrlToFile(dataUrl, fallbackName = 'page.png') {
+  if (!dataUrl || typeof dataUrl !== 'string') return null
   const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
   if (!matches) return null
   const mimeType = matches[1]
@@ -167,24 +162,19 @@ const TAB_ITEMS = [
   { id: 'history', label: 'Lịch sử', icon: History },
 ]
 
-function createMangakaWorkspaceDefaults() {
-  return {
-    tab: 'series',
-    annotateSeries: '',
-    chapterRows: [],
-    annotatorChapters: [],
-    annotatorNotes: {},
-    annotatorActiveChapterId: null,
-    annotatorPageIndex: 0,
-    annotatorChapterNum: '1',
-    annotatorPagesPerChapter: '',
-    annotatorUploadPageBudget: '',
-  }
-}
-
 function resolveAnnotatorActiveChapterId(chapters, preferredId) {
   if (chapters.some(c => c.id === preferredId)) return preferredId
   return chapters[0]?.id ?? 'ch-demo'
+}
+
+/** Ghép dòng bảng chapter với phiên upload (ảnh blob / placeholder). */
+function resolveAnnotatorChapter(chapterRow, annotatorChapters) {
+  if (!chapterRow || !Array.isArray(annotatorChapters)) return null
+  const byId = annotatorChapters.find(c => c.id === chapterRow.id)
+  if (byId) return byId
+  return annotatorChapters.find(
+    c => c.series === chapterRow.series && String(c.num) === String(chapterRow.num),
+  ) ?? null
 }
 
 const STAT_ICON_BG = {
@@ -360,10 +350,7 @@ export default function Mangaka() {
   const [rejectChapterId, setRejectChapterId] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
 
-  const wsDefaults = useMemo(() => createMangakaWorkspaceDefaults(), [])
-  const hydrated = useMemo(() => loadMangakaWorkspaceState(wsDefaults), [wsDefaults])
-
-  const [tab, setTab] = useState(() => hydrated.tab)
+  const [tab, setTab] = useState('annotate')
   // annotateSeries must read from location.state first (navigation carries the correct series),
   // then fall back to persisted workspace value — otherwise navigating from series detail
   // with "Upload chapter" shows the wrong series in the dropdown. Prefer seriesId over title
@@ -386,7 +373,7 @@ export default function Mangaka() {
   const [annotateSeries, setAnnotateSeries] = useState(() => {
     const fromNav = resolveSeriesFromNavState(locationState, [])
     if (fromNav) return fromNav
-    return hydrated.annotateSeries
+    return ''
   })
 
   // Chapter theo series đang annotate — dùng cho list "Bản tổng hợp từ Assistant"
@@ -475,16 +462,47 @@ export default function Mangaka() {
   const [addSeriesOpen, setAddSeriesOpen] = useState(false)
   const [editingSeries, setEditingSeries] = useState(null)
   const [localChapterRows, setLocalChapterRows] = useState([])
+
+  // Clear local data when API data is available (only use real API data)
+  useEffect(() => {
+    if (apiSeries.length > 0 || apiChapters.length > 0) {
+      setLocalSeriesList([])
+      setLocalChapterRows([])
+    }
+  }, [apiSeries.length, apiChapters.length])
   const [uploadPctBySeries, setUploadPctBySeries] = useState({})
-  const [annotatorChapters, setAnnotatorChapters] = useState(() => hydrated.annotatorChapters)
-  const [annotatorNotes, setAnnotatorNotes] = useState(() => hydrated.annotatorNotes)
-  const [annotatorActiveChapterId, setAnnotatorActiveChapterId] = useState(() =>
-    resolveAnnotatorActiveChapterId(hydrated.annotatorChapters, hydrated.annotatorActiveChapterId),
-  )
-  const [annotatorPageIndex, setAnnotatorPageIndex] = useState(() => hydrated.annotatorPageIndex)
-  const [annotatorChapterNum, setAnnotatorChapterNum] = useState(() => hydrated.annotatorChapterNum)
-  const [annotatorPagesPerChapter, setAnnotatorPagesPerChapter] = useState(() => hydrated.annotatorPagesPerChapter)
-  const [annotatorUploadPageBudget, setAnnotatorUploadPageBudget] = useState(() => hydrated.annotatorUploadPageBudget)
+  
+  // Load persisted chapters from localStorage
+  const [annotatorChapters, setAnnotatorChapters] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mangaka_annotator_chapters')
+      return saved ? JSON.parse(saved) : []
+    } catch { return [] }
+  })
+  // Persist to localStorage on change
+  useEffect(() => {
+    try {
+      localStorage.setItem('mangaka_annotator_chapters', JSON.stringify(annotatorChapters))
+    } catch (e) { console.warn('Failed to persist annotatorChapters:', e) }
+  }, [annotatorChapters])
+  
+  const [annotatorNotes, setAnnotatorNotes] = useState(() => {
+    try {
+      const saved = localStorage.getItem('mangaka_annotator_notes')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('mangaka_annotator_notes', JSON.stringify(annotatorNotes))
+    } catch (e) { console.warn('Failed to persist annotatorNotes:', e) }
+  }, [annotatorNotes])
+  
+  const [annotatorActiveChapterId, setAnnotatorActiveChapterId] = useState(null)
+  const [annotatorPageIndex, setAnnotatorPageIndex] = useState(0)
+  const [annotatorChapterNum, setAnnotatorChapterNum] = useState('1')
+  const [annotatorPagesPerChapter, setAnnotatorPagesPerChapter] = useState('')
+  const [annotatorUploadPageBudget, setAnnotatorUploadPageBudget] = useState('')
   const [ebApprovedTick, setEbApprovedTick] = useState(0)
   const [deliverableTick, setDeliverableTick] = useState(0)
   const [tantouTick, setTantouTick] = useState(0)
@@ -507,10 +525,16 @@ export default function Mangaka() {
     ),
     [apiSeries, localSeriesList],
   )
-  const chapterRows = useMemo(
-    () => [...apiChapters, ...localChapterRows],
-    [apiChapters, localChapterRows],
-  )
+  // Deduplicate by (series, num) — prefer row with chapterid (server), fallback to first found
+  const chapterRows = useMemo(() => {
+    const merged = [...apiChapters, ...localChapterRows]
+    const byKey = {}
+    for (const r of merged) {
+      const key = `${r.series}-${r.num}`
+      if (!byKey[key] || r.chapterid) byKey[key] = r
+    }
+    return Object.values(byKey)
+  }, [apiChapters, localChapterRows])
 
   // Real chapter ID on backend for the currently active annotator chapter
   const annotatorServerChapterId = useMemo(() => {
@@ -639,8 +663,27 @@ export default function Mangaka() {
       assistantId,
     })
     console.log('[Mangaka] submission built →', { id: submission.id, chapterId: submission.chapterId, notes: submission.notes.map(n => n.clientKey) })
+
+    // Save to BE API first, then localStorage as fallback
+    const mangakaId = user?.id ?? null
+    const mangakaName = user?.name ?? 'Mangaka'
+
+    submissionsService.create({
+      mangakaId,
+      assistantId,
+      chapterId: submission.chapterId,
+      seriesTitle: chapter.series,
+      chapterNum: chapter.num,
+      referenceImageUrl: pageUrl,
+      notes: notes.map(n => n.text).join('; '),
+    }).catch(err => {
+      console.warn('[Mangaka] Failed to save submission to BE, using localStorage fallback:', err)
+      void pushAssistantSubmission(submission)
+    })
+
+    // Also keep localStorage for offline support
     void pushAssistantSubmission(submission)
-    console.log('[Mangaka] submission pushed to localStorage, chapterId used:', submission.chapterId)
+    console.log('[Mangaka] submission saved, chapterId used:', submission.chapterId)
 
     const activePage = chapter?.pages?.[pageIndex]
     // Save notes to API (mapping sang field backend: PageId, CreatedById, IssueType, WorkCategory, BoxX/Y/W/H, Description)
@@ -928,25 +971,7 @@ export default function Mangaka() {
     })
   }, [annotatorChapters, annotatorNotes])
 
-  const workspaceSnapshot = useMemo(() => ({
-    tab,
-    annotateSeries,
-    seriesList,
-    chapterRows,
-    annotatorChapters,
-    annotatorNotes,
-    annotatorActiveChapterId,
-    annotatorPageIndex,
-    annotatorChapterNum,
-    annotatorPagesPerChapter,
-    annotatorUploadPageBudget,
-  }), [
-    tab, annotateSeries, seriesList, chapterRows, annotatorChapters, annotatorNotes,
-    annotatorActiveChapterId, annotatorPageIndex, annotatorChapterNum,
-    annotatorPagesPerChapter, annotatorUploadPageBudget,
-  ])
 
-  useEffect(() => { persistMangakaWorkspaceState(workspaceSnapshot) }, [workspaceSnapshot])
 
   function handleUploadProgress(series, pct) {
     const key = series.trim()
@@ -1039,26 +1064,33 @@ export default function Mangaka() {
     }
 
     console.log('[DEBUG] handleUploadComplete →', {
-      title, isNewChapter, mangakaId, serverSeriesId,
+      title, mangakaId, serverSeriesId,
       seriesListIds: seriesList.map(s => ({ id: s.id, title: s.title })),
+      rowId,
+      displayNum,
+      pageCount: nextAnnotatorChapters.find(c => c.id === rowId)?.pages?.length,
     })
-    if (isNewChapter && mangakaId && serverSeriesId) {
-      // Idempotent check: neu chapter cung (series, num) da duoc Save BE truoc do (co chapterid),
-      // khong goi POST /Chapters lan nua — chi dung real chapterid do de upload pages.
-      // Day chinh la fix duplicate Ch.2: bam "Tao chapter" da POST lan 1, upload anh lan 2
-      // se vo tinh POST them mot Ch.2 moi tren BE.
-      // Check theo (series, num) thay vi rowId de an toan khi rowId local (uid-xxx) da duoc
-      // patch thanh realChapterId sau luot POST truoc.
+    if (mangakaId && serverSeriesId) {
+      // Idempotent check: ưu tiên check trực tiếp từ API chapters (filter theo series)
+      // Idempotent check: check theo seriesid + chapternumber
+      // API format: { chapterid, seriesid, chapternumber, title, ... }
+      const apiChapter = apiChapters.find(ch =>
+        Number(ch.seriesid) === Number(serverSeriesId)
+        && Number(ch.chapternumber) === Number(displayNum)
+      )
+      console.log('[DEBUG] apiChapter found:', apiChapter ? `id=${apiChapter.chapterid}` : 'undefined')
       const existingRow = chapterRows.find(r =>
         String(r.series) === String(title)
         && Number(r.num) === Number(displayNum)
-        && r.chapterid != null
       )
-      const existingChapterId = existingRow?.chapterid ?? null
+      // Ưu tiên API chapter id, fallback sang local chapterid
+      const existingChapterId = apiChapter?.id ?? apiChapter?.chapterid ?? existingRow?.chapterid ?? null
 
       // Helper: patch state + flush workspace sau khi co real chapterid.
       const applyRealChapterId = (realChapterId, opts = {}) => {
+        console.log('[applyRealChapterId] called with:', { realChapterId, opts, rowId })
         if (realChapterId == null) return
+        const snap = snapshotForCallback
         setLocalChapterRows(prev => prev.map(r =>
           String(r.id) === String(rowId) || String(r.id) === String(realChapterId)
             ? { ...r, id: realChapterId, apiChapterId: realChapterId, chapterid: realChapterId }
@@ -1070,92 +1102,123 @@ export default function Mangaka() {
               ? { ...ch, id: realChapterId }
               : ch
           )
-          void persistMangakaWorkspaceStateNow({
-            ...workspaceSnapshot,
-            ...snapshotForCallback,
-            chapterRows: snapshotForCallback.chapterRows.map(r =>
-              String(r.id) === String(rowId)
-                ? { ...r, id: realChapterId, apiChapterId: realChapterId, chapterid: realChapterId }
-                : r
-            ),
-            annotatorChapters: updated,
-          })
           return updated
         })
         if (String(annotatorActiveChapterId) === String(rowId)) {
           setAnnotatorActiveChapterId(realChapterId)
         }
-        // Upload pages (neu co) vao realChapterId — dung chung block cho ca 2 nhanh
+        // Upload pages (neu co) vao realChapterId — dùng snapshot để tránh stale
         if (!opts.skipPageUpload) {
+          // Tìm chapter source - có thể là local rowId hoặc realChapterId
+          const srcChapter = snap.annotatorChapters.find(c =>
+            String(c.id) === String(rowId) || String(c.id) === String(realChapterId)
+          )
+          console.log('[applyRealChapterId] srcChapter found:', srcChapter?.id, 'pages:', srcChapter?.pages?.length)
           uploadPagesToServer({
-            chaptersList: nextAnnotatorChapters,
-            rowId,
+            srcChapter, // truyền trực tiếp chapter source thay vì tìm lại
             realChapterId,
           })
         }
       }
 
+      // Nếu local state đã có chapterid → dùng trực tiếp (idempotent)
       if (existingChapterId != null) {
         console.log('[handleUploadComplete] idempotent skip POST /Chapters → dùng existing chapterid:', existingChapterId)
+        // Update row hiện tại với chapterid từ existing row
+        setLocalChapterRows(prev => prev.map(r =>
+          String(r.id) === String(rowId)
+            ? { ...r, id: existingChapterId, chapterid: existingChapterId, apiChapterId: existingChapterId }
+            : r
+        ))
         toast.success(`Ch. ${displayNum} đã có trên server — upload trang vào chapter cũ.`)
         applyRealChapterId(existingChapterId)
       } else {
-        const chData = {
-          seriesid: serverSeriesId,
-          chapternumber: Number(displayNum),
-          title: String(chapterTitle ?? `Chapter ${displayNum}`).trim(),
-          deadline: chapterDeadline
-            ? new Date(chapterDeadline).toISOString()
-            : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-        }
-        createChapter.mutate(chData, {
-          onSuccess: (createdChapter) => {
-            // Backend tra ve wrapped response: {succeeded, message, errors, data, statusCode}
-            // data that that nam trong createdChapter.data.data.*
-            const responseData = createdChapter?.data
-            const succeeded = responseData?.succeeded ?? true
-            if (succeeded === false) {
-              toast.error(responseData?.message ?? `Không tạo được Ch. ${displayNum} trên server.`)
-              return
+        // Kiểm tra với API xem chapter đã tồn tại chưa (phòng trường hợp local state bị reset)
+        qc.invalidateQueries({ queryKey: ['chapters', { seriesId: serverSeriesId }] })
+          .then(() => {
+            // Sau khi refetch, kiểm tra lại
+            const serverChapters = qc.getQueryData(['chapters', { seriesId: serverSeriesId }]) ?? []
+            const serverChapter = serverChapters.find(ch =>
+              Number(ch.chapterNumber ?? ch.chapternumber ?? ch.num) === Number(displayNum)
+            )
+            if (serverChapter?.id) {
+              console.log('[handleUploadComplete] tìm thấy chapter trên server (sau refetch):', serverChapter.id)
+              // Update row với chapterid rồi apply
+              setLocalChapterRows(prev => prev.map(r =>
+                String(r.series) === String(title) && Number(r.num) === Number(displayNum)
+                  ? { ...r, chapterid: serverChapter.id, id: serverChapter.id }
+                  : r
+              ))
+              applyRealChapterId(serverChapter.id, { skipPageUpload: true }) // skip vì sẽ upload ở dưới
+              // Upload pages sau khi state đã update
+              setTimeout(() => {
+                uploadPagesToServer({
+                  srcChapter: snapshotForCallback.annotatorChapters.find(c => c.id === rowId),
+                  realChapterId: serverChapter.id,
+                })
+              }, 50)
+              return // kết thúc, không tạo chapter mới
+            } else {
+              // Thực sự cần tạo chapter mới
+              const chData = {
+                seriesid: serverSeriesId,
+                chapternumber: Number(displayNum),
+                title: String(chapterTitle ?? `Chapter ${displayNum}`).trim(),
+                deadline: chapterDeadline
+                  ? new Date(chapterDeadline).toISOString()
+                  : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+              }
+              console.log('[handleUploadComplete] GỌI API createChapter:', chData)
+              createChapter.mutate(chData, {
+                onSuccess: (createdChapter) => {
+                  // Backend tra ve wrapped response: {succeeded, message, errors, data, statusCode}
+                  // data that that nam trong createdChapter.data.data.*
+                  const responseData = createdChapter?.data
+                  const succeeded = responseData?.succeeded ?? true
+                  if (succeeded === false) {
+                    toast.error(responseData?.message ?? `Không tạo được Ch. ${displayNum} trên server.`)
+                    return
+                  }
+                  toast.success(`Đã tạo Ch. ${displayNum} trên server!`)
+
+                  // Lay real chapterId tu backend (ho tro ca wrapped va unwrapped)
+                  const payloadData = responseData?.data ?? responseData
+                  const realChapterId =
+                    payloadData?.chapterid
+                    ?? payloadData?.Chapterid
+                    ?? payloadData?.chapterId
+                    ?? payloadData?.id
+
+                  if (realChapterId == null) {
+                    toast.error('Server không trả về chapter ID — không thể upload trang.')
+                    console.error('[Mangaka] createChapter response thiếu ID:', responseData)
+                    return
+                  }
+
+                  applyRealChapterId(realChapterId)
+                },
+                onError: (err) => toast.error(err?.response?.data?.message ?? `Không tạo được Ch. ${displayNum} trên server.`),
+              })
             }
-            toast.success(`Đã tạo Ch. ${displayNum} trên server!`)
-
-            // Lay real chapterId tu backend (ho tro ca wrapped va unwrapped)
-            const payloadData = responseData?.data ?? responseData
-            const realChapterId =
-              payloadData?.chapterid
-              ?? payloadData?.Chapterid
-              ?? payloadData?.chapterId
-              ?? payloadData?.id
-
-            if (realChapterId == null) {
-              toast.error('Server không trả về chapter ID — không thể upload trang.')
-              console.error('[Mangaka] createChapter response thiếu ID:', responseData)
-              return
-            }
-
-            applyRealChapterId(realChapterId)
-          },
-          onError: (err) => toast.error(err?.response?.data?.message ?? `Không tạo được Ch. ${displayNum} trên server.`),
-        })
+          })
       }
-    } else {
-      // Chapter cu: chi persist workspace, khong goi API
-      void persistMangakaWorkspaceStateNow({
-        ...workspaceSnapshot,
-        ...snapshotForCallback,
-      })
     }
   }
 
-  // Upload tung trang (pages) cua 1 chapter (theo rowId local) len server, gan vao realChapterId.
+  // Upload tung trang (pages) cua 1 chapter len server, gan vao realChapterId.
   // Dung chung cho ca nhanh createChapter thanh cong va nhanh idempotent (existing chapterid).
-  function uploadPagesToServer({ chaptersList, rowId, realChapterId }) {
-    const srcChapter = Array.isArray(chaptersList)
-      ? chaptersList.find(c => String(c.id) === String(rowId))
-      : null
-    if (!srcChapter?.pages?.length) return
+  function uploadPagesToServer({ srcChapter, realChapterId }) {
+    if (!srcChapter) {
+      console.warn('[uploadPagesToServer] srcChapter is null')
+      return
+    }
+    console.log('[uploadPagesToServer] srcChapter:', srcChapter?.id, 'pages:', srcChapter?.pages?.length)
+    if (!srcChapter?.pages?.length) {
+      console.warn('[uploadPagesToServer] no pages found for chapter', rowId)
+      return
+    }
     srcChapter.pages.forEach((pg, idx) => {
+      console.log('[uploadPagesToServer] page', idx, 'url:', pg?.url ? 'present' : 'MISSING')
       if (!pg?.url) return
       const file = dataUrlToFile(pg.url, pg.name ?? `page_${idx + 1}`)
       if (!file) return

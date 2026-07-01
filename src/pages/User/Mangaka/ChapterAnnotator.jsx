@@ -17,7 +17,7 @@ import { NOTE_TASK_TYPES, noteTaskLabel } from '@/constants/workspaceTasks.js'
 import { fileToStorableDataUrl } from '@/utils/mangakaWorkspaceStorage.js'
 import { getActiveAssigneesForMangaka } from '@/utils/assistantRosterStorage.js'
 import { getSession } from '@/lib/auth.js'
-import { usePages, usePageIssues, usePageLayers, useContracts, useAvailableAssistantProfiles, useAvailableTantouEditors, useUpdateChapterStatus, useChapters } from '@/api/hooks'
+import { usePages, usePageIssues, usePageLayers, useContracts, useAvailableAssistantProfiles, useAvailableTantouEditors, useUpdateChapterStatus, useChapters, useDeleteChapter } from '@/api/hooks'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -173,6 +173,7 @@ export default function ChapterAnnotator({
   // selectedSeriesId có thể null khi user vừa chuyển series (chưa resolve xong id).
   const numericSeriesId = selectedSeriesId != null ? Number(selectedSeriesId) : null
   const { data: serverChapters = [] } = useChapters(Number.isFinite(numericSeriesId) ? numericSeriesId : undefined)
+  const deleteChapterApi = useDeleteChapter()
 
   // Subscribe trực tiếp vào roster update event — không phụ thuộc parent re-render
   useEffect(() => {
@@ -483,17 +484,14 @@ export default function ChapterAnnotator({
     if (!trimmed) return
     const forSeries = seriesChapters
     if (!forSeries.length) {
-      setActiveChapterId(prev => (prev ? null : prev))
+      if (activeChapterId) setActiveChapterId(null)
       return
     }
-    setActiveChapterId(prev => {
-      if (forSeries.some(c => c.id === prev)) return prev
-      setPageIndex(0)
-      setSelectedNoteId(null)
-      return forSeries[0].id
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSeriesTitle, seriesChapterIdsKey, setActiveChapterId, setPageIndex])
+    if (forSeries.some(c => c.id === activeChapterId)) return
+    setPageIndex(0)
+    setSelectedNoteId(null)
+    setActiveChapterId(forSeries[0].id)
+  }, [selectedSeriesTitle, seriesChapterIdsKey, activeChapterId, setPageIndex])
   const activateChapter = useCallback((ch, pageIdx = 0) => {
     setActiveChapterId(ch.id)
     setPageIndex(pageIdx)
@@ -531,8 +529,8 @@ export default function ChapterAnnotator({
     setSelectedNoteId(null)
     setUploadRejectMessage(null)
 
-    // Notify parent to persist / call API
-    onUploadComplete?.({ series: trimmedSeries, num, title, pages: 0, chapterLocalId: ch.id, isNewChapter: true })
+    // Chi tao chapter LOCAL - chua goi API tao tren server
+    // API se duoc goi khi nguoi dung thuc su upload anh
 
     setNewChapterTitle('')
     setNewChapterDeadline('')
@@ -540,7 +538,7 @@ export default function ChapterAnnotator({
   }, [
     selectedSeriesTitle, nextChapterNum, chapters, setChapters,
     setActiveChapterId, setPageIndex, onChapterNumChange, activateChapter,
-    newChapterTitle, newChapterDeadline, onUploadComplete,
+    newChapterTitle, newChapterDeadline,
   ])
 
   const handleFiles = useCallback(async (files) => {
@@ -575,8 +573,8 @@ export default function ChapterAnnotator({
       }
 
       for (let i = 0; i < filesToAdd.length; i++) {
-        const url = await fileToStorableDataUrl(filesToAdd[i])
-        newPages.push({ id: uid(), name: filesToAdd[i].name, url })
+        const { dataUrl } = await fileToStorableDataUrl(filesToAdd[i])
+        newPages.push({ id: uid(), name: filesToAdd[i].name, url: dataUrl })
         if (hasSync && typeof onUploadProgress === 'function') {
           const pct = 10 + Math.round(((i + 1) / filesToAdd.length) * 80)
           setUploadUi({ series: trimmedSeries, chapter: target.num, pct })
@@ -656,10 +654,10 @@ export default function ChapterAnnotator({
       return
     }
     try {
-      const url = await fileToStorableDataUrl(file)
+      const { dataUrl } = await fileToStorableDataUrl(file)
       setChapters(prev => {
         const exists = prev.some(c => c.id === activeChapterId)
-        const patch = { cover: { url, name: file.name }, isCoverLocal: true }
+        const patch = { cover: { url: dataUrl, name: file.name }, isCoverLocal: true }
         if (exists) {
           return prev.map(c => (c.id === activeChapterId ? { ...c, ...patch } : c))
         }
@@ -691,11 +689,18 @@ export default function ChapterAnnotator({
 
   const deleteChapter = useCallback((chapterId) => {
     if (!chapterId) return
-    const target = chapters.find(c => c.id === chapterId)
-    if (!target) return
-    const label = `Ch. ${target.num}${target.pages.length ? ` (${target.pages.length} trang)` : ''}`
-    if (typeof window !== 'undefined' && !window.confirm(`Xóa ${label}? Hành động không thể hoàn tác.`)) return
+    
+    // Tìm trong seriesChapters (gồm cả local + API chapters)
+    const target = seriesChapters.find(c => c.id === chapterId)
+    if (!target) {
+      console.log('[DEBUG] deleteChapter - NOT FOUND in seriesChapters, id:', chapterId, 'available ids:', seriesChapters.map(c => ({id: c.id, num: c.num, isApi: c.isApi})))
+      return
+    }
+    const label = `Ch. ${target.num}${target.pages?.length ? ` (${target.pages.length} trang)` : ''}`
+    
+    const isServerChapter = !!(target.isApi || target.serverChapterId)
 
+    // Xóa khỏi local state (optimistic)
     setChapters(prev => prev.filter(c => c.id !== chapterId))
     setNotes(prev => {
       const next = {}
@@ -709,7 +714,23 @@ export default function ChapterAnnotator({
       setPageIndex(0)
       setSelectedNoteId(null)
     }
-  }, [chapters, activeChapterId, setChapters, setNotes, setActiveChapterId, setPageIndex])
+
+    // Gọi API soft-delete (PATCH isdelete=1)
+    if (isServerChapter) {
+      console.log('[ChapterAnnotator] deleteChapter API (soft-delete):', chapterId)
+      deleteChapterApi.mutate(chapterId, {
+        onSuccess: () => {
+          toast.success(`Đã xóa ${label}`)
+        },
+        onError: (err) => {
+          toast.error(`Xóa thất bại: ${err.message}`)
+          console.error('[ChapterAnnotator] deleteChapter error:', err)
+        },
+      })
+    } else {
+      toast.success(`Đã xóa ${label} (chưa lưu server)`)
+    }
+  }, [seriesChapters, activeChapterId, setChapters, setNotes, setActiveChapterId, setPageIndex, deleteChapterApi])
 
   function getPercent(e, ref) {
     const el = ref?.current
@@ -1505,22 +1526,13 @@ export default function ChapterAnnotator({
                               ) : null}
                             </div>
                           </button>
-                          <Button
-                            size="xs"
-                            variant="ghost"
-                            className={cn(
-                              'size-7 shrink-0 p-0 text-muted-foreground opacity-0 transition-opacity',
-                              ch.isApi
-                                ? 'group-hover:opacity-0 cursor-not-allowed pointer-events-none'
-                                : 'hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100 data-[active=true]:opacity-100',
-                            )}
-                            data-active={isPick || undefined}
-                            title={ch.isApi ? 'Chapter từ server — xóa bằng API riêng' : `Xóa Ch. ${ch.num}`}
-                            disabled={ch.isApi}
-                            onClick={(e) => { e.stopPropagation(); deleteChapter(ch.id) }}
+                          <span
+                            className="cursor-pointer p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
+                            title="Xóa chapter"
+                            onClick={(e) => { e.stopPropagation(); console.log('[DEBUG] click delete', ch.id, ch.num); deleteChapter(ch.id) }}
                           >
                             <Trash2 className="size-3.5" />
-                          </Button>
+                          </span>
                         </li>
                       )
                     })}
