@@ -77,7 +77,13 @@ export default function Assistant() {
   const [collabDialogOpen, setCollabDialogOpen] = useState(false)
 
   const selectedAssignment = useMemo(
-    () => assignments.find(a => a.chapterId === selectedChapterId) ?? assignments[0] ?? null,
+    () => {
+      if (selectedChapterId) {
+        const found = assignments.find(a => (a.chapterId ?? a.id) === selectedChapterId)
+        if (found) return found
+      }
+      return assignments[0] ?? null
+    },
     [assignments, selectedChapterId],
   )
 
@@ -87,8 +93,8 @@ export default function Assistant() {
       setSelectedChapterId(null)
       return
     }
-    if (!assignments.some(a => a.chapterId === selectedChapterId)) {
-      setSelectedChapterId(assignments[0]?.chapterId ?? null)
+    if (!assignments.some(a => (a.chapterId ?? a.id) === selectedChapterId)) {
+      setSelectedChapterId(assignments[0]?.chapterId ?? assignments[0]?.id ?? null)
     }
   }, [assignments, selectedChapterId])
 
@@ -259,12 +265,15 @@ export default function Assistant() {
                   <ScrollArea className="max-h-[calc(100vh-320px)]">
                     <ul className="space-y-1 p-3 pt-0">
                       {filteredChapters.map(ch => {
-                        const badge = STATUS_BADGE[ch.status] ?? STATUS_BADGE.pending
+                        const badge = STATUS_BADGE[(ch.status ?? '').toLowerCase()] ?? STATUS_BADGE.pending
                         const cover = ch.pages?.find(p => p.url) ?? ch.pages?.[0]
-                        const coverUrl = cover?.url ?? ch.mangakaImageUrl ?? null
-                        const notesCount = ch.notes?.length ?? 0
-                        const itemKey = ch.id ?? ch.chapterId ?? ch.contractId
-                        const isSelected = ch.chapterId === selectedChapterId
+                        const coverUrl = cover?.url ?? ch.mangakaImageUrl ?? ch.referenceImageUrl ?? null
+                        const notesCount = Array.isArray(ch.notes) ? ch.notes.length : 0
+                        // Use composite key to match deduplication logic
+                        const source = ch._source ?? (ch.id ? 'submission' : ch.contractId ? 'contract' : 'chapter')
+                        const itemKey = `${source}:${ch.id ?? ch.contractId ?? ch.chapterId}`
+                        const displayChapterId = ch.chapterId ?? ch.id
+                        const isSelected = displayChapterId === selectedChapterId
                         return (
                           <li key={itemKey}>
                             <button

@@ -85,6 +85,7 @@ export default function Eb() {
   const activeSeriesImage =
     activeSubmission?.cover_image_url ??
     activeSubmission?.coverimageurl ??
+    activeSubmission?.coverImageUrl ??
     activeSubmission?.manga_image_url ??
     placeholderPageDataUrl(activeTitle || "Chưa chọn series");
 
